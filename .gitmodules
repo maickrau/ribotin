@@ -1,0 +1,6 @@
+[submodule "parallel-hashmap"]
+	path = parallel-hashmap
+	url = https://github.com/greg7mdp/parallel-hashmap.git
+[submodule "zstr"]
+	path = zstr
+	url = https://github.com/mateidavid/zstr.git
