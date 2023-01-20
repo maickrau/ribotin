@@ -88,7 +88,7 @@ def get_bubble_type(nodeseqs, edge_overlaps, heavy_path, bubble_path):
 	if len(ref_seq) == 1 and len(bubble_seq) == 1: return "SNP " + ref_seq + "->" + bubble_seq
 	if len(ref_seq) == 0: return "INSERTION " + str(len(bubble_seq)) + "bp"
 	if len(bubble_seq) == 0: return "DELETION " + str(len(ref_seq)) + "bp"
-	return "COMPLEX " + str(max(len(ref_seq), len(bubble_seq))) + "bp"
+	return "COMPLEX ref:" + ref_seq + " vs alt:" + bubble_seq + " " + str(max(len(ref_seq), len(bubble_seq))) + "bp"
 
 nodeseqs = {}
 edges = {}
