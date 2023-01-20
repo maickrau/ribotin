@@ -118,14 +118,21 @@ void iterateSyncmersFast(const std::string& seq, const size_t k, const size_t s,
 		fwkmerHasher.addChar(seq[i]);
 	}
 	size_t pospos = 0;
+	if (startPoses.size() == 0) return;
+	if (startPoses[0] == 0)
+	{
+		callback(0, fwkmerHasher.hash());
+		pospos += 1;
+	}
 	for (size_t i = k; i < seq.size(); i++)
 	{
-		assert(startPoses[pospos] >= i-k);
+		assert(pospos < startPoses.size());
+		assert(startPoses[pospos] >= i-k+1);
 		auto thisHash = fwkmerHasher.hash();
 		fwkmerHasher.addChar(seq[i]);
 		fwkmerHasher.removeChar(seq[i-k]);
-		if (startPoses[pospos] > i-k) continue;
-		callback(i-k, thisHash);
+		if (startPoses[pospos] > i-k+1) continue;
+		callback(i-k+1, thisHash);
 		pospos += 1;
 		if (pospos == startPoses.size()) break;
 	}
