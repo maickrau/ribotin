@@ -20,11 +20,7 @@ def canon(n1, n2):
 
 def pathseq(path):
 	result = ""
-	if path[0][0] == ">":
-		result = node_seqs[path[0][1:]]
-	else:
-		result = revcomp(node_seqs[path[0][1:]])
-	for i in range(1, len(path)):
+	for i in range(0, len(path)):
 		edge = canon(path[i-1], path[i])
 		add = ""
 		if path[i][0] == ">":
