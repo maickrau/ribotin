@@ -14,7 +14,6 @@ def revcomp(s):
 	comp = {"A": "T", "T": "A", "C": "G", "G": "C", "a": "T", "t": "A", "c": "G", "g": "C"}
 	return "".join(comp[c] for c in s[::-1])
 
-
 ref_seq = ""
 with open(ref_fasta) as f:
 	for l in f:
@@ -58,7 +57,7 @@ for i in range(0, len(rc_path_seq)-k):
 	if kmer not in kmer_poses: continue
 	pos = kmer_poses[kmer]
 	if pos is None: continue
-	fw_matches.append((pos, i))
+	bw_matches.append((pos, i))
 
 sys.stderr.write("fw matches: " + str(len(fw_matches)) + "\n")
 sys.stderr.write("bw matches: " + str(len(bw_matches)) + "\n")
