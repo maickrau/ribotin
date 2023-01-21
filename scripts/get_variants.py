@@ -22,13 +22,21 @@ def canonpath(path):
 	return tuple(path)
 
 def parse_heavy_path(pathstr):
-	heavy_path = pathstr.replace("w", "").replace("f", ">").replace("b", "<").replace(">", "\t>").replace("<", "\t<").strip().split("\t")
+	parts = pathstr.split("_")
+	heavy_path = parts[0].replace("w", "").replace("f", ">").replace("b", "<").replace(">", "\t>").replace("<", "\t<").strip().split("\t")
 	heavy_path_nodes = set(n[1:] for n in heavy_path)
 	heavy_path_edges = set()
 	for i in range(1, len(heavy_path)):
 		heavy_path_edges.add(canonpath(heavy_path[i-1:i+1]))
 	heavy_path_edges.add(canonpath([heavy_path[-1], heavy_path[0]]))
-	return (heavy_path, heavy_path_nodes, heavy_path_edges)
+	heavy_path_flipped = False
+	heavy_path_rotate = 0
+	for part in parts[1:]:
+		if part == "revcomp":
+			heavy_path_flipped = True
+		elif part[0:7] == "rotate-":
+			heavy_path_rotate = int(part[7:])
+	return (heavy_path, heavy_path_nodes, heavy_path_edges, heavy_path_flipped, heavy_path_rotate)
 
 def get_path_sequence(nodeseqs, edge_overlaps, path):
 	result = ""
@@ -40,6 +48,13 @@ def get_path_sequence(nodeseqs, edge_overlaps, path):
 		add_seq = add_seq[overlap:]
 		result += add_seq
 	return result
+
+def get_heavy_path_start_pos(nodeseqs, edge_overlaps, heavy_path, start_index):
+	pos = 0
+	for i in range(0, start_index):
+		pos += len(nodeseqs[heavy_path[i][1:]]) - edge_overlaps[canonpath([heavy_path[i-1], heavy_path[i]])]
+	pos -= edge_overlaps[canonpath([heavy_path[start_index-1], heavy_path[start_index]])]
+	return pos
 
 def get_bubble_type(nodeseqs, edge_overlaps, heavy_path, bubble_path):
 	heavy_path_start = None
@@ -66,6 +81,7 @@ def get_bubble_type(nodeseqs, edge_overlaps, heavy_path, bubble_path):
 		partial_heavy_path = heavy_path[heavy_path_start:heavy_path_end+1]
 	else:
 		partial_heavy_path = heavy_path[heavy_path_start:] + heavy_path[:heavy_path_end+1]
+	ref_pos = get_heavy_path_start_pos(nodeseqs, edge_overlaps, heavy_path, heavy_path_start)
 	ref_seq = get_path_sequence(nodeseqs, edge_overlaps, partial_heavy_path)
 	bubble_seq = get_path_sequence(nodeseqs, edge_overlaps, bubble_path)
 	assert partial_heavy_path[0] == bubble_path[0]
@@ -82,10 +98,11 @@ def get_bubble_type(nodeseqs, edge_overlaps, heavy_path, bubble_path):
 		ref_seq = ref_seq[:-end_match]
 		bubble_seq = bubble_seq[:-end_match]
 	assert len(ref_seq) > 0 or len(bubble_seq) > 0
-	if len(ref_seq) == 1 and len(bubble_seq) == 1: return "SNP " + ref_seq + "->" + bubble_seq
-	if len(ref_seq) == 0: return "INSERTION " + str(len(bubble_seq)) + "bp"
-	if len(bubble_seq) == 0: return "DELETION " + str(len(ref_seq)) + "bp"
-	return "COMPLEX ref:" + ref_seq + " vs alt:" + bubble_seq + " " + str(max(len(ref_seq), len(bubble_seq))) + "bp"
+	ref_pos += start_match
+	if len(ref_seq) == 1 and len(bubble_seq) == 1: return (ref_pos, "SNP " + ref_seq + "->" + bubble_seq)
+	if len(ref_seq) == 0: return (ref_pos, "INSERTION " + str(len(bubble_seq)) + "bp")
+	if len(bubble_seq) == 0: return (ref_pos, "DELETION " + str(len(ref_seq)) + "bp")
+	return (ref_pos, "COMPLEX ref:" + ref_seq + " vs alt:" + bubble_seq + " " + str(max(len(ref_seq), len(bubble_seq))) + "bp")
 
 nodeseqs = {}
 edges = {}
@@ -108,10 +125,15 @@ with open(graph_file) as f:
 heavy_path = []
 heavy_path_edges = set()
 heavy_path_nodes = set()
+heavy_path_flipped = False
+heavy_path_rotate = 0
+heavy_path_seq = ""
 with open(heavy_path_file) as f:
 	for l in f:
 		if l[0] == ">":
-			(heavy_path, heavy_path_nodes, heavy_path_edges) = parse_heavy_path(l[1:].strip())
+			(heavy_path, heavy_path_nodes, heavy_path_edges, heavy_path_flipped, heavy_path_rotate) = parse_heavy_path(l[1:].strip())
+		else:
+			heavy_path_end = l.strip()
 
 bubble_support = {}
 with open(read_paths_file) as f:
@@ -137,5 +159,5 @@ for bubble in bubble_support:
 valid_bubbles.sort(key=lambda x: -x[1])
 
 for bubble in valid_bubbles:
-	bubble_type = get_bubble_type(nodeseqs, edge_overlaps, heavy_path, bubble[0])
-	print("".join(bubble[0]) + "\t" + str(bubble[1]) + "\t" + bubble_type)
+	(ref_start, bubble_type) = get_bubble_type(nodeseqs, edge_overlaps, heavy_path, bubble[0])
+	print("".join(bubble[0]) + "\t" + str(bubble[1]) + "\t" + str(ref_start) + "\t" + bubble_type)
