@@ -59,16 +59,13 @@ def get_bubble_type(nodeseqs, edge_overlaps, heavy_path, bubble_path):
 	assert heavy_path_fw is not None
 	assert heavy_path_start is not None
 	assert heavy_path_end is not None
-	if heavy_path_fw:
-		if heavy_path_end > heavy_path_start:
-			partial_heavy_path = heavy_path[heavy_path_start:heavy_path_end+1]
-		else:
-			partial_heavy_path = heavy_path[heavy_path_start:] + heavy_path[:heavy_path_end+1]
+	if not heavy_path_fw:
+		bubble_path = [revnode(n) for n in bubble_path[::-1]]
+		(heavy_path_start, heavy_path_end) = (heavy_path_end, heavy_path_start)
+	if heavy_path_end > heavy_path_start:
+		partial_heavy_path = heavy_path[heavy_path_start:heavy_path_end+1]
 	else:
-		if heavy_path_start > heavy_path_end:
-			partial_heavy_path = [revnode(n) for n in heavy_path[heavy_path_end:heavy_path_start+1][::-1]]
-		else:
-			partial_heavy_path = [revnode(n) for n in (heavy_path[heavy_path_end:] + heavy_path[:heavy_path_start+1])[::-1]]
+		partial_heavy_path = heavy_path[heavy_path_start:] + heavy_path[:heavy_path_end+1]
 	ref_seq = get_path_sequence(nodeseqs, edge_overlaps, partial_heavy_path)
 	bubble_seq = get_path_sequence(nodeseqs, edge_overlaps, bubble_path)
 	assert partial_heavy_path[0] == bubble_path[0]
