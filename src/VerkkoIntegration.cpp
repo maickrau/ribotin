@@ -5,6 +5,7 @@
 #include <filesystem>
 #include "VerkkoReadAssignment.h"
 #include "ReadExtractor.h"
+#include "ClusterHandler.h"
 
 std::vector<std::string> getNodesFromFile(std::string filename)
 {
@@ -76,10 +77,6 @@ int main(int argc, char** argv)
 	for (size_t i = 0; i < numClusters; i++)
 	{
 		std::cerr << "running cluster " << i << std::endl;
-		std::string mbgCommand;
-		mbgCommand = "/usr/bin/time -v " + MBGPath + " -o ./cluster" + std::to_string(i) + "/graph.gfa -i ./cluster" + std::to_string(i) + "/reads.fa -k 51 -w 20 -a 2 -u 3 -r 15000 -R 4000 --error-masking=msat --output-sequence-paths ./cluster" + std::to_string(i) + "/paths.gaf --only-local-resolve 1> ./cluster" + std::to_string(i) + "/mbg_stdout.txt 2> ./cluster" + std::to_string(i) + "/mbg_stderr.txt";
-		std::cerr << "running MBG with command:" << std::endl;
-		std::cerr << mbgCommand << std::endl;
-		system(mbgCommand.c_str());
+		HandleCluster("./cluster" + std::to_string(i), "./cluster" + std::to_string(i) + "/reads.fa", MBGPath);
 	}
 }
