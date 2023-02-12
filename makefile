@@ -24,16 +24,22 @@ $(BINDIR)/seqpicker: $(OBJ) $(ODIR)/seqpicker.o
 $(BINDIR)/VerkkoIntegration: $(OBJ) $(ODIR)/VerkkoIntegration.o
 	$(GPP) -o $@ $^ $(LINKFLAGS)
 
+$(BINDIR)/ReferenceGuided: $(OBJ) $(ODIR)/ReferenceGuided.o
+	$(GPP) -o $@ $^ $(LINKFLAGS)
+
 $(ODIR)/seqpicker.o: $(SRCDIR)/seqpicker.cpp $(DEPS) $(OBJ)
 	$(GPP) -c -o $@ $< $(CPPFLAGS) -DVERSION="\"$(VERSION)\""
 
 $(ODIR)/VerkkoIntegration.o: $(SRCDIR)/VerkkoIntegration.cpp $(DEPS) $(OBJ)
 	$(GPP) -c -o $@ $< $(CPPFLAGS) -DVERSION="\"$(VERSION)\""
 
+$(ODIR)/ReferenceGuided.o: $(SRCDIR)/ReferenceGuided.cpp $(DEPS) $(OBJ)
+	$(GPP) -c -o $@ $< $(CPPFLAGS) -DVERSION="\"$(VERSION)\""
+
 $(ODIR)/%.o: $(SRCDIR)/%.cpp $(DEPS)
 	$(GPP) -c -o $@ $< $(CPPFLAGS)
 
-all: $(BINDIR)/seqpicker $(BINDIR)/VerkkoIntegration
+all: $(BINDIR)/seqpicker $(BINDIR)/VerkkoIntegration $(BINDIR)/ReferenceGuided
 
 clean:
 	rm -f $(ODIR)/*
