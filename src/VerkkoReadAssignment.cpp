@@ -26,9 +26,9 @@ bool getRukkiEnabled(std::string configfile)
 	return false;
 }
 
-std::unordered_map<std::string, std::string> getUniqueReadAssignmentToPiece(std::string layoutFile)
+std::unordered_map<std::string, std::unordered_set<std::string>> getReadAssignmentToPieces(std::string layoutFile)
 {
-	std::unordered_map<std::string, std::string> result;
+	std::unordered_map<std::string, std::unordered_set<std::string>> result;
 	std::ifstream file { layoutFile };
 	std::string currentTig;
 	while (file.good())
@@ -46,24 +46,14 @@ std::unordered_map<std::string, std::string> getUniqueReadAssignmentToPiece(std:
 		if (test == "len") continue;
 		if (test == "rds") continue;
 		if (test == "end") continue;
-		if (result.count(test) == 1)
-		{
-			if (result.at(test) != currentTig)
-			{
-				result[test] = "";
-			}
-		}
-		else
-		{
-			result[test] = currentTig;
-		}
+		result[test].insert(currentTig);
 	}
 	return result;
 }
 
-std::unordered_map<std::string, std::string> getUniquePieceAssignmentToPath(std::string scfMapFile)
+std::unordered_map<std::string, std::unordered_set<std::string>> getPieceAssignmentToPaths(std::string scfMapFile)
 {
-	std::unordered_map<std::string, std::string> result;
+	std::unordered_map<std::string, std::unordered_set<std::string>> result;
 	std::ifstream file { scfMapFile };
 	std::string currentPath;
 	while (file.good())
@@ -81,17 +71,7 @@ std::unordered_map<std::string, std::string> getUniquePieceAssignmentToPath(std:
 		}
 		if (test == "end") continue;
 		if (test.size() > 0 && test[0] == '[') continue;
-		if (result.count(test) == 1)
-		{
-			if (result.at(test) != currentPath)
-			{
-				result[test] = "";
-			}
-		}
-		else
-		{
-			result[test] = currentPath;
-		}
+		result[test].insert(currentPath);
 	}
 	return result;
 }
@@ -124,9 +104,9 @@ std::vector<std::string> parseNodes(std::string pathstr)
 	return result;
 }
 
-std::unordered_map<std::string, std::string> getUniqueNodeAssignmentToPath(std::string pathsFile)
+std::unordered_map<std::string, std::unordered_set<std::string>> getNodeAssignmentToPaths(std::string pathsFile)
 {
-	std::unordered_map<std::string, std::string> result;
+	std::unordered_map<std::string, std::unordered_set<std::string>> result;
 	std::ifstream file { pathsFile };
 	while (file.good())
 	{
@@ -140,34 +120,48 @@ std::unordered_map<std::string, std::string> getUniqueNodeAssignmentToPath(std::
 		auto nodes = parseNodes(pathstr);
 		for (auto node : nodes)
 		{
-			if (result.count(node) == 1)
-			{
-				if (result.at(node) != pathname)
-				{
-					result[node] = "";
-				}
-			}
-			else
-			{
-				result[node] = pathname;
-			}
+			result[node].insert(pathname);
 		}
 	}
 	return result;
 }
 
-std::unordered_map<std::string, std::vector<std::string>> getUniqueReadAssignmentToPath(const std::unordered_map<std::string, std::string>& uniquePiecePerRead, const std::unordered_map<std::string, std::string>& uniquePathPerPiece)
+std::vector<std::vector<std::string>> getUniqueReadAssignmentToCluster(const std::unordered_map<std::string, std::unordered_set<std::string>>& piecesPerRead, const std::unordered_map<std::string, std::unordered_set<std::string>>& pathsPerPiece, const std::unordered_map<std::string, size_t>& uniqueClusterPerPath, size_t numClusters)
 {
-	std::unordered_map<std::string, std::vector<std::string>> readsPerPath;
-	for (auto pair : uniquePiecePerRead)
+	std::unordered_map<std::string, size_t> clusterPerRead;
+	for (auto pair : piecesPerRead)
 	{
-		if (pair.second == "") continue;
-		if (uniquePathPerPiece.count(pair.second) == 0) continue;
-		auto path = uniquePathPerPiece.at(pair.second);
-		if (path == "") continue;
-		readsPerPath[path].push_back(pair.first);
+		for (auto piece : pair.second)
+		{
+			if (pathsPerPiece.count(piece) == 0) continue;
+			for (auto path : pathsPerPiece.at(piece))
+			{
+				if (uniqueClusterPerPath.count(path) == 0) continue;
+				size_t cluster = uniqueClusterPerPath.at(path);
+				if (clusterPerRead.count(pair.first) == 1)
+				{
+					if (clusterPerRead.at(pair.first) != cluster)
+					{
+						clusterPerRead[pair.first] = std::numeric_limits<size_t>::max();
+					}
+				}
+				else
+				{
+					clusterPerRead[pair.first] = cluster;
+				}
+			}
+		}
 	}
-	return readsPerPath;
+	std::vector<std::vector<std::string>> result;
+	result.resize(numClusters);
+	for (auto pair : clusterPerRead)
+	{
+		if (pair.second < numClusters)
+		{
+			result[pair.second].push_back(pair.first);
+		}
+	}
+	return result;
 }
 
 std::unordered_set<std::string> getUniqueNodesPerCluster(const std::vector<std::vector<std::string>>& nodesPerCluster)
@@ -260,6 +254,33 @@ std::unordered_set<std::string> getReadsTouchingNodes(const std::vector<std::str
 	return result;
 }
 
+std::unordered_map<std::string, size_t> getUniquePathAssignmentToCluster(const std::unordered_map<std::string, std::unordered_set<std::string>>& pathsPerNode, const std::vector<std::vector<std::string>>& nodesPerCluster)
+{
+	std::unordered_map<std::string, size_t> result;
+	for (size_t i = 0; i < nodesPerCluster.size(); i++)
+	{
+		for (auto node : nodesPerCluster[i])
+		{
+			if (pathsPerNode.count(node) == 0) continue;
+			for (auto path : pathsPerNode.at(node))
+			{
+				if (result.count(path) == 1)
+				{
+					if (result.at(path) != i)
+					{
+						result[path] = std::numeric_limits<size_t>::max();
+					}
+				}
+				else
+				{
+					result[path] = i;
+				}
+			}
+		}
+	}
+	return result;
+}
+
 std::vector<std::vector<std::string>> getReadNamesPerCluster(std::string verkkoBaseFolder, const std::vector<std::vector<std::string>>& nodesPerCluster)
 {
 	std::string scfMapFile = verkkoBaseFolder + "/6-layoutContigs/unitig-popped.layout.scfmap";
@@ -273,28 +294,20 @@ std::vector<std::vector<std::string>> getReadNamesPerCluster(std::string verkkoB
 	{
 		pathsFile = verkkoBaseFolder + "/6-layoutContigs/consensus_paths.txt";
 	}
-	auto uniquePiecePerRead = getUniqueReadAssignmentToPiece(layoutFile);
-	auto uniquePathPerPiece = getUniquePieceAssignmentToPath(scfMapFile);
-	auto uniquePathPerNode = getUniqueNodeAssignmentToPath(pathsFile);
-	auto uniqueReadPerPath = getUniqueReadAssignmentToPath(uniquePiecePerRead, uniquePathPerPiece);
-	auto uniqueNodesPerCluster = getUniqueNodesPerCluster(nodesPerCluster);
+	auto piecesPerRead = getReadAssignmentToPieces(layoutFile);
+	auto pathsPerPiece = getPieceAssignmentToPaths(scfMapFile);
+	auto pathsPerNode = getNodeAssignmentToPaths(pathsFile);
+	auto uniqueClusterPerPath = getUniquePathAssignmentToCluster(pathsPerNode, nodesPerCluster);
+	auto uniqueReadPerCluster = getUniqueReadAssignmentToCluster(piecesPerRead, pathsPerPiece, uniqueClusterPerPath, nodesPerCluster.size());
 	std::vector<std::vector<std::string>> result;
 	result.resize(nodesPerCluster.size());
 	for (size_t i = 0; i < nodesPerCluster.size(); i++)
 	{
 		auto potentialReads = getReadsTouchingNodes(nodesPerCluster[i], verkkoBaseFolder + "/6-layoutContigs/combined-nodemap.txt", verkkoBaseFolder + "/1-buildGraph/paths.gaf");
-		for (const auto& node : nodesPerCluster[i])
+		for (auto read : uniqueReadPerCluster[i])
 		{
-			if (uniquePathPerNode.count(node) == 0) continue;
-			if (uniquePathPerNode.at(node) == "") continue;
-			if (uniqueNodesPerCluster.count(node) == 0) continue;
-			auto path = uniquePathPerNode.at(node);
-			if (uniqueReadPerPath.count(path) == 0) continue;
-			for (auto read : uniqueReadPerPath.at(path))
-			{
-				if (potentialReads.count(read) == 0) continue;
-				result[i].push_back(read);
-			}
+			if (potentialReads.count(read) == 0) continue;
+			result[i].push_back(read);
 		}
 	}
 	return result;
