@@ -7,10 +7,10 @@ SRCDIR=src
 
 LIBS=`pkg-config --libs zlib`
 
-_DEPS = fastqloader.h FastHasher.h VerkkoReadAssignment.h ReadExtractor.h
+_DEPS = fastqloader.h FastHasher.h VerkkoReadAssignment.h ReadExtractor.h KmerMatcher.h
 DEPS = $(patsubst %, $(SRCDIR)/%, $(_DEPS))
 
-_OBJ = fastqloader.o FastHasher.o VerkkoReadAssignment.o ReadExtractor.o
+_OBJ = fastqloader.o FastHasher.o VerkkoReadAssignment.o ReadExtractor.o KmerMatcher.o
 OBJ = $(patsubst %, $(ODIR)/%, $(_OBJ))
 
 LINKFLAGS = $(CPPFLAGS) -Wl,-Bstatic $(LIBS) -Wl,-Bdynamic -Wl,--as-needed -lpthread -pthread -static-libstdc++
