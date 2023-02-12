@@ -7,10 +7,10 @@ SRCDIR=src
 
 LIBS=`pkg-config --libs zlib`
 
-_DEPS = fastqloader.h FastHasher.h
+_DEPS = fastqloader.h FastHasher.h VerkkoReadAssignment.h ReadExtractor.h
 DEPS = $(patsubst %, $(SRCDIR)/%, $(_DEPS))
 
-_OBJ = fastqloader.o FastHasher.o
+_OBJ = fastqloader.o FastHasher.o VerkkoReadAssignment.o ReadExtractor.o
 OBJ = $(patsubst %, $(ODIR)/%, $(_OBJ))
 
 LINKFLAGS = $(CPPFLAGS) -Wl,-Bstatic $(LIBS) -Wl,-Bdynamic -Wl,--as-needed -lpthread -pthread -static-libstdc++
@@ -21,13 +21,19 @@ $(shell mkdir -p obj)
 $(BINDIR)/seqpicker: $(OBJ) $(ODIR)/seqpicker.o
 	$(GPP) -o $@ $^ $(LINKFLAGS)
 
+$(BINDIR)/VerkkoIntegration: $(OBJ) $(ODIR)/VerkkoIntegration.o
+	$(GPP) -o $@ $^ $(LINKFLAGS)
+
 $(ODIR)/seqpicker.o: $(SRCDIR)/seqpicker.cpp $(DEPS) $(OBJ)
+	$(GPP) -c -o $@ $< $(CPPFLAGS) -DVERSION="\"$(VERSION)\""
+
+$(ODIR)/VerkkoIntegration.o: $(SRCDIR)/VerkkoIntegration.cpp $(DEPS) $(OBJ)
 	$(GPP) -c -o $@ $< $(CPPFLAGS) -DVERSION="\"$(VERSION)\""
 
 $(ODIR)/%.o: $(SRCDIR)/%.cpp $(DEPS)
 	$(GPP) -c -o $@ $< $(CPPFLAGS)
 
-all: $(BINDIR)/seqpicker
+all: $(BINDIR)/seqpicker $(BINDIR)/VerkkoIntegration
 
 clean:
 	rm -f $(ODIR)/*
