@@ -470,6 +470,77 @@ void writeVariants(const Path& heavyPath, const GfaGraph& graph, const std::vect
 	}
 }
 
+void writeVariantGraph(std::string graphFileName, const Path& heavyPath, const std::vector<Variant>& variants, std::string variantGraphFileName)
+{
+	std::unordered_set<std::string> allowedNodes;
+	std::set<std::pair<std::string, std::string>> allowedEdges;
+	for (size_t i = 0; i < heavyPath.nodes.size(); i++)
+	{
+		std::string prev;
+		if (i == 0)
+		{
+			prev = heavyPath.nodes.back();
+		}
+		else
+		{
+			prev = heavyPath.nodes[i-1];
+		}
+		std::string curr = heavyPath.nodes[i];
+		allowedEdges.emplace(prev, curr);
+		allowedEdges.emplace(reverse(curr), reverse(prev));
+		allowedNodes.emplace(curr.substr(1));
+	}
+	for (const auto& variant : variants)
+	{
+		for (size_t i = 0; i < variant.path.size(); i++)
+		{
+			std::string prev;
+			if (i == 0)
+			{
+				prev = variant.path.back();
+			}
+			else
+			{
+				prev = variant.path[i-1];
+			}
+			std::string curr = variant.path[i];
+			allowedEdges.emplace(prev, curr);
+			allowedEdges.emplace(reverse(curr), reverse(prev));
+			allowedNodes.emplace(curr.substr(1));
+		}
+	}
+	std::ifstream in { graphFileName };
+	std::ofstream out { variantGraphFileName };
+	while (in.good())
+	{
+		std::string line;
+		getline(in, line);
+		std::stringstream sstr { line };
+		std::string test;
+		sstr >> test;
+		if (test == "S")
+		{
+			std::string node;
+			sstr >> node;
+			if (allowedNodes.count(node) == 1)
+			{
+				out << line << std::endl;
+			}
+		}
+		else if (test == "L")
+		{
+			std::string fromnode, fromorient, tonode, toorient;
+			sstr >> fromnode >> fromorient >> tonode >> toorient;
+			fromnode = (fromorient == "+" ? ">" : "<") + fromnode;
+			tonode = (toorient == "+" ? ">" : "<") + tonode;
+			if (allowedEdges.count(std::make_pair(fromnode, tonode)) == 1)
+			{
+				out << line << std::endl;
+			}
+		}
+	}
+}
+
 void HandleCluster(std::string basePath, std::string readPath, std::string MBGPath)
 {
 	std::cerr << "running MBG" << std::endl;
@@ -489,4 +560,6 @@ void HandleCluster(std::string basePath, std::string readPath, std::string MBGPa
 	std::sort(variants.begin(), variants.end(), [](const Variant& left, const Variant& right) { return left.coverage > right.coverage; });
 	std::cerr << "writing variants" << std::endl;
 	writeVariants(heavyPath, graph, variants, basePath + "/variants.txt");
+	std::cerr << "making variant graph" << std::endl;
+	writeVariantGraph(basePath + "/graph.gfa", heavyPath, variants, basePath + "/variant-graph.gfa");
 }
