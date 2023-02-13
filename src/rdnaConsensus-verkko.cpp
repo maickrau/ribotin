@@ -7,6 +7,7 @@
 #include "VerkkoReadAssignment.h"
 #include "ReadExtractor.h"
 #include "ClusterHandler.h"
+#include "VerkkoClusterGuesser.h"
 
 std::vector<std::string> getNodesFromFile(std::string filename)
 {
@@ -76,6 +77,7 @@ int main(int argc, char** argv)
 		("i,in", "Input verkko folder (required)", cxxopts::value<std::string>())
 		("o,out", "Output folder prefix", cxxopts::value<std::string>()->default_value("./result"))
 		("c,cluster", "Input files for node clusters. Multiple files may be inputed with -c file1.txt -c file2.txt ... (required)", cxxopts::value<std::vector<std::string>>())
+		("guess-clusters-using-reference", "Guess the rDNA clusters using k-mer matches to given reference sequence (required)", cxxopts::value<std::string>())
 		("mbg", "MBG path (required)", cxxopts::value<std::string>())
 	;
 	auto params = options.parse(argc, argv);
@@ -95,9 +97,14 @@ int main(int argc, char** argv)
 		std::cerr << "Input verkko folder (-i) is required" << std::endl;
 		paramError = true;
 	}
-	if (params.count("c") == 0)
+	if (params.count("c") == 0 && params.count("guess-clusters-using-reference") == 0)
 	{
-		std::cerr << "Input files for node clusters (-c) are required" << std::endl;
+		std::cerr << "Either node clusters (-c) or reference used for guessing (--guess-clusters-using-reference) are required" << std::endl;
+		paramError = true;
+	}
+	if (params.count("c") == 1 && params.count("guess-clusters-using-reference") == 1)
+	{
+		std::cerr << "Only one of node clusters (-c) or reference used for guessing (--guess-clusters-using-reference) can be used" << std::endl;
 		paramError = true;
 	}
 	if (params.count("mbg") == 0)
@@ -112,34 +119,57 @@ int main(int argc, char** argv)
 	std::string verkkoBasePath = params["i"].as<std::string>();
 	std::string MBGPath = params["mbg"].as<std::string>();
 	std::string outputPrefix = params["o"].as<std::string>();
-	std::vector<std::string> clusterNodeFiles = params["c"].as<std::vector<std::string>>();
-	size_t numClusters = clusterNodeFiles.size();
-	std::vector<std::vector<std::string>> clusterNodes;
 	std::cerr << "output prefix: " << outputPrefix << std::endl;
-	std::cerr << "reading nodes per cluster" << std::endl;
-	for (size_t i = 0; i < clusterNodeFiles.size(); i++)
+	std::vector<std::vector<std::string>> clusterNodes;
+	if (params.count("c") == 1)
 	{
-		clusterNodes.push_back(getNodesFromFile(clusterNodeFiles[i]));
+		std::vector<std::string> clusterNodeFiles = params["c"].as<std::vector<std::string>>();
+		std::cerr << "reading nodes per cluster" << std::endl;
+		for (size_t i = 0; i < clusterNodeFiles.size(); i++)
+		{
+			clusterNodes.push_back(getNodesFromFile(clusterNodeFiles[i]));
+		}
 	}
+	else
+	{
+		std::cerr << "guessing clusters" << std::endl;
+		clusterNodes = guessVerkkoRDNAClusters(verkkoBasePath, params["guess-clusters-using-reference"].as<std::string>());
+		std::cerr << "resulted in " << clusterNodes.size() << " clusters" << std::endl;
+	}
+	size_t numClusters = clusterNodes.size();
 	std::cerr << "assigning reads per cluster" << std::endl;
 	auto reads = getReadNamesPerCluster(verkkoBasePath, clusterNodes);
+	bool hasEmptyClusters = false;
 	for (size_t i = 0; i < reads.size(); i++)
 	{
 		std::cerr << "cluster " << i << " has " << reads[i].size() << " reads" << std::endl;
+		if (reads[i].size() == 0) hasEmptyClusters = true;
 	}
 	std::vector<std::string> readFileNames;
 	for (size_t i = 0; i < numClusters; i++)
 	{
 		std::filesystem::create_directories(outputPrefix + std::to_string(i));
 		readFileNames.push_back(outputPrefix + std::to_string(i) + "/reads.fa");
-		writeName(outputPrefix + std::to_string(i) + "/name.txt", clusterNodeFiles[i]);
 		writeNodes(outputPrefix + std::to_string(i) + "/nodes.txt", clusterNodes[i]);
 	}
 	std::cerr << "extracting reads per cluster" << std::endl;
 	splitReads(getRawReadFilenames(verkkoBasePath + "/verkko.yml"), reads, readFileNames);
+	std::vector<size_t> clustersWithoutReads;
 	for (size_t i = 0; i < numClusters; i++)
 	{
+		if (reads[i].size() == 0)
+		{
+			std::cerr << "WARNING: cluster " << i << " has no reads, skipping" << std::endl;
+			clustersWithoutReads.push_back(i);
+			continue;
+		}
 		std::cerr << "running cluster " << i << " in folder " << outputPrefix + std::to_string(i) << std::endl;
 		HandleCluster(outputPrefix + std::to_string(i), outputPrefix + std::to_string(i) + "/reads.fa", MBGPath);
+	}
+	if (clustersWithoutReads.size() > 0)
+	{
+		std::cerr << "WARNING: some clusters did not have any reads assigned:";
+		for (auto cluster : clustersWithoutReads) std::cerr << " " << cluster;
+		std::cerr << ", something likely went wrong." << std::endl;
 	}
 }
