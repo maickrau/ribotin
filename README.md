@@ -13,6 +13,7 @@ Also needs [MBG](https://github.com/maickrau/MBG) version 1.0.13 or more recent.
 #### Usage
 
 ##### Reference based:
+
 ```
 bin/rdnaConsensus-ref -r reference.fa -o output_folder --mbg /path/to/MBG -i hifi_reads1.fa -i hifi_reads2.fq.gz
 ```
@@ -21,7 +22,7 @@ This extracts rDNA-specific reads based on k-mer matches to `reference.fa`, buil
 
 ##### Verkko based:
 
-First you must run a whole genome assembly with [verkko](https://github.com/marbl/verkko). Then pick the nodes in each rDNA cluster manually, and save them to files eg `node_cluster1.txt`, `node_cluster2.txt`, `node_cluster3.txt`. Then run:
+First you must run a whole genome assembly with [verkko](https://github.com/marbl/verkko). Then manually pick the nodes in each rDNA cluster from `assembly.homopolymer-compressed.noseq.gfa`, and save them to files with one cluster per file eg `node_cluster1.txt`, `node_cluster2.txt`, `node_cluster3.txt`. Format of the node cluster files should be eg `utig4-1 utig4-2 utig4-3...` or `utig4-1, utig4-2, utig4-3...` or each node in its own line. Then run:
 
 ```
 bin/rdnaConsensus-verkko -i /path/to/verkko/assembly --mbg /path/to/MBG -o output_folder_prefix -c node_cluster1.txt -c node_cluster2.txt -c node_cluster3.txt
