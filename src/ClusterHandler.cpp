@@ -1,3 +1,4 @@
+#include <queue>
 #include <map>
 #include <cstdlib>
 #include <iostream>
@@ -205,6 +206,15 @@ std::string getPathGaf(const Path& path, const GfaGraph& graph)
 	return result;
 }
 
+class CoverageComparer
+{
+public:
+	bool operator()(const std::tuple<std::string, std::string, double>& lhs, const std::tuple<std::string, std::string, double>& rhs) const
+	{
+		return std::get<2>(lhs) < std::get<2>(rhs);
+	}
+};
+
 Path getHeavyPath(const GfaGraph& graph)
 {
 	std::string maxCoverageNode;
@@ -215,36 +225,57 @@ Path getHeavyPath(const GfaGraph& graph)
 			maxCoverageNode = pair.first;
 		}
 	}
+	std::unordered_map<std::string, std::pair<std::string, double>> predecessor;
+	std::priority_queue<std::tuple<std::string, std::string, double>, std::vector<std::tuple<std::string, std::string, double>>, CoverageComparer> checkStack;
+	checkStack.emplace(">" + maxCoverageNode, ">" + maxCoverageNode, 0);
+	while (checkStack.size() > 0)
+	{
+		auto top = checkStack.top();
+		checkStack.pop();
+		if (graph.edges.count(std::get<0>(top)) == 0) continue;
+		if (predecessor.count(std::get<0>(top)) == 1 && predecessor.at(std::get<0>(top)).second >= std::get<2>(top)) continue;
+		predecessor[std::get<0>(top)] = std::make_pair(std::get<1>(top), std::get<2>(top));
+		for (auto edge : graph.edges.at(std::get<0>(top)))
+		{
+			double coverage = std::min(graph.nodeCoverages.at(std::get<0>(edge).substr(1)), std::get<2>(edge));
+			if (predecessor.count(std::get<0>(edge)) == 1 && predecessor.at(std::get<0>(edge)).second > coverage) continue;
+			checkStack.emplace(std::get<0>(edge), std::get<0>(top), coverage);
+		}
+	}
 	Path result;
 	result.nodes.emplace_back(">" + maxCoverageNode);
-	result.overlaps.emplace_back(0);
 	std::unordered_set<std::string> visited;
 	while (true)
 	{
-		std::string bestNeighbor;
-		size_t bestNeighborOverlap = 0;
-		double bestNeighborCoverage = 0;
-		for (auto edge : graph.edges.at(result.nodes.back()))
+		assert(predecessor.count(result.nodes.back()) == 1);
+		auto pre = predecessor.at(result.nodes.back());
+		if (std::get<0>(pre).substr(1) == maxCoverageNode)
 		{
-			std::string neighbor = std::get<0>(edge);
-			double neighborCoverage = std::min(graph.nodeCoverages.at(neighbor.substr(1)), std::get<2>(edge));
-			if (bestNeighbor == "" || neighborCoverage > bestNeighborCoverage)
-			{
-				bestNeighbor = neighbor;
-				bestNeighborOverlap = std::get<1>(edge);
-				bestNeighborCoverage = neighborCoverage;
-			}
-		}
-		if (bestNeighbor.substr(1) == maxCoverageNode)
-		{
-			result.overlaps[0] = bestNeighborOverlap;
 			break;
 		}
-		assert(visited.count(bestNeighbor) == 0);
-		visited.insert(bestNeighbor);
-		result.nodes.emplace_back(bestNeighbor);
-		result.overlaps.emplace_back(bestNeighborOverlap);
+		assert(visited.count(pre.first) == 0);
+		result.nodes.emplace_back(pre.first);
 	}
+	std::reverse(result.nodes.begin(), result.nodes.end());
+	for (size_t i = 0; i < result.nodes.size(); i++)
+	{
+		std::string prev;
+		if (i > 0)
+		{
+			prev = result.nodes[i-1];
+		}
+		else
+		{
+			prev = result.nodes.back();
+		}
+		assert(graph.edges.count(prev) == 1);
+		for (auto edge : graph.edges.at(prev))
+		{
+			if (std::get<0>(edge) != result.nodes[i]) continue;
+			result.overlaps.push_back(std::get<1>(edge));
+		}
+	}
+	assert(result.overlaps.size() == result.nodes.size());
 	return result;
 }
 
@@ -328,7 +359,7 @@ std::vector<std::string> getReferenceAllele(const Path& heavyPath, const std::st
 	else
 	{
 		result.insert(result.end(), heavyPath.nodes.begin() + startIndex, heavyPath.nodes.end());
-		result.insert(result.end(), heavyPath.nodes.begin(), heavyPath.nodes.begin() + endIndex);
+		result.insert(result.end(), heavyPath.nodes.begin(), heavyPath.nodes.begin() + endIndex + 1);
 	}
 	return result;
 }
@@ -454,6 +485,7 @@ void HandleCluster(std::string basePath, std::string readPath, std::string MBGPa
 	std::vector<ReadPath> readPaths = loadReadPaths(basePath + "/paths.gaf");
 	std::cerr << "getting variants" << std::endl;
 	std::vector<Variant> variants = getVariants(graph, heavyPath, readPaths, 3);
+	std::sort(variants.begin(), variants.end(), [](const Variant& left, const Variant& right) { return left.coverage > right.coverage; });
 	std::cerr << "writing variants" << std::endl;
 	writeVariants(heavyPath, graph, variants, basePath + "/variants.txt");
 }
