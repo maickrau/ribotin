@@ -8,6 +8,18 @@
 
 size_t charToInt(char c);
 
+class KmerMatcher
+{
+public:
+	KmerMatcher(size_t k);
+	void addReferenceKmers(std::string seq);
+	size_t getMatchLength(std::string seq) const;
+private:
+	size_t k;
+	size_t s;
+	phmap::flat_hash_set<size_t> kmers;
+};
+
 template <typename F>
 void findSyncmerPositions(const std::string& sequence, size_t kmerSize, size_t smerSize, std::vector<std::tuple<size_t, uint64_t>>& smerOrder, F callback)
 {
@@ -111,61 +123,17 @@ void iterateHashesFast(const std::string& seq, const size_t k, const phmap::flat
 template <typename F>
 void iterateMatchingReads(std::string refFile, const std::vector<std::string>& readFiles, size_t k, size_t minMatch, F callback)
 {
-	size_t s = k-10;
-	phmap::flat_hash_set<size_t> kmers;
-	size_t count = 0;
-	FastQ::streamFastqFromFile(refFile, false, [k, s, &kmers, &count](FastQ& fastq)
+	KmerMatcher matcher { k };
+	FastQ::streamFastqFromFile(refFile, false, [&matcher](FastQ& fastq)
 	{
-		auto revcomp = fastq.reverseComplement();
-		for (size_t i = 0; i < fastq.sequence.size(); i++)
-		{
-			fastq.sequence[i] = charToInt(fastq.sequence[i]);
-		}
-		for (size_t i = 0; i < fastq.sequence.size(); i++)
-		{
-			revcomp.sequence[i] = charToInt(revcomp.sequence[i]);
-		}
-		iterateSyncmersFast(fastq.sequence, k, s, [&kmers, &count](size_t pos, size_t hash)
-		{
-			kmers.insert(hash);
-			count += 1;
-		});
-		iterateSyncmersFast(revcomp.sequence, k, s, [&kmers, &count](size_t pos, size_t hash)
-		{
-			kmers.insert(hash);
-			count += 1;
-		});
+		matcher.addReferenceKmers(fastq.sequence);
 	});
 	for (const auto& file : readFiles)
 	{
-		FastQ::streamFastqFromFile(file, false, [k, s, minMatch, &kmers, callback](FastQ& fastq)
+		FastQ::streamFastqFromFile(file, false, [minMatch, &matcher, callback](FastQ& fastq)
 		{
-			for (size_t i = 0; i < fastq.sequence.size(); i++)
-			{
-				fastq.sequence[i] = charToInt(fastq.sequence[i]);
-			}
-			bool include = false;
-			size_t lastMatch = 0;
-			size_t matchSum = 0;
-			iterateHashesFast(fastq.sequence, k, kmers, [&matchSum, &lastMatch, k](size_t pos, size_t hash)
-			{
-				if (pos-lastMatch < k)
-				{
-					matchSum += pos-lastMatch;
-					lastMatch = pos;
-				}
-				else
-				{
-					matchSum += k;
-					lastMatch = pos;
-				}
-			});
-			if (matchSum >= minMatch) include = true;
-			if (!include) return;
-			for (size_t i = 0; i < fastq.sequence.size(); i++)
-			{
-				fastq.sequence[i] = "ACGT"[fastq.sequence[i]];
-			}
+			size_t matchLength = matcher.getMatchLength(fastq.sequence);
+			if (matchLength < minMatch) return;
 			callback(fastq);
 		});
 	}
