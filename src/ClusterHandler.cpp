@@ -56,59 +56,10 @@ std::string reverse(std::string node)
 	return node;
 }
 
-std::string getPathString(const std::unordered_map<std::string, std::string>& nodeSeqs, const std::vector<std::pair<std::string, size_t>>& path)
+class GfaGraph
 {
-	std::string result;
-	for (size_t i = 0; i < path.size(); i++)
-	{
-		std::string add;
-		add = nodeSeqs.at(path[i].first.substr(1));
-		if (path[i].first[0] == '<')
-		{
-			add = revcomp(add);
-		}
-		else
-		{
-			assert(path[i].first[0] == '>');
-		}
-		add = add.substr(path[i].second);
-		result += add;
-	}
-	return result;
-}
-
-std::string getPathGaf(const std::string& pathseq, const std::vector<std::pair<std::string, size_t>>& path)
-{
-	std::string result = "heavy_path\t";
-	result += std::to_string(pathseq.size());
-	result += "\t0\t";
-	result += std::to_string(pathseq.size());
-	result += "\t+\t";
-	for (const auto& pair : path)
-	{
-		result += pair.first;
-	}
-	result += "\t";
-	result += std::to_string(pathseq.size());
-	result += std::to_string(path[0].second);
-	result += "\t";
-	result += std::to_string(path[0].second);
-	result += "\t";
-	result += std::to_string(pathseq.size());
-	result += std::to_string(path[0].second);
-	result += "\t";
-	result += std::to_string(pathseq.size());
-	result += "\t";
-	result += std::to_string(pathseq.size());
-	result += "\t60";
-	return result;
-}
-
-void getHeavyPath(std::string gfaFile, std::string outputPathFile, std::string outputPathGaf)
-{
-	std::unordered_map<std::string, size_t> nodeCoverages;
-	std::unordered_map<std::string, std::string> nodeSeqs;
-	std::unordered_map<std::string, std::set<std::tuple<std::string, size_t, size_t>>> edges;
+public:
+	void loadFromFile(std::string gfaFile)
 	{
 		std::ifstream file { gfaFile };
 		while (file.good())
@@ -156,26 +107,89 @@ void getHeavyPath(std::string gfaFile, std::string outputPathFile, std::string o
 			}
 		}
 	}
-	std::string maxCoverageNode;
-	for (auto pair : nodeCoverages)
+	std::unordered_map<std::string, size_t> nodeCoverages;
+	std::unordered_map<std::string, std::string> nodeSeqs;
+	std::unordered_map<std::string, std::set<std::tuple<std::string, size_t, size_t>>> edges;
+};
+
+class Path
+{
+public:
+	std::vector<std::string> nodes;
+	std::vector<size_t> overlaps;
+	std::string getSequence(const std::unordered_map<std::string, std::string>& nodeSeqs) const
 	{
-		if (maxCoverageNode == "" || pair.second > nodeCoverages.at(maxCoverageNode))
+		std::string result;
+		for (size_t i = 0; i < nodes.size(); i++)
+		{
+			std::string add;
+			add = nodeSeqs.at(nodes[i].substr(1));
+			if (nodes[i][0] == '<')
+			{
+				add = revcomp(add);
+			}
+			else
+			{
+				assert(nodes[i][0] == '>');
+			}
+			add = add.substr(overlaps[i]);
+			result += add;
+		}
+		return result;
+	}
+};
+
+std::string getPathGaf(const Path& path, const GfaGraph& graph)
+{
+	std::string pathseq = path.getSequence(graph.nodeSeqs);
+	std::string result = "heavy_path\t";
+	result += std::to_string(pathseq.size());
+	result += "\t0\t";
+	result += std::to_string(pathseq.size());
+	result += "\t+\t";
+	for (const auto& node : path.nodes)
+	{
+		result += node;
+	}
+	result += "\t";
+	result += std::to_string(pathseq.size());
+	result += std::to_string(path.overlaps[0]);
+	result += "\t";
+	result += std::to_string(path.overlaps[0]);
+	result += "\t";
+	result += std::to_string(pathseq.size());
+	result += std::to_string(path.overlaps[0]);
+	result += "\t";
+	result += std::to_string(pathseq.size());
+	result += "\t";
+	result += std::to_string(pathseq.size());
+	result += "\t60";
+	return result;
+}
+
+Path getHeavyPath(const GfaGraph& graph)
+{
+	std::string maxCoverageNode;
+	for (auto pair : graph.nodeCoverages)
+	{
+		if (maxCoverageNode == "" || pair.second > graph.nodeCoverages.at(maxCoverageNode))
 		{
 			maxCoverageNode = pair.first;
 		}
 	}
-	std::vector<std::pair<std::string, size_t>> path;
-	path.emplace_back(">" + maxCoverageNode, 0);
+	Path result;
+	result.nodes.emplace_back(">" + maxCoverageNode);
+	result.overlaps.emplace_back(0);
 	std::unordered_set<std::string> visited;
 	while (true)
 	{
 		std::string bestNeighbor;
 		size_t bestNeighborOverlap = 0;
 		double bestNeighborCoverage = 0;
-		for (auto edge : edges[path.back().first])
+		for (auto edge : graph.edges.at(result.nodes.back()))
 		{
 			std::string neighbor = std::get<0>(edge);
-			double neighborCoverage = std::min(nodeCoverages.at(neighbor.substr(1)), std::get<2>(edge));
+			double neighborCoverage = std::min(graph.nodeCoverages.at(neighbor.substr(1)), std::get<2>(edge));
 			if (bestNeighbor == "" || neighborCoverage > bestNeighborCoverage)
 			{
 				bestNeighbor = neighbor;
@@ -185,23 +199,29 @@ void getHeavyPath(std::string gfaFile, std::string outputPathFile, std::string o
 		}
 		if (bestNeighbor.substr(1) == maxCoverageNode)
 		{
-			path[0].second = bestNeighborOverlap;
+			result.overlaps[0] = bestNeighborOverlap;
 			break;
 		}
 		assert(visited.count(bestNeighbor) == 0);
 		visited.insert(bestNeighbor);
-		path.emplace_back(bestNeighbor, bestNeighborOverlap);
+		result.nodes.emplace_back(bestNeighbor);
+		result.overlaps.emplace_back(bestNeighborOverlap);
 	}
-	std::string pathseq = getPathString(nodeSeqs, path);
-	{
-		std::ofstream file { outputPathFile };
-		file << ">heavy_path" << std::endl;
-		file << pathseq;
-	}
-	{
-		std::ofstream file { outputPathGaf };
-		file << getPathGaf(pathseq, path);
-	}
+	return result;
+}
+
+void writePathSequence(const Path& path, const GfaGraph& graph, std::string outputFile)
+{
+	std::string pathseq = path.getSequence(graph.nodeSeqs);
+	std::ofstream file { outputFile };
+	file << ">heavy_path" << std::endl;
+	file << pathseq;
+}
+
+void writePathGaf(const Path& path, const GfaGraph& graph, std::string outputFile)
+{
+	std::ofstream file { outputFile };
+	file << getPathGaf(path, graph);
 }
 
 void runMBG(std::string basePath, std::string readPath, std::string MBGPath)
@@ -218,5 +238,9 @@ void HandleCluster(std::string basePath, std::string readPath, std::string MBGPa
 	std::cerr << "running MBG" << std::endl;
 	runMBG(basePath, readPath, MBGPath);
 	std::cerr << "getting consensus" << std::endl;
-	getHeavyPath(basePath + "/graph.gfa", basePath + "/consensus.fa", basePath + "/consensus_path.gaf");
+	GfaGraph graph;
+	graph.loadFromFile(basePath + "/graph.gfa");
+	Path heavyPath = getHeavyPath(graph);
+	writePathSequence(heavyPath, graph, basePath + "/consensus.fa");
+	writePathGaf(heavyPath, graph, basePath + "/consensus_path.gaf");
 }
