@@ -16,6 +16,7 @@ std::vector<std::string> getNodesFromFile(std::string filename)
 	{
 		std::string node;
 		file >> node;
+		if (node.size() > 1 && node.back() == ',') node.pop_back();
 		result.push_back(node);
 	}
 	return result;
