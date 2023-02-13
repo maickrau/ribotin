@@ -1,6 +1,6 @@
 ## rdnaConsensus
 
-rDNA consensus sequence builder. Input hifi. Extracts rDNA-specific reads based on k-mer matches to a reference rDNA sequence, builds a DBG out of them, extracts the most covered path as a consensus and bubbles as variants.
+rDNA consensus sequence builder. Input hifi. Extracts rDNA-specific reads based on k-mer matches to a reference rDNA sequence or based on a [verkko](https://github.com/marbl/verkko) assembly, builds a DBG out of them, extracts the most covered path as a consensus and bubbles as variants.
 
 #### Compilation
 
@@ -8,22 +8,26 @@ rDNA consensus sequence builder. Input hifi. Extracts rDNA-specific reads based 
 - `git submodule update --init --recursive`
 - `make all`
 
-Also needs [MBG](https://github.com/maickrau/MBG) commit [bf5a22d](https://github.com/maickrau/MBG/commit/bf5a22dc9914e752dc807384e99d4b3e9c7f21a0) or more recent.
+Also needs [MBG](https://github.com/maickrau/MBG) version 1.0.13 or more recent.
 
 #### Usage
 
+Reference based:
 ```
-bin/seqPicker 201 2000 template_seqs/chm13_rDNAs.fa input_hifi_read_file.fa > rDNA_reads.fa
-MBG -i rDNA_reads.fa -o graph.gfa -k 101 -w 70 -a 2 -u 3 -r 15000 -R 4000 --error-masking=msat --output-sequence-paths paths.gaf --only-local-resolve
-scripts/get_heaviest_path_acyclic.py heavy_path < graph.gfa > consensus_seq.fa
-scripts/get_variants.py graph.gfa paths.gaf consensus_seq.fa 10 > variants.txt
+bin/rdnaConsensus-ref -r reference.fa -o output_folder --mbg /path/to/MBG -i hifi_reads1.fa -i hifi_reads2.fq.gz
 ```
 
-This extracts rDNA-specific reads, builds a graph and a consensus, and finds variants supported by at least 10 reads. To find variants supported by more/less reads change the 10 in the last line to wanted minimum coverage. The input reads can be fasta or fastq, uncompressed or gzipped. For multiple input reads add them to the first line:
+This extracts rDNA-specific reads based on k-mer matches to `reference.fa`, builds a graph and a consensus, and finds variants supported by at least 3 reads. Results are written to `output_folder`.
+
+Verkko based:
+
+First you must pick the nodes in each rDNA cluster manually, and save them to files eg `node_cluster1.txt`, `node_cluster2.txt`, `node_cluster3.txt`. Then run:
 
 ```
-bin/seqPicker 201 2000 template_seqs/chm13_rDNAs.fa input_hifi_read_file_1.fa input_hifi_read_file_2.fq.gz input_hifi_read_file_3.fa > rDNA_reads.fa
+bin/rdnaConsensus-verkko -i /path/to/verkko/assembly -o output_folder -c node_cluster1.txt -c node_cluster2.txt -c node_cluster3.txt
 ```
+
+This extracts HiFi reads uniquely assigned to each node cluster, and for each cluster builds a graph and a consensus and finds variants supported by at least 3 reads. Results are written per cluster to `output_folderx` where `x` is the cluster number.
 
 #### Todo
 
