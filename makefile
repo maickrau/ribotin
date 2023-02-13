@@ -23,25 +23,25 @@ $(shell mkdir -p obj)
 $(BINDIR)/seqpicker: $(OBJ) $(ODIR)/seqpicker.o
 	$(GPP) -o $@ $^ $(LINKFLAGS)
 
-$(BINDIR)/VerkkoIntegration: $(OBJ) $(ODIR)/VerkkoIntegration.o
+$(BINDIR)/rdnaConsensus-verkko: $(OBJ) $(ODIR)/rdnaConsensus-verkko.o
 	$(GPP) -o $@ $^ $(LINKFLAGS)
 
-$(BINDIR)/ReferenceGuided: $(OBJ) $(ODIR)/ReferenceGuided.o
+$(BINDIR)/rdnaConsensus-ref: $(OBJ) $(ODIR)/rdnaConsensus-ref.o
 	$(GPP) -o $@ $^ $(LINKFLAGS)
 
 $(ODIR)/seqpicker.o: $(SRCDIR)/seqpicker.cpp $(DEPS) $(OBJ)
 	$(GPP) -c -o $@ $< $(CPPFLAGS) -DVERSION="\"$(VERSION)\""
 
-$(ODIR)/VerkkoIntegration.o: $(SRCDIR)/VerkkoIntegration.cpp $(DEPS) $(OBJ)
+$(ODIR)/rdnaConsensus-verkko.o: $(SRCDIR)/rdnaConsensus-verkko.cpp $(DEPS) $(OBJ)
 	$(GPP) -c -o $@ $< $(CPPFLAGS) -DVERSION="\"$(VERSION)\""
 
-$(ODIR)/ReferenceGuided.o: $(SRCDIR)/ReferenceGuided.cpp $(DEPS) $(OBJ)
+$(ODIR)/rdnaConsensus-ref.o: $(SRCDIR)/rdnaConsensus-ref.cpp $(DEPS) $(OBJ)
 	$(GPP) -c -o $@ $< $(CPPFLAGS) -DVERSION="\"$(VERSION)\""
 
 $(ODIR)/%.o: $(SRCDIR)/%.cpp $(DEPS)
 	$(GPP) -c -o $@ $< $(CPPFLAGS)
 
-all: $(BINDIR)/seqpicker $(BINDIR)/VerkkoIntegration $(BINDIR)/ReferenceGuided
+all: $(BINDIR)/seqpicker $(BINDIR)/rdnaConsensus-verkko $(BINDIR)/rdnaConsensus-ref
 
 clean:
 	rm -f $(ODIR)/*
