@@ -4,3 +4,6 @@
 [submodule "zstr"]
 	path = zstr
 	url = https://github.com/mateidavid/zstr.git
+[submodule "cxxopts"]
+	path = cxxopts
+	url = https://github.com/jarro2783/cxxopts.git
