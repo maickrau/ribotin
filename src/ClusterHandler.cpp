@@ -1,3 +1,4 @@
+#include <map>
 #include <cstdlib>
 #include <iostream>
 #include <unordered_set>
@@ -55,6 +56,43 @@ std::string reverse(std::string node)
 	}
 	return node;
 }
+
+std::vector<std::string> reverse(const std::vector<std::string>& path)
+{
+	std::vector<std::string> bw { path.rbegin(), path.rend() };
+	for (size_t i = 0; i < bw.size(); i++)
+	{
+		bw[i] = reverse(bw[i]);
+	}
+	return bw;
+}
+
+std::vector<std::string> canon(const std::vector<std::string>& path)
+{
+	auto bw = reverse(path);
+	if (bw < path) return bw;
+	return path;
+}
+
+class ReadPath
+{
+public:
+	std::string readName;
+	size_t readStart;
+	size_t readEnd;
+	std::vector<std::string> path;
+	size_t pathStartClip;
+	size_t pathEndClip;
+};
+
+class Variant
+{
+public:
+	std::vector<std::string> path;
+	std::vector<std::string> referencePath;
+	size_t coverage;
+	size_t referenceCoverage;
+};
 
 class GfaGraph
 {
@@ -233,14 +271,189 @@ void runMBG(std::string basePath, std::string readPath, std::string MBGPath)
 	system(mbgCommand.c_str());
 }
 
+std::vector<std::string> parsePath(const std::string& pathstr)
+{
+	std::vector<std::string> result;
+	size_t lastStart = 0;
+	for (size_t i = 1; i < pathstr.size(); i++)
+	{
+		if (pathstr[i] != '<' && pathstr[i] != '>') continue;
+		result.emplace_back(pathstr.substr(lastStart, i - lastStart));
+		lastStart = i;
+	}
+	result.emplace_back(pathstr.substr(lastStart));
+	return result;
+}
+
+std::vector<ReadPath> loadReadPaths(const std::string& filename)
+{
+	std::vector<ReadPath> result;
+	std::ifstream file { filename };
+	while (file.good())
+	{
+		std::string line;
+		getline(file, line);
+		if (!file.good()) break;
+		std::stringstream sstr { line };
+		ReadPath here;
+		std::string dummy;
+		std::string pathstr;
+		size_t pathLength, pathStart, pathEnd;
+		sstr >> here.readName >> dummy >> here.readStart >> here.readEnd >> dummy >> pathstr >> pathLength >> pathStart >> pathEnd;
+		here.pathStartClip = pathStart;
+		here.pathEndClip = pathLength - pathEnd;
+		here.path = parsePath(pathstr);
+		result.emplace_back(here);
+	}
+	return result;
+}
+
+std::vector<std::string> getReferenceAllele(const Path& heavyPath, const std::string startNode, const std::string endNode)
+{
+	size_t startIndex = heavyPath.nodes.size();
+	size_t endIndex = heavyPath.nodes.size();
+	for (size_t i = 0; i < heavyPath.nodes.size(); i++)
+	{
+		if (heavyPath.nodes[i] == startNode) startIndex = i;
+		if (heavyPath.nodes[i] == endNode) endIndex = i;
+	}
+	assert(startIndex < heavyPath.nodes.size());
+	assert(endIndex < heavyPath.nodes.size());
+	assert(startIndex != endIndex);
+	std::vector<std::string> result;
+	if (endIndex > startIndex)
+	{
+		result.insert(result.end(), heavyPath.nodes.begin() + startIndex, heavyPath.nodes.begin() + endIndex + 1);
+	}
+	else
+	{
+		result.insert(result.end(), heavyPath.nodes.begin() + startIndex, heavyPath.nodes.end());
+		result.insert(result.end(), heavyPath.nodes.begin(), heavyPath.nodes.begin() + endIndex);
+	}
+	return result;
+}
+
+bool isSubstring(const std::vector<std::string>& small, const std::vector<std::string>& big)
+{
+	if (small.size() > big.size()) return false;
+	for (size_t i = 0; i <= big.size() - small.size(); i++)
+	{
+		bool match = true;
+		for (size_t j = 0; j < small.size(); j++)
+		{
+			if (big[i+j] != small[j])
+			{
+				match = false;
+				break;
+			}
+		}
+		if (match)
+		{
+			return true;
+		}
+	}
+	return false;
+}
+
+size_t getReferenceCoverage(const std::vector<ReadPath>& readPaths, const std::vector<std::string>& referenceAllele)
+{
+	size_t result = 0;
+	auto reverseRefAllele = reverse(referenceAllele);
+	for (const auto& readPath : readPaths)
+	{
+		if (isSubstring(referenceAllele, readPath.path))
+		{
+			result += 1;
+			continue;
+		}
+		if (isSubstring(reverseRefAllele, readPath.path))
+		{
+			result += 1;
+			continue;
+		}
+	}
+	return result;
+}
+
+std::vector<Variant> getVariants(const GfaGraph& graph, const Path& heavyPath, const std::vector<ReadPath>& readPaths, const size_t minCoverage)
+{
+	std::unordered_set<std::string> partOfHeavyPath;
+	std::unordered_map<std::string, bool> nodeOrientation;
+	for (auto node : heavyPath.nodes)
+	{
+		partOfHeavyPath.insert(node.substr(1));
+		nodeOrientation[node.substr(1)] = node[0] == '>';
+	}
+	std::map<std::vector<std::string>, size_t> bubbleCoverages;
+	for (const auto& path : readPaths)
+	{
+		size_t lastStart = std::numeric_limits<size_t>::max();
+		for (size_t i = 0; i < path.path.size(); i++)
+		{
+			if (partOfHeavyPath.count(path.path[i].substr(1)) == 0) continue;
+			if (lastStart != std::numeric_limits<size_t>::max())
+			{
+				std::vector<std::string> part { path.path.begin() + lastStart, path.path.begin() + i + 1 };
+				part = canon(part);
+				bubbleCoverages[part] += 1;
+			}
+			lastStart = i;
+		}
+	}
+	std::vector<Variant> result;
+	for (const auto& pair : bubbleCoverages)
+	{
+		if (pair.second < minCoverage) continue;
+		std::vector<std::string> path = pair.first;
+		if (nodeOrientation[path[0].substr(1)] != (path[0][0] == '>'))
+		{
+			path = reverse(path);
+		}
+		std::vector<std::string> referenceAllele = getReferenceAllele(heavyPath, path[0], path.back());
+		if (path == referenceAllele) continue;
+		result.emplace_back();
+		result.back().path = path;
+		result.back().coverage = pair.second;
+		result.back().referencePath = referenceAllele;
+		result.back().referenceCoverage = getReferenceCoverage(readPaths, result.back().referencePath);
+	}
+	return result;
+}
+
+void writeVariants(const Path& heavyPath, const GfaGraph& graph, const std::vector<Variant>& variants, const std::string& filename)
+{
+	std::ofstream file { filename };
+	for (const auto& variant : variants)
+	{
+		for (const auto& node : variant.path)
+		{
+			file << node;
+		}
+		file << "\t";
+		for (const auto& node : variant.referencePath)
+		{
+			file << node;
+		}
+		file << "\t" << variant.coverage << "\t" << variant.referenceCoverage << std::endl;
+	}
+}
+
 void HandleCluster(std::string basePath, std::string readPath, std::string MBGPath)
 {
 	std::cerr << "running MBG" << std::endl;
 	runMBG(basePath, readPath, MBGPath);
-	std::cerr << "getting consensus" << std::endl;
+	std::cerr << "reading graph" << std::endl;
 	GfaGraph graph;
 	graph.loadFromFile(basePath + "/graph.gfa");
+	std::cerr << "getting consensus" << std::endl;
 	Path heavyPath = getHeavyPath(graph);
+	std::cerr << "writing consensus" << std::endl;
 	writePathSequence(heavyPath, graph, basePath + "/consensus.fa");
 	writePathGaf(heavyPath, graph, basePath + "/consensus_path.gaf");
+	std::cerr << "reading read paths" << std::endl;
+	std::vector<ReadPath> readPaths = loadReadPaths(basePath + "/paths.gaf");
+	std::cerr << "getting variants" << std::endl;
+	std::vector<Variant> variants = getVariants(graph, heavyPath, readPaths, 3);
+	std::cerr << "writing variants" << std::endl;
+	writeVariants(heavyPath, graph, variants, basePath + "/variants.txt");
 }
