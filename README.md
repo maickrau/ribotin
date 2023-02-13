@@ -24,7 +24,7 @@ Verkko based:
 First you must run a whole genome assembly with [verkko](https://github.com/marbl/verkko). Then pick the nodes in each rDNA cluster manually, and save them to files eg `node_cluster1.txt`, `node_cluster2.txt`, `node_cluster3.txt`. Then run:
 
 ```
-bin/rdnaConsensus-verkko -i /path/to/verkko/assembly -o output_folder_prefix -c node_cluster1.txt -c node_cluster2.txt -c node_cluster3.txt
+bin/rdnaConsensus-verkko -i /path/to/verkko/assembly --mbg /path/to/MBG -o output_folder_prefix -c node_cluster1.txt -c node_cluster2.txt -c node_cluster3.txt
 ```
 
 This extracts HiFi reads uniquely assigned to each node cluster, and for each cluster builds a graph and a consensus and finds variants supported by at least 3 reads. Results are written per cluster to `output_folder_prefix[x]` where `[x]` is the cluster number.
