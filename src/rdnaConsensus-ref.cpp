@@ -17,7 +17,7 @@ int main(int argc, char** argv)
 		("i,in", "Input reads. Multiple files can be input with -i file1.fa -i file2.fa etc (required)", cxxopts::value<std::vector<std::string>>())
 		("o,out", "Output folder", cxxopts::value<std::string>()->default_value("./result"))
 		("mbg", "MBG path (required)", cxxopts::value<std::string>())
-		("r,ref", "Reference used for recruiting reads (required)", cxxopts::value<std::string>())
+		("r,reference", "Reference used for recruiting reads (required)", cxxopts::value<std::string>())
 		("k", "k-mer size", cxxopts::value<size_t>()->default_value("101"))
 	;
 	auto params = options.parse(argc, argv);
