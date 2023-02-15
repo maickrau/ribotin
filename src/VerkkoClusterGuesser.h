@@ -4,6 +4,6 @@
 #include <vector>
 #include <string>
 
-std::vector<std::vector<std::string>> guessVerkkoRDNAClusters(std::string verkkoBasePath, std::string referencePath);
+std::vector<std::vector<std::string>> guessVerkkoRDNAClusters(std::string verkkoBasePath, const std::vector<std::string>& referencePath);
 
 #endif

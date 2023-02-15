@@ -103,13 +103,16 @@ std::string homopolymerCompress(std::string original)
 	return result;
 }
 
-std::vector<std::vector<std::string>> guessVerkkoRDNAClusters(std::string verkkoBasePath, std::string referencePath)
+std::vector<std::vector<std::string>> guessVerkkoRDNAClusters(std::string verkkoBasePath, const std::vector<std::string>& referencePath)
 {
 	KmerMatcher matcher { 101 };
-	FastQ::streamFastqFromFile(referencePath, false, [&matcher](FastQ& fastq)
+	for (auto file : referencePath)
 	{
-		matcher.addReferenceKmers(homopolymerCompress(fastq.sequence));
-	});
+		FastQ::streamFastqFromFile(file, false, [&matcher](FastQ& fastq)
+		{
+			matcher.addReferenceKmers(homopolymerCompress(fastq.sequence));
+		});
+	}
 	auto nodes = matchNodes(matcher, verkkoBasePath + "/assembly.homopolymer-compressed.gfa");
 	auto clusters = extendClusters(nodes, verkkoBasePath + "/assembly.homopolymer-compressed.gfa");
 	return clusters;

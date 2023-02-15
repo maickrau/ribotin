@@ -77,7 +77,7 @@ int main(int argc, char** argv)
 		("i,in", "Input verkko folder (required)", cxxopts::value<std::string>())
 		("o,out", "Output folder prefix", cxxopts::value<std::string>()->default_value("./result"))
 		("c,cluster", "Input files for node clusters. Multiple files may be inputed with -c file1.txt -c file2.txt ... (required)", cxxopts::value<std::vector<std::string>>())
-		("guess-clusters-using-reference", "Guess the rDNA clusters using k-mer matches to given reference sequence (required)", cxxopts::value<std::string>())
+		("guess-clusters-using-reference", "Guess the rDNA clusters using k-mer matches to given reference sequence (required)", cxxopts::value<std::vector<std::string>>())
 		("mbg", "MBG path (required)", cxxopts::value<std::string>())
 		("k", "k-mer size", cxxopts::value<size_t>()->default_value("101"))
 	;
@@ -113,6 +113,11 @@ int main(int argc, char** argv)
 		std::cerr << "MBG path (--mbg) is required" << std::endl;
 		paramError = true;
 	}
+	if (params.count("k") == 1 && params["k"].as<size_t>() < 31)
+	{
+		std::cerr << "k must be at least 31" << std::endl;
+		paramError = true;
+	}
 	if (paramError)
 	{
 		std::abort();
@@ -135,7 +140,7 @@ int main(int argc, char** argv)
 	else
 	{
 		std::cerr << "guessing clusters" << std::endl;
-		clusterNodes = guessVerkkoRDNAClusters(verkkoBasePath, params["guess-clusters-using-reference"].as<std::string>());
+		clusterNodes = guessVerkkoRDNAClusters(verkkoBasePath, params["guess-clusters-using-reference"].as<std::vector<std::string>>());
 		std::cerr << "resulted in " << clusterNodes.size() << " clusters" << std::endl;
 	}
 	size_t numClusters = clusterNodes.size();
