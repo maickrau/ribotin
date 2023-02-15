@@ -20,7 +20,7 @@ std::unordered_set<std::string> matchNodes(const KmerMatcher& matcher, const std
 		sstr >> dummy >> nodename >> nodeseq;
 		if (nodeseq.size() >= 100000) continue;
 		size_t matchLength = matcher.getMatchLength(nodeseq);
-		if (matcher.getMatchLength(nodeseq) < 2000) continue;
+		if (matchLength < 2000) continue;
 		result.insert(nodename);
 	}
 	return result;

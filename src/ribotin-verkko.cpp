@@ -146,11 +146,9 @@ int main(int argc, char** argv)
 	size_t numClusters = clusterNodes.size();
 	std::cerr << "assigning reads per cluster" << std::endl;
 	auto reads = getReadNamesPerCluster(verkkoBasePath, clusterNodes);
-	bool hasEmptyClusters = false;
 	for (size_t i = 0; i < reads.size(); i++)
 	{
 		std::cerr << "cluster " << i << " has " << reads[i].size() << " reads" << std::endl;
-		if (reads[i].size() == 0) hasEmptyClusters = true;
 	}
 	std::vector<std::string> readFileNames;
 	for (size_t i = 0; i < numClusters; i++)

@@ -16,7 +16,8 @@ constexpr size_t maxCode()
 {
 	return 4;
 }
-constexpr size_t complement(size_t val)
+
+size_t complement(size_t val)
 {
 	switch(val)
 	{
@@ -29,6 +30,8 @@ constexpr size_t complement(size_t val)
 		case 3:
 			return 0;
 	}
+	assert(false);
+	return 0;
 }
 
 FastHasher::FastHasher(size_t kmerSize, uint64_t fwHash, uint64_t bwHash) :

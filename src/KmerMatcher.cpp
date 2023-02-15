@@ -60,7 +60,6 @@ size_t KmerMatcher::getMatchLength(std::string seq) const
 	{
 		seq[i] = charToInt(seq[i]);
 	}
-	bool include = false;
 	size_t lastMatch = 0;
 	size_t matchSum = 0;
 	iterateHashesFast(seq, k, kmers, [this, &matchSum, &lastMatch](size_t pos, size_t hash)
