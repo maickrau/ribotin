@@ -69,8 +69,8 @@ void writeName(std::string filename, const std::string& name)
 
 int main(int argc, char** argv)
 {
-	std::cerr << "rdnaConsensus-verkko version " << VERSION << std::endl;
-	cxxopts::Options options { "rdnaConsensus-verkko" };
+	std::cerr << "ribotin-verkko version " << VERSION << std::endl;
+	cxxopts::Options options { "ribotin-verkko" };
 	options.add_options()
 		("h,help", "Print help")
 		("v,version", "Print version")

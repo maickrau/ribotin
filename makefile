@@ -23,25 +23,25 @@ $(shell mkdir -p obj)
 $(BINDIR)/seqpicker: $(OBJ) $(ODIR)/seqpicker.o
 	$(GPP) -o $@ $^ $(LINKFLAGS)
 
-$(BINDIR)/rdnaConsensus-verkko: $(OBJ) $(ODIR)/rdnaConsensus-verkko.o
+$(BINDIR)/ribotin-verkko: $(OBJ) $(ODIR)/ribotin-verkko.o
 	$(GPP) -o $@ $^ $(LINKFLAGS)
 
-$(BINDIR)/rdnaConsensus-ref: $(OBJ) $(ODIR)/rdnaConsensus-ref.o
+$(BINDIR)/ribotin-ref: $(OBJ) $(ODIR)/ribotin-ref.o
 	$(GPP) -o $@ $^ $(LINKFLAGS)
 
 $(ODIR)/seqpicker.o: $(SRCDIR)/seqpicker.cpp $(DEPS) $(OBJ)
 	$(GPP) -c -o $@ $< $(CPPFLAGS) -DVERSION="\"$(VERSION)\""
 
-$(ODIR)/rdnaConsensus-verkko.o: $(SRCDIR)/rdnaConsensus-verkko.cpp $(DEPS) $(OBJ)
+$(ODIR)/ribotin-verkko.o: $(SRCDIR)/ribotin-verkko.cpp $(DEPS) $(OBJ)
 	$(GPP) -c -o $@ $< $(CPPFLAGS) -DVERSION="\"$(VERSION)\""
 
-$(ODIR)/rdnaConsensus-ref.o: $(SRCDIR)/rdnaConsensus-ref.cpp $(DEPS) $(OBJ)
+$(ODIR)/ribotin-ref.o: $(SRCDIR)/ribotin-ref.cpp $(DEPS) $(OBJ)
 	$(GPP) -c -o $@ $< $(CPPFLAGS) -DVERSION="\"$(VERSION)\""
 
 $(ODIR)/%.o: $(SRCDIR)/%.cpp $(DEPS)
 	$(GPP) -c -o $@ $< $(CPPFLAGS)
 
-all: $(BINDIR)/seqpicker $(BINDIR)/rdnaConsensus-verkko $(BINDIR)/rdnaConsensus-ref
+all: $(BINDIR)/seqpicker $(BINDIR)/ribotin-verkko $(BINDIR)/ribotin-ref
 
 clean:
 	rm -f $(ODIR)/*

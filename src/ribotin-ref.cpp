@@ -9,8 +9,8 @@
 
 int main(int argc, char** argv)
 {
-	std::cerr << "rdnaConsensus-ref version " << VERSION << std::endl;
-	cxxopts::Options options { "rdnaConsensus-ref" };
+	std::cerr << "ribotin-ref version " << VERSION << std::endl;
+	cxxopts::Options options { "ribotin-ref" };
 	options.add_options()
 		("h,help", "Print help")
 		("v,version", "Print version")
