@@ -20,7 +20,17 @@ bin/rdnaConsensus-ref -r reference.fa -o output_folder --mbg /path/to/MBG -i hif
 
 This extracts rDNA-specific reads based on k-mer matches to `reference.fa`, builds a graph and a consensus, and finds variants supported by at least 3 reads. Results are written to `output_folder`.
 
-##### Verkko based:
+##### Verkko based (automatic):
+
+First you must run a whole genome assembly with [verkko](https://github.com/marbl/verkko). Then run:
+
+```
+bin/rdnaConsensus-verkko -i /path/to/verkko/assembly --mbg /path/to/MBG -o output_folder_prefix --guess-clusters-using-reference template_seqs/chm13_rDNAs.fa
+```
+
+This finds the rDNA clusters based on k-mer matches and assembly graph topology, extracts HiFi reads uniquely assigned to each cluster, and for each cluster builds a graph and a consensus and finds variants supported by at least 3 reads. Results are written per cluster to `output_folder_prefix[x]` where `[x]` is the cluster number.
+
+##### Verkko based (manual):
 
 First you must run a whole genome assembly with [verkko](https://github.com/marbl/verkko). Then manually pick the nodes in each rDNA cluster from `assembly.homopolymer-compressed.noseq.gfa`, and save them to files with one cluster per file eg `node_cluster1.txt`, `node_cluster2.txt`, `node_cluster3.txt`. Format of the node cluster files should be eg `utig4-1 utig4-2 utig4-3...` or `utig4-1, utig4-2, utig4-3...` or each node in its own line. Then run:
 
