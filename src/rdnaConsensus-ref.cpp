@@ -18,6 +18,7 @@ int main(int argc, char** argv)
 		("o,out", "Output folder", cxxopts::value<std::string>()->default_value("./result"))
 		("mbg", "MBG path (required)", cxxopts::value<std::string>())
 		("r,ref", "Reference used for recruiting reads (required)", cxxopts::value<std::string>())
+		("k", "k-mer size", cxxopts::value<size_t>()->default_value("101"))
 	;
 	auto params = options.parse(argc, argv);
 	if (params.count("v") == 1)
@@ -46,6 +47,11 @@ int main(int argc, char** argv)
 		std::cerr << "MBG path (--mbg) is required" << std::endl;
 		paramError = true;
 	}
+	if (params.count("k") == 1 && params["k"].as<size_t>() < 31)
+	{
+		std::cerr << "k must be at least 31" << std::endl;
+		paramError = true;
+	}
 	if (paramError)
 	{
 		std::abort();
@@ -54,6 +60,7 @@ int main(int argc, char** argv)
 	std::string MBGPath = params["mbg"].as<std::string>();
 	std::string outputPath = params["o"].as<std::string>();
 	std::vector<std::string> readPaths = params["i"].as<std::vector<std::string>>();
+	size_t k = params["k"].as<size_t>();
 	std::cerr << "output folder: " << outputPath << std::endl;
 	std::filesystem::create_directories(outputPath);
 	std::cerr << "extracting reads" << std::endl;
@@ -66,5 +73,5 @@ int main(int argc, char** argv)
 		});
 	}
 	std::cerr << "running" << std::endl;
-	HandleCluster(outputPath, outputPath + "/reads.fa", MBGPath);
+	HandleCluster(outputPath, outputPath + "/reads.fa", MBGPath, k);
 }

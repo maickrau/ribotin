@@ -79,6 +79,7 @@ int main(int argc, char** argv)
 		("c,cluster", "Input files for node clusters. Multiple files may be inputed with -c file1.txt -c file2.txt ... (required)", cxxopts::value<std::vector<std::string>>())
 		("guess-clusters-using-reference", "Guess the rDNA clusters using k-mer matches to given reference sequence (required)", cxxopts::value<std::string>())
 		("mbg", "MBG path (required)", cxxopts::value<std::string>())
+		("k", "k-mer size", cxxopts::value<size_t>()->default_value("101"))
 	;
 	auto params = options.parse(argc, argv);
 	if (params.count("v") == 1)
@@ -119,6 +120,7 @@ int main(int argc, char** argv)
 	std::string verkkoBasePath = params["i"].as<std::string>();
 	std::string MBGPath = params["mbg"].as<std::string>();
 	std::string outputPrefix = params["o"].as<std::string>();
+	size_t k = params["k"].as<size_t>();
 	std::cerr << "output prefix: " << outputPrefix << std::endl;
 	std::vector<std::vector<std::string>> clusterNodes;
 	if (params.count("c") == 1)
@@ -164,7 +166,7 @@ int main(int argc, char** argv)
 			continue;
 		}
 		std::cerr << "running cluster " << i << " in folder " << outputPrefix + std::to_string(i) << std::endl;
-		HandleCluster(outputPrefix + std::to_string(i), outputPrefix + std::to_string(i) + "/reads.fa", MBGPath);
+		HandleCluster(outputPrefix + std::to_string(i), outputPrefix + std::to_string(i) + "/reads.fa", MBGPath, k);
 	}
 	if (clustersWithoutReads.size() > 0)
 	{

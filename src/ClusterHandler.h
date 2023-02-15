@@ -3,6 +3,6 @@
 
 #include <string>
 
-void HandleCluster(std::string basePath, std::string readPath, std::string MBGPath);
+void HandleCluster(std::string basePath, std::string readPath, std::string MBGPath, size_t k);
 
 #endif
