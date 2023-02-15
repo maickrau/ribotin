@@ -44,11 +44,11 @@ This extracts HiFi reads uniquely assigned to each node cluster, and for each cl
 
 The output folder will contain several files:
 
-- `nodes.txt`: List of nodes used in this cluster. Only in verkko based mode. Same as the input node cluster.
+- `nodes.txt`: List of nodes used in this cluster. Only in verkko based mode.
 - `reads.fa`: Reads used in this cluster.
 - `graph.gfa`: de Bruijn graph of the reads.
 - `paths.gaf`: Paths of the hifi reads in `graph.gfa`.
-- `consensus.fa`: Consensus sequence of the rDNA.
+- `consensus.fa`: Consensus sequence.
 - `consensus_path.gaf`: Path of the consensus sequence in `graph.gfa`.
 - `variants.txt`: A list of variants supported by at least 3 reads. Format is: variant path, reference path, variant read support, reference read support.
 - `variant-graph.gfa`: The graph filtered only to the consensus path and variants.
