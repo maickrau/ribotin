@@ -28,7 +28,7 @@ First you must run a whole genome assembly with [verkko](https://github.com/marb
 bin/ribotin-verkko -i /path/to/verkko/assembly --mbg /path/to/MBG -o output_folder_prefix --guess-clusters-using-reference template_seqs/chm13_rDNAs.fa
 ```
 
-This finds the rDNA clusters based on k-mer matches and assembly graph topology, extracts HiFi reads uniquely assigned to each cluster, and for each cluster builds a graph and a consensus and finds variants supported by at least 3 reads. Results are written per cluster to `output_folder_prefix[x]` where `[x]` is the cluster number.
+This finds the rDNA clusters based on k-mer matches and assembly graph topology, extracts HiFi reads uniquely assigned to each cluster, and for each cluster builds a graph and a consensus and finds variants supported by at least 3 reads. Results are written per cluster to `output_folder_prefix[x]` where `[x]` is the cluster number. You can also add the extra parameter `--guess-clusters-using-reference template_seqs/chm13_mito.fa` to detect the mitochondria and create a consensus sequence of it.
 
 ##### Verkko based (manual):
 
