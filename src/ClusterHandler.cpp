@@ -159,12 +159,14 @@ public:
 	Path() :
 		nodes(),
 		overlaps(),
-		rotateAmount(0)
+		leftClip(0),
+		rightClip(0)
 	{
 	}
 	std::vector<std::string> nodes;
 	std::vector<size_t> overlaps;
-	size_t rotateAmount;
+	size_t leftClip;
+	size_t rightClip;
 	std::string getSequence(const std::unordered_map<std::string, std::string>& nodeSeqs) const
 	{
 		std::string result;
@@ -180,23 +182,10 @@ public:
 			{
 				assert(nodes[i][0] == '>');
 			}
-			if (i == 0)
-			{
-				add = add.substr(rotateAmount);
-			}
-			if (i != nodes.size()-1)
-			{
-				assert(add.size() >= overlaps[i+1]);
-				add = add.substr(0, add.size() - overlaps[i+1]);
-			}
-			else
-			{
-				assert(overlaps[0] >= rotateAmount);
-				assert(add.size() >= overlaps[0] - rotateAmount);
-				add = add.substr(0, add.size() - overlaps[0] + rotateAmount);
-			}
+			if (i > 0) add = add.substr(overlaps[i]);
 			result += add;
 		}
+		result = result.substr(leftClip, result.size() - leftClip - rightClip);
 		return result;
 	}
 };
@@ -214,11 +203,11 @@ std::string getPathGaf(const Path& path, const GfaGraph& graph)
 		result += node;
 	}
 	result += "\t";
-	result += std::to_string(pathseq.size() + path.overlaps[0]);
+	result += std::to_string(pathseq.size() + path.leftClip + path.rightClip);
 	result += "\t";
-	result += std::to_string(path.rotateAmount);
+	result += std::to_string(path.leftClip);
 	result += "\t";
-	result += std::to_string(pathseq.size() + path.rotateAmount);
+	result += std::to_string(pathseq.size() + path.leftClip);
 	result += "\t";
 	result += std::to_string(pathseq.size());
 	result += "\t";
@@ -297,6 +286,8 @@ Path getHeavyPath(const GfaGraph& graph)
 		}
 	}
 	assert(result.overlaps.size() == result.nodes.size());
+	result.leftClip = 0;
+	result.rightClip = result.overlaps[0];
 	return result;
 }
 
@@ -667,7 +658,17 @@ Path orientPath(const GfaGraph& graph, const Path& rawPath, const std::string& o
 		result2.overlaps.insert(result2.overlaps.end(), result.overlaps.begin(), result.overlaps.begin() + rotateNodes);
 		result = result2;
 	}
-	result.rotateAmount = extraRotate;
+	result.leftClip = extraRotate;
+	if (result.overlaps[0] <= result.leftClip)
+	{
+		result.nodes.push_back(result.nodes[0]);
+		result.overlaps.push_back(result.overlaps[0]);
+		result.rightClip = graph.nodeSeqs.at(result.nodes.back().substr(1)).size() - extraRotate;
+	}
+	else
+	{
+		result.rightClip = result.overlaps[0] - result.leftClip;
+	}
 	return result;
 }
 
