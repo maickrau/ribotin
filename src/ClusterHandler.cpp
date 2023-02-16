@@ -217,7 +217,7 @@ std::string getPathGaf(const Path& path, const GfaGraph& graph)
 	result += "\t";
 	result += std::to_string(path.rotateAmount);
 	result += "\t";
-	result += std::to_string(pathseq.size() - path.overlaps[0] + path.rotateAmount);
+	result += std::to_string(pathseq.size() + path.rotateAmount);
 	result += "\t";
 	result += std::to_string(pathseq.size());
 	result += "\t";
