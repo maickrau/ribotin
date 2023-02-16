@@ -180,17 +180,19 @@ public:
 			{
 				assert(nodes[i][0] == '>');
 			}
-			if (i > 0)
-			{
-				add = add.substr(overlaps[i]);
-			}
-			else if (i == 0)
+			if (i == 0)
 			{
 				add = add.substr(rotateAmount);
 			}
-			if (i == nodes.size()-1)
+			if (i != nodes.size()-1)
 			{
-				add = add.substr(0, add.size() - overlaps[0] + rotateAmount);
+				assert(add.size() >= overlaps[i+1]);
+				add = add.substr(0, add.size() - overlaps[i+1]);
+			}
+			else
+			{
+				assert(add.size() >= overlaps[0]);
+				add = add.substr(0, add.size() - overlaps[0]);
 			}
 			result += add;
 		}
