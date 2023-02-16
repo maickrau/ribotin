@@ -156,8 +156,15 @@ public:
 class Path
 {
 public:
+	Path() :
+		nodes(),
+		overlaps(),
+		rotateAmount(0)
+	{
+	}
 	std::vector<std::string> nodes;
 	std::vector<size_t> overlaps;
+	size_t rotateAmount;
 	std::string getSequence(const std::unordered_map<std::string, std::string>& nodeSeqs) const
 	{
 		std::string result;
@@ -173,7 +180,18 @@ public:
 			{
 				assert(nodes[i][0] == '>');
 			}
-			add = add.substr(overlaps[i]);
+			if (i > 0)
+			{
+				add = add.substr(overlaps[i]);
+			}
+			else if (i == 0)
+			{
+				add = add.substr(rotateAmount);
+			}
+			if (i == nodes.size()-1)
+			{
+				add = add.substr(0, add.size() - overlaps[0] + rotateAmount);
+			}
 			result += add;
 		}
 		return result;
@@ -193,13 +211,11 @@ std::string getPathGaf(const Path& path, const GfaGraph& graph)
 		result += node;
 	}
 	result += "\t";
-	result += std::to_string(pathseq.size());
-	result += std::to_string(path.overlaps[0]);
+	result += std::to_string(pathseq.size() + path.overlaps[0]);
 	result += "\t";
-	result += std::to_string(path.overlaps[0]);
+	result += std::to_string(path.rotateAmount);
 	result += "\t";
-	result += std::to_string(pathseq.size());
-	result += std::to_string(path.overlaps[0]);
+	result += std::to_string(pathseq.size() - path.overlaps[0] + path.rotateAmount);
 	result += "\t";
 	result += std::to_string(pathseq.size());
 	result += "\t";
@@ -590,8 +606,8 @@ Path orientPath(const GfaGraph& graph, const Path& rawPath, const std::string& o
 		}
 	}
 	std::string pathSeq = result.getSequence(graph.nodeSeqs);
-	// todo: this does not work in general due to spurious k-mer hits, but seems to be good enough for not?
-	// should do chaining between matches and pick smallest from them
+	// todo: this does not work in general due to spurious k-mer hits, but seems to be good enough for now?
+	// should instead do chaining between matches and pick leftmost ref pos from them
 	std::pair<size_t, size_t> minMatchPos { std::numeric_limits<size_t>::max(), std::numeric_limits<size_t>::max() };
 	for (size_t i = 0; i < pathSeq.size() - k; i++)
 	{
@@ -606,6 +622,7 @@ Path orientPath(const GfaGraph& graph, const Path& rawPath, const std::string& o
 		}
 	}
 	assert(minMatchPos.first != std::numeric_limits<size_t>::max());
+	std::cerr << minMatchPos.first << " " << minMatchPos.second << std::endl;
 	size_t rotatePosition = 0;
 	if (minMatchPos.first >= minMatchPos.second)
 	{
@@ -616,21 +633,24 @@ Path orientPath(const GfaGraph& graph, const Path& rawPath, const std::string& o
 		assert(pathSeq.size() + minMatchPos.first >= minMatchPos.second);
 		rotatePosition = pathSeq.size() + minMatchPos.first - minMatchPos.second;
 	}
-	size_t rotateNodes = std::numeric_limits<size_t>::max();
+	size_t rotateNodes = 0;
 	size_t pos = 0;
-	for (size_t i = 0; i < result.nodes.size(); i++)
+	size_t extraRotate = 0;
+	for (size_t i = 1; i < result.nodes.size(); i++)
 	{
-		if (pos + graph.nodeSeqs.at(result.nodes[i].substr(1)).size() > rotatePosition)
+		pos += graph.nodeSeqs.at(result.nodes[i-1].substr(1)).size();
+		pos -= result.overlaps[i];
+		if (pos > rotatePosition)
 		{
-			rotateNodes = i;
 			break;
 		}
-		pos += graph.nodeSeqs.at(result.nodes[i].substr(1)).size();
-		if (i > 0) pos -= result.overlaps[i];
+		rotateNodes = i;
+		assert(rotatePosition >= pos);
+		extraRotate = rotatePosition - pos;
 	}
 	assert(rotateNodes != std::numeric_limits<size_t>::max());
 	assert(rotateNodes < result.nodes.size());
-	std::cerr << "rotate by " << rotateNodes << " nodes" << std::endl;
+	std::cerr << "rotate by " << rotateNodes << " nodes and " << extraRotate << " base pairs" << std::endl;
 	if (rotateNodes != 0)
 	{
 		Path result2;
@@ -640,6 +660,7 @@ Path orientPath(const GfaGraph& graph, const Path& rawPath, const std::string& o
 		result2.overlaps.insert(result2.overlaps.end(), result.overlaps.begin(), result.overlaps.begin() + rotateNodes);
 		result = result2;
 	}
+	result.rotateAmount = extraRotate;
 	return result;
 }
 
