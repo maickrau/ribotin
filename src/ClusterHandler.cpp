@@ -627,7 +627,6 @@ Path orientPath(const GfaGraph& graph, const Path& rawPath, const std::string& o
 		}
 	}
 	assert(minMatchPos.first != std::numeric_limits<size_t>::max());
-	std::cerr << minMatchPos.first << " " << minMatchPos.second << std::endl;
 	size_t rotatePosition = 0;
 	if (minMatchPos.first >= minMatchPos.second)
 	{
