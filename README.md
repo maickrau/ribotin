@@ -15,17 +15,17 @@ Also needs [MBG](https://github.com/maickrau/MBG) version 1.0.13 or more recent.
 ##### Reference based:
 
 ```
-bin/ribotin-ref -r reference.fa -o output_folder --mbg /path/to/MBG -i hifi_reads1.fa -i hifi_reads2.fq.gz
+bin/ribotin-ref -r template_seqs/chm13_rDNAs.fa -o output_folder --mbg /path/to/MBG -i hifi_reads1.fa -i hifi_reads2.fq.gz --orient-by-reference template_seqs/rDNA_one_unit.fasta
 ```
 
-This extracts rDNA-specific reads based on k-mer matches to `reference.fa`, builds a graph and a consensus, and finds variants supported by at least 3 reads. Results are written to `output_folder`.
+This extracts rDNA-specific reads based on k-mer matches to `template_seqs/chm13_rDNAs.fa`, builds a graph and a consensus, and finds variants supported by at least 3 reads. Results are written to `output_folder`.
 
 ##### Verkko based (automatic):
 
 First you must run a whole genome assembly with [verkko](https://github.com/marbl/verkko). Then run:
 
 ```
-bin/ribotin-verkko -i /path/to/verkko/assembly --mbg /path/to/MBG -o output_folder_prefix --guess-clusters-using-reference template_seqs/chm13_rDNAs.fa
+bin/ribotin-verkko -i /path/to/verkko/assembly --mbg /path/to/MBG -o output_folder_prefix --guess-clusters-using-reference template_seqs/chm13_rDNAs.fa --orient-by-reference template_seqs/rDNA_one_unit.fasta
 ```
 
 This finds the rDNA clusters based on k-mer matches and assembly graph topology, extracts HiFi reads uniquely assigned to each cluster, and for each cluster builds a graph and a consensus and finds variants supported by at least 3 reads. Results are written per cluster to `output_folder_prefix[x]` where `[x]` is the cluster number. You can also add the extra parameter `--guess-clusters-using-reference template_seqs/chm13_mito.fa` to detect the mitochondria and create a consensus sequence of it.
@@ -35,7 +35,7 @@ This finds the rDNA clusters based on k-mer matches and assembly graph topology,
 First you must run a whole genome assembly with [verkko](https://github.com/marbl/verkko). Then manually pick the nodes in each rDNA cluster from `assembly.homopolymer-compressed.noseq.gfa`, and save them to files with one cluster per file eg `node_cluster1.txt`, `node_cluster2.txt`, `node_cluster3.txt`. Format of the node cluster files should be eg `utig4-1 utig4-2 utig4-3...` or `utig4-1, utig4-2, utig4-3...` or each node in its own line. Then run:
 
 ```
-bin/ribotin-verkko -i /path/to/verkko/assembly --mbg /path/to/MBG -o output_folder_prefix -c node_cluster1.txt -c node_cluster2.txt -c node_cluster3.txt
+bin/ribotin-verkko -i /path/to/verkko/assembly --mbg /path/to/MBG -o output_folder_prefix -c node_cluster1.txt -c node_cluster2.txt -c node_cluster3.txt --orient-by-reference template_seqs/rDNA_one_unit.fasta
 ```
 
 This extracts HiFi reads uniquely assigned to each node cluster, and for each cluster builds a graph and a consensus and finds variants supported by at least 3 reads. Results are written per cluster to `output_folder_prefix[x]` where `[x]` is the cluster number.
@@ -49,11 +49,10 @@ The output folder will contain several files:
 - `graph.gfa`: de Bruijn graph of the reads.
 - `paths.gaf`: Paths of the hifi reads in `graph.gfa`.
 - `consensus.fa`: Consensus sequence.
-- `consensus_path.gaf`: Path of the consensus sequence in `graph.gfa`.
+- `consensus_path.gaf`: Path of `consensus.fa` in `graph.gfa`.
 - `variants.txt`: A list of variants supported by at least 3 reads. Format is: variant path, reference path, variant read support, reference read support.
-- `variant-graph.gfa`: The graph filtered only to the consensus path and variants.
+- `variant-graph.gfa`: `graph.gfa` filtered only to the consensus path and the variant paths in `variants.txt`.
 
 #### Todo
 
-- flip and rotate the consensus to match reference orientation
 - useful variant output
