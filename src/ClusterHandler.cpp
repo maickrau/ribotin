@@ -592,6 +592,11 @@ Path orientPath(const GfaGraph& graph, const Path& rawPath, const std::string& o
 			uint64_t hash = std::hash<std::string>{}(reverseSeq.substr(i, k));
 			if (kmerReferencePosition.count(hash) == 1) bwMatches += 1; // no need to check if the hash is unique, it's still valid for orientation
 		}
+		if (fwMatches == 0 && bwMatches == 0)
+		{
+			std::cerr << "Can't be matched to the reference!" << std::endl;
+			return rawPath;
+		}
 		if (bwMatches > fwMatches)
 		{
 			std::cerr << "reverse complement" << std::endl;
