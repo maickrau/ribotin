@@ -191,8 +191,9 @@ public:
 			}
 			else
 			{
-				assert(add.size() >= overlaps[0]);
-				add = add.substr(0, add.size() - overlaps[0]);
+				assert(overlaps[0] >= rotateAmount);
+				assert(add.size() >= overlaps[0] - rotateAmount);
+				add = add.substr(0, add.size() - overlaps[0] + rotateAmount);
 			}
 			result += add;
 		}
