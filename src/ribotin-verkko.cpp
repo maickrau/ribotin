@@ -78,6 +78,7 @@ int main(int argc, char** argv)
 		("o,out", "Output folder prefix", cxxopts::value<std::string>()->default_value("./result"))
 		("c,cluster", "Input files for node clusters. Multiple files may be inputed with -c file1.txt -c file2.txt ... (required)", cxxopts::value<std::vector<std::string>>())
 		("guess-clusters-using-reference", "Guess the rDNA clusters using k-mer matches to given reference sequence (required)", cxxopts::value<std::vector<std::string>>())
+		("orient-by-reference", "Rotate and possibly reverse complement the consensus to match the orientation of the given reference", cxxopts::value<std::string>())
 		("mbg", "MBG path (required)", cxxopts::value<std::string>())
 		("k", "k-mer size", cxxopts::value<size_t>()->default_value("101"))
 	;
@@ -127,6 +128,8 @@ int main(int argc, char** argv)
 	std::string outputPrefix = params["o"].as<std::string>();
 	size_t k = params["k"].as<size_t>();
 	std::cerr << "output prefix: " << outputPrefix << std::endl;
+	std::string orientReferencePath;
+	if (params.count("orient-by-reference") == 1) orientReferencePath = params["orient-by-reference"].as<std::string>();
 	std::vector<std::vector<std::string>> clusterNodes;
 	if (params.count("c") == 1)
 	{
@@ -169,7 +172,7 @@ int main(int argc, char** argv)
 			continue;
 		}
 		std::cerr << "running cluster " << i << " in folder " << outputPrefix + std::to_string(i) << std::endl;
-		HandleCluster(outputPrefix + std::to_string(i), outputPrefix + std::to_string(i) + "/reads.fa", MBGPath, k);
+		HandleCluster(outputPrefix + std::to_string(i), outputPrefix + std::to_string(i) + "/reads.fa", MBGPath, k, orientReferencePath);
 	}
 	if (clustersWithoutReads.size() > 0)
 	{

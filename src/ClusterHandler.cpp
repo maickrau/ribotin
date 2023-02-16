@@ -12,6 +12,7 @@
 #include <vector>
 #include <algorithm>
 #include <sstream>
+#include "fastqloader.h"
 #include "ClusterHandler.h"
 
 std::string revcomp(std::string seq)
@@ -541,7 +542,108 @@ void writeVariantGraph(std::string graphFileName, const Path& heavyPath, const s
 	}
 }
 
-void HandleCluster(std::string basePath, std::string readPath, std::string MBGPath, size_t k)
+Path orientPath(const GfaGraph& graph, const Path& rawPath, const std::string& orientReferencePath, size_t k)
+{
+	Path result = rawPath;
+	std::unordered_map<uint64_t, size_t> kmerReferencePosition;
+	FastQ::streamFastqFromFile(orientReferencePath, false, [&kmerReferencePosition, k](FastQ& fastq)
+	{
+		for (size_t i = 0; i < fastq.sequence.size()-k; i++)
+		{
+			uint64_t hash = std::hash<std::string>{}(fastq.sequence.substr(i, k));
+			if (kmerReferencePosition.count(hash) == 1)
+			{
+				kmerReferencePosition[hash] = std::numeric_limits<size_t>::max();
+			}
+			else
+			{
+				kmerReferencePosition[hash] = i;
+			}
+		}
+	});
+	{
+		std::string pathSeq = result.getSequence(graph.nodeSeqs);
+		std::string reverseSeq = revcomp(pathSeq);
+		size_t fwMatches = 0;
+		size_t bwMatches = 0;
+		for (size_t i = 0; i < pathSeq.size() - k; i++)
+		{
+			uint64_t hash = std::hash<std::string>{}(pathSeq.substr(i, k));
+			if (kmerReferencePosition.count(hash) == 1) fwMatches += 1; // no need to check if the hash is unique, it's still valid for orientation
+		}
+		for (size_t i = 0; i < reverseSeq.size() - k; i++)
+		{
+			uint64_t hash = std::hash<std::string>{}(reverseSeq.substr(i, k));
+			if (kmerReferencePosition.count(hash) == 1) bwMatches += 1; // no need to check if the hash is unique, it's still valid for orientation
+		}
+		if (bwMatches > fwMatches)
+		{
+			std::cerr << "reverse complement" << std::endl;
+			std::reverse(result.nodes.begin(), result.nodes.end());
+			for (size_t i = 0; i < result.nodes.size(); i++)
+			{
+				result.nodes[i] = reverse(result.nodes[i]);
+			}
+			std::reverse(result.overlaps.begin(), result.overlaps.end());
+			result.overlaps.insert(result.overlaps.begin(), result.overlaps.back());
+			result.overlaps.pop_back();
+		}
+	}
+	std::string pathSeq = result.getSequence(graph.nodeSeqs);
+	// todo: this does not work in general due to spurious k-mer hits, but seems to be good enough for not?
+	// should do chaining between matches and pick smallest from them
+	std::pair<size_t, size_t> minMatchPos { std::numeric_limits<size_t>::max(), std::numeric_limits<size_t>::max() };
+	for (size_t i = 0; i < pathSeq.size() - k; i++)
+	{
+		uint64_t hash = std::hash<std::string>{}(pathSeq.substr(i, k));
+		if (kmerReferencePosition.count(hash) == 0) continue;
+		auto refPos = kmerReferencePosition.at(hash);
+		if (refPos == std::numeric_limits<size_t>::max()) continue;
+		if (refPos < minMatchPos.second)
+		{
+			minMatchPos.first = i;
+			minMatchPos.second = refPos;
+		}
+	}
+	assert(minMatchPos.first != std::numeric_limits<size_t>::max());
+	size_t rotatePosition = 0;
+	if (minMatchPos.first >= minMatchPos.second)
+	{
+		rotatePosition = minMatchPos.first - minMatchPos.second;
+	}
+	else
+	{
+		assert(pathSeq.size() + minMatchPos.first >= minMatchPos.second);
+		rotatePosition = pathSeq.size() + minMatchPos.first - minMatchPos.second;
+	}
+	size_t rotateNodes = std::numeric_limits<size_t>::max();
+	size_t pos = 0;
+	for (size_t i = 0; i < result.nodes.size(); i++)
+	{
+		if (pos + graph.nodeSeqs.at(result.nodes[i].substr(1)).size() > rotatePosition)
+		{
+			rotateNodes = i;
+			break;
+		}
+		pos += graph.nodeSeqs.at(result.nodes[i].substr(1)).size();
+		if (i > 0) pos -= result.overlaps[i];
+	}
+	assert(rotateNodes != std::numeric_limits<size_t>::max());
+	assert(rotateNodes < result.nodes.size());
+	std::cerr << "rotate by " << rotateNodes << " nodes" << std::endl;
+	if (rotateNodes != 0)
+	{
+		Path result2;
+		result2.nodes.insert(result2.nodes.end(), result.nodes.begin() + rotateNodes, result.nodes.end());
+		result2.nodes.insert(result2.nodes.end(), result.nodes.begin(), result.nodes.begin() + rotateNodes);
+		result2.overlaps.insert(result2.overlaps.end(), result.overlaps.begin() + rotateNodes, result.overlaps.end());
+		result2.overlaps.insert(result2.overlaps.end(), result.overlaps.begin(), result.overlaps.begin() + rotateNodes);
+		result = result2;
+	}
+	return result;
+}
+
+void HandleCluster(std::string basePath, std::string readPath, std::string MBGPath, size_t k, std::string orientReferencePath)
 {
 	std::cerr << "running MBG" << std::endl;
 	runMBG(basePath, readPath, MBGPath, k);
@@ -550,6 +652,11 @@ void HandleCluster(std::string basePath, std::string readPath, std::string MBGPa
 	graph.loadFromFile(basePath + "/graph.gfa");
 	std::cerr << "getting consensus" << std::endl;
 	Path heavyPath = getHeavyPath(graph);
+	if (orientReferencePath.size() > 0)
+	{
+		std::cerr << "orienting consensus" << std::endl;
+		heavyPath = orientPath(graph, heavyPath, orientReferencePath, 101);
+	}
 	std::cerr << "writing consensus" << std::endl;
 	writePathSequence(heavyPath, graph, basePath + "/consensus.fa");
 	writePathGaf(heavyPath, graph, basePath + "/consensus_path.gaf");
