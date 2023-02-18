@@ -24,6 +24,7 @@ template <typename F>
 void findSyncmerPositions(const std::string& sequence, size_t kmerSize, size_t smerSize, std::vector<std::tuple<size_t, uint64_t>>& smerOrder, F callback)
 {
 	if (sequence.size() < kmerSize) return;
+	assert(smerOrder.size() == 0);
 	assert(smerSize <= kmerSize);
 	size_t windowSize = kmerSize - smerSize + 1;
 	assert(windowSize >= 1);
@@ -72,6 +73,7 @@ void iterateSyncmersFast(const std::string& seq, const size_t k, const size_t s,
 {
 	static std::vector<std::tuple<size_t, uint64_t>> smerOrder;
 	std::vector<size_t> startPoses;
+	smerOrder.clear();
 	findSyncmerPositions(seq, k, s, smerOrder, [&startPoses](size_t pos) { startPoses.push_back(pos); });
 	FastHasher fwkmerHasher { k };
 	for (size_t i = 0; i < k; i++)
