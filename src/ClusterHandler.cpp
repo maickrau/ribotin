@@ -410,8 +410,11 @@ std::vector<std::string> getReferenceAllele(const Path& heavyPath, const std::st
 	{
 		result.insert(result.end(), heavyPath.nodes.begin() + startIndex, heavyPath.nodes.end());
 		assert(result.size() >= 1);
-		assert(result.back() == heavyPath.nodes[0]);
-		result.pop_back();
+		if (heavyPath.nodes[0] == heavyPath.nodes.back())
+		{
+			assert(result.back() == heavyPath.nodes[0]);
+			result.pop_back();
+		}
 		result.insert(result.end(), heavyPath.nodes.begin(), heavyPath.nodes.begin() + endIndex + 1);
 	}
 	return result;
