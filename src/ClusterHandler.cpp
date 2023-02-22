@@ -91,10 +91,16 @@ public:
 class Variant
 {
 public:
+	Variant() = default;
+	std::string name;
 	std::vector<std::string> path;
 	std::vector<std::string> referencePath;
 	size_t coverage;
 	size_t referenceCoverage;
+	size_t referenceStartPos;
+	size_t referenceEndPos;
+	std::string variantSeq;
+	std::string referenceSeq;
 };
 
 class GfaGraph
@@ -189,6 +195,37 @@ public:
 		return result;
 	}
 };
+
+std::string getSequence(const std::vector<std::string>& nodes, const std::unordered_map<std::string, std::string>& nodeSeqs, const std::unordered_map<std::string, std::set<std::tuple<std::string, size_t, size_t>>>& edges)
+{
+	std::string result;
+	for (size_t i = 0; i < nodes.size(); i++)
+	{
+		std::string add = nodeSeqs.at(nodes[i].substr(1));
+		if (nodes[i][0] == '<')
+		{
+			add = revcomp(add);
+		}
+		else
+		{
+			assert(nodes[i][0] == '>');
+		}
+		if (i > 0)
+		{
+			size_t overlap = std::numeric_limits<size_t>::max();
+			for (auto edge : edges.at(nodes[i-1]))
+			{
+				if (std::get<0>(edge) != nodes[i]) continue;
+				assert(overlap == std::numeric_limits<size_t>::max());
+				overlap = std::get<1>(edge);
+			}
+			assert(overlap != std::numeric_limits<size_t>::max());
+			add = add.substr(overlap);
+		}
+		result += add;
+	}
+	return result;
+}
 
 std::string getPathGaf(const Path& path, const GfaGraph& graph)
 {
@@ -468,6 +505,7 @@ void writeVariants(const Path& heavyPath, const GfaGraph& graph, const std::vect
 	std::ofstream file { filename };
 	for (const auto& variant : variants)
 	{
+		file << variant.name << "\t";
 		for (const auto& node : variant.path)
 		{
 			file << node;
@@ -477,7 +515,8 @@ void writeVariants(const Path& heavyPath, const GfaGraph& graph, const std::vect
 		{
 			file << node;
 		}
-		file << "\t" << variant.coverage << "\t" << variant.referenceCoverage << std::endl;
+		file << "\t" << variant.coverage << "\t" << variant.referenceCoverage;
+		file << "\t" << variant.referenceSeq << "\t" << variant.variantSeq << std::endl;
 	}
 }
 
@@ -672,6 +711,98 @@ Path orientPath(const GfaGraph& graph, const Path& rawPath, const std::string& o
 	return result;
 }
 
+void nameVariants(std::vector<Variant>& variants, const GfaGraph& graph, const Path& heavyPath)
+{
+	size_t pathLength = heavyPath.getSequence(graph.nodeSeqs).size();
+	for (size_t variant = 0; variant < variants.size(); variant++)
+	{
+		std::string startNode = variants[variant].referencePath[0];
+		std::string endNode = variants[variant].referencePath.back();
+		size_t startIndex = std::numeric_limits<size_t>::max();
+		size_t endIndex = std::numeric_limits<size_t>::max();
+		size_t startPos = std::numeric_limits<size_t>::max();
+		size_t endPos = std::numeric_limits<size_t>::max();
+		size_t pathPos = 0;
+		for (size_t i = 0; i < heavyPath.nodes.size(); i++)
+		{
+			if (i > 0)
+			{
+				pathPos += graph.nodeSeqs.at(heavyPath.nodes[i-1].substr(1)).size() - heavyPath.overlaps[i];
+			}
+			if (i == heavyPath.nodes.size()-1 && heavyPath.nodes[0] == heavyPath.nodes.back()) break;
+			if (heavyPath.nodes[i] == startNode)
+			{
+				startIndex = i;
+				startPos = pathPos;
+			}
+			if (heavyPath.nodes[i] == endNode)
+			{
+				endIndex = i;
+				endPos = pathPos + graph.nodeSeqs.at(heavyPath.nodes[i].substr(1)).size();
+			}
+		}
+		assert(startIndex != std::numeric_limits<size_t>::max());
+		assert(endIndex != std::numeric_limits<size_t>::max());
+		if (startPos >= heavyPath.leftClip)
+		{
+			variants[variant].referenceStartPos = startPos - heavyPath.leftClip;
+		}
+		else
+		{
+			variants[variant].referenceStartPos = pathLength + startPos - heavyPath.leftClip;
+		}
+		if (endPos >= heavyPath.leftClip)
+		{
+			variants[variant].referenceEndPos = endPos - heavyPath.leftClip;
+		}
+		else
+		{
+			variants[variant].referenceEndPos = pathLength + endPos - heavyPath.leftClip;
+		}
+		std::string referenceSeq = getSequence(variants[variant].referencePath, graph.nodeSeqs, graph.edges);
+		std::string variantSeq = getSequence(variants[variant].path, graph.nodeSeqs, graph.edges);
+		assert(variants[variant].referenceEndPos < variants[variant].referenceStartPos || referenceSeq.size() == variants[variant].referenceEndPos - variants[variant].referenceStartPos);
+		assert(variants[variant].referenceEndPos > variants[variant].referenceStartPos || referenceSeq.size() == pathLength + variants[variant].referenceEndPos - variants[variant].referenceStartPos);
+		size_t leftClip = 0;
+		size_t rightClip = 0;
+		if (graph.nodeSeqs.at(variants[variant].referencePath[0].substr(1)).size()+graph.nodeSeqs.at(variants[variant].referencePath.back().substr(1)).size()+2 >= referenceSeq.size())
+		{
+			while (leftClip < variantSeq.size() && leftClip < referenceSeq.size() && leftClip < graph.nodeSeqs.at(variants[variant].referencePath[0].substr(1)).size() && variantSeq[leftClip] == referenceSeq[leftClip]) leftClip += 1;
+			while (rightClip < variantSeq.size() && rightClip < referenceSeq.size() && rightClip < graph.nodeSeqs.at(variants[variant].referencePath.back().substr(1)).size() && variantSeq[variantSeq.size()-1-rightClip] == referenceSeq[referenceSeq.size()-1-rightClip]) rightClip += 1;
+			assert(leftClip == graph.nodeSeqs.at(variants[variant].referencePath[0].substr(1)).size());
+			assert(rightClip == graph.nodeSeqs.at(variants[variant].referencePath.back().substr(1)).size());
+		}
+		while (leftClip < variantSeq.size() && leftClip < referenceSeq.size() && variantSeq[leftClip] == referenceSeq[leftClip]) leftClip += 1;
+		while (leftClip + rightClip < variantSeq.size() && leftClip + rightClip < referenceSeq.size() && variantSeq[variantSeq.size()-1-rightClip] == referenceSeq[referenceSeq.size()-1-rightClip]) rightClip += 1;
+		variants[variant].variantSeq = variantSeq.substr(leftClip, variantSeq.size()-leftClip-rightClip);
+		variants[variant].referenceSeq = referenceSeq.substr(leftClip, referenceSeq.size()-leftClip-rightClip);
+		if (variants[variant].variantSeq.size() == 0) variants[variant].variantSeq = ".";
+		if (variants[variant].referenceSeq.size() == 0) variants[variant].referenceSeq = ".";
+		if (variants[variant].referenceStartPos + leftClip < pathLength)
+		{
+			variants[variant].referenceStartPos += leftClip;
+		}
+		else
+		{
+			variants[variant].referenceStartPos += leftClip;
+			variants[variant].referenceStartPos -= pathLength;
+		}
+		if (variants[variant].referenceEndPos >= rightClip)
+		{
+			variants[variant].referenceEndPos -= rightClip;
+		}
+		else
+		{
+			variants[variant].referenceEndPos = pathLength + variants[variant].referenceEndPos - rightClip;
+		}
+	}
+	std::sort(variants.begin(), variants.end(), [](const Variant& left, const Variant& right) { return left.referenceStartPos < right.referenceStartPos; });
+	for (size_t variant = 0; variant < variants.size(); variant++)
+	{
+		variants[variant].name = "var" + std::to_string(variant) + "_" + std::to_string(variants[variant].referenceStartPos) + "_" + std::to_string(variants[variant].referenceEndPos);
+	}
+}
+
 void HandleCluster(std::string basePath, std::string readPath, std::string MBGPath, size_t k, std::string orientReferencePath)
 {
 	std::cerr << "running MBG" << std::endl;
@@ -693,7 +824,7 @@ void HandleCluster(std::string basePath, std::string readPath, std::string MBGPa
 	std::vector<ReadPath> readPaths = loadReadPaths(basePath + "/paths.gaf");
 	std::cerr << "getting variants" << std::endl;
 	std::vector<Variant> variants = getVariants(graph, heavyPath, readPaths, 3);
-	std::sort(variants.begin(), variants.end(), [](const Variant& left, const Variant& right) { return left.coverage > right.coverage; });
+	nameVariants(variants, graph, heavyPath);
 	std::cerr << "writing variants" << std::endl;
 	writeVariants(heavyPath, graph, variants, basePath + "/variants.txt");
 	std::cerr << "making variant graph" << std::endl;
