@@ -394,6 +394,7 @@ std::vector<std::string> getReferenceAllele(const Path& heavyPath, const std::st
 	size_t endIndex = heavyPath.nodes.size();
 	for (size_t i = 0; i < heavyPath.nodes.size(); i++)
 	{
+		if (i == heavyPath.nodes.size()-1 && heavyPath.nodes[0] == heavyPath.nodes.back()) continue;
 		if (heavyPath.nodes[i] == startNode) startIndex = i;
 		if (heavyPath.nodes[i] == endNode) endIndex = i;
 	}
@@ -408,6 +409,9 @@ std::vector<std::string> getReferenceAllele(const Path& heavyPath, const std::st
 	else
 	{
 		result.insert(result.end(), heavyPath.nodes.begin() + startIndex, heavyPath.nodes.end());
+		assert(result.size() >= 1);
+		assert(result.back() == heavyPath.nodes[0]);
+		result.pop_back();
 		result.insert(result.end(), heavyPath.nodes.begin(), heavyPath.nodes.begin() + endIndex + 1);
 	}
 	return result;
