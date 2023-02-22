@@ -772,8 +772,13 @@ void nameVariants(std::vector<Variant>& variants, const GfaGraph& graph, const P
 			assert(leftClip == graph.nodeSeqs.at(variants[variant].referencePath[0].substr(1)).size());
 			assert(rightClip == graph.nodeSeqs.at(variants[variant].referencePath.back().substr(1)).size());
 		}
-		while (leftClip < variantSeq.size() && leftClip < referenceSeq.size() && variantSeq[leftClip] == referenceSeq[leftClip]) leftClip += 1;
+		while (leftClip + rightClip < variantSeq.size() && leftClip + rightClip < referenceSeq.size() && variantSeq[leftClip] == referenceSeq[leftClip]) leftClip += 1;
 		while (leftClip + rightClip < variantSeq.size() && leftClip + rightClip < referenceSeq.size() && variantSeq[variantSeq.size()-1-rightClip] == referenceSeq[referenceSeq.size()-1-rightClip]) rightClip += 1;
+		if (leftClip + rightClip == variantSeq.size() || leftClip + rightClip == referenceSeq.size())
+		{
+			assert(leftClip >= 1);
+			leftClip -= 1;
+		}
 		variants[variant].variantSeq = variantSeq.substr(leftClip, variantSeq.size()-leftClip-rightClip);
 		variants[variant].referenceSeq = referenceSeq.substr(leftClip, referenceSeq.size()-leftClip-rightClip);
 		if (variants[variant].variantSeq.size() == 0) variants[variant].variantSeq = ".";
@@ -803,6 +808,20 @@ void nameVariants(std::vector<Variant>& variants, const GfaGraph& graph, const P
 	}
 }
 
+void writeVariantVCF(std::string filename, const Path& heavyPath, const GfaGraph& graph, const std::vector<Variant>& variants)
+{
+	size_t pathLength = heavyPath.getSequence(graph.nodeSeqs).size();
+	std::ofstream file { filename };
+	file << "##fileformat=VCFv4.4" << std::endl;
+	file << "##contig=<ID=heavy_path,length=" << pathLength << ">" << std::endl;
+	file << "##INFO=<ID=AD,Number=R,Type=Integer,Description=\"Total read depth for each allele\">" << std::endl;
+	file << "#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO" << std::endl;
+	for (size_t i = 0; i < variants.size(); i++)
+	{
+		file << "heavy_path\t" << variants[i].referenceStartPos << "\t" << variants[i].name << "\t" << variants[i].referenceSeq << "\t" << variants[i].variantSeq << "\t" << "." << "\t" << "AD=" << variants[i].referenceCoverage << "," << variants[i].coverage << std::endl;
+	}
+}
+
 void HandleCluster(std::string basePath, std::string readPath, std::string MBGPath, size_t k, std::string orientReferencePath)
 {
 	std::cerr << "running MBG" << std::endl;
@@ -829,4 +848,6 @@ void HandleCluster(std::string basePath, std::string readPath, std::string MBGPa
 	writeVariants(heavyPath, graph, variants, basePath + "/variants.txt");
 	std::cerr << "making variant graph" << std::endl;
 	writeVariantGraph(basePath + "/graph.gfa", heavyPath, variants, basePath + "/variant-graph.gfa");
+	std::cerr << "writing variant vcf" << std::endl;
+	writeVariantVCF(basePath + "/variants.vcf", heavyPath, graph, variants);
 }
