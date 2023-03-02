@@ -131,7 +131,7 @@ int main(int argc, char** argv)
 	std::string orientReferencePath;
 	if (params.count("orient-by-reference") == 1) orientReferencePath = params["orient-by-reference"].as<std::string>();
 	std::vector<std::vector<std::string>> clusterNodes;
-	if (params.count("c") == 1)
+	if (params.count("c") >= 1)
 	{
 		std::vector<std::string> clusterNodeFiles = params["c"].as<std::vector<std::string>>();
 		std::cerr << "reading nodes per cluster" << std::endl;
