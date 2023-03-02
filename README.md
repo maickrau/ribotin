@@ -1,6 +1,6 @@
 ## ribotin
 
-rDNA consensus sequence builder. Input hifi. Extracts rDNA-specific reads based on k-mer matches to a reference rDNA sequence or based on a [verkko](https://github.com/marbl/verkko) assembly, builds a DBG out of them, extracts the most covered path as a consensus and bubbles as variants.
+rDNA consensus sequence builder. Input hifi or duplex. Extracts rDNA-specific reads based on k-mer matches to a reference rDNA sequence or based on a [verkko](https://github.com/marbl/verkko) assembly, builds a DBG out of them, extracts the most covered path as a consensus and bubbles as variants.
 
 #### Compilation
 
