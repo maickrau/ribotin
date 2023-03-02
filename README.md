@@ -50,9 +50,6 @@ The output folder will contain several files:
 - `paths.gaf`: Paths of the hifi reads in `graph.gfa`.
 - `consensus.fa`: Consensus sequence.
 - `consensus_path.gaf`: Path of `consensus.fa` in `graph.gfa`.
-- `variants.txt`: A list of variants supported by at least 3 reads. Format is: variant path, reference path, variant read support, reference read support.
+- `variants.txt`: A list of variants supported by at least 3 reads. Format is: variant ID, variant path, reference path, variant read support, reference read support, variant sequence, reference sequence.
 - `variant-graph.gfa`: `graph.gfa` filtered only to the consensus path and the variant paths in `variants.txt`.
-
-#### Todo
-
-- useful variant output
+- `variants.vcf`: A list of variants supported by at least 3 reads. Variant IDs match `variants.txt`
