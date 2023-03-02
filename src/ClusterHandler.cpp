@@ -523,7 +523,7 @@ void writeVariants(const Path& heavyPath, const GfaGraph& graph, const std::vect
 			file << node;
 		}
 		file << "\t" << variant.coverage << "\t" << variant.referenceCoverage;
-		file << "\t" << variant.referenceSeq << "\t" << variant.variantSeq << std::endl;
+		file << "\t" << variant.variantSeq << "\t" << variant.referenceSeq << std::endl;
 	}
 }
 
