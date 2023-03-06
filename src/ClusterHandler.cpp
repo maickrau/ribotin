@@ -819,13 +819,13 @@ void writeVariantVCF(std::string filename, const Path& heavyPath, const GfaGraph
 {
 	size_t pathLength = heavyPath.getSequence(graph.nodeSeqs).size();
 	std::ofstream file { filename };
-	file << "##fileformat=VCFv4.4" << std::endl;
+	file << "##fileformat=VCFv4.2" << std::endl;
 	file << "##contig=<ID=heavy_path,length=" << pathLength << ">" << std::endl;
 	file << "##INFO=<ID=AD,Number=R,Type=Integer,Description=\"Total read depth for each allele\">" << std::endl;
 	file << "#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO" << std::endl;
 	for (size_t i = 0; i < variants.size(); i++)
 	{
-		file << "heavy_path\t" << variants[i].referenceStartPos+1 << "\t" << variants[i].name << "\t" << variants[i].referenceSeq << "\t" << variants[i].variantSeq << "\t" << "." << "\t" << "AD=" << variants[i].referenceCoverage << "," << variants[i].coverage << "\t." << std::endl;
+		file << "heavy_path\t" << variants[i].referenceStartPos+1 << "\t" << variants[i].name << "\t" << variants[i].referenceSeq << "\t" << variants[i].variantSeq << "\t" << "." << "\tPASS\t" << "AD=" << variants[i].referenceCoverage << "," << variants[i].coverage << std::endl;
 	}
 }
 
