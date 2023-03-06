@@ -829,6 +829,22 @@ void writeVariantVCF(std::string filename, const Path& heavyPath, const GfaGraph
 	}
 }
 
+void liftoverAnnotationsToConsensus(const std::string& basePath, const std::string& consensusPath, const std::string& annotationFasta, const std::string& annotationGff3)
+{
+	{
+		std::ofstream typefile { basePath + "/liftoff_types.txt" };
+		typefile << "rRNA" << std::endl;
+		typefile << "misc_RNA" << std::endl;
+		typefile << "repeat_region" << std::endl;
+		typefile << "gene" << std::endl;
+		typefile << "pseudogene" << std::endl;
+	}
+	std::string command = "liftoff -f " + basePath + "/liftoff_types.txt -g " + annotationGff3 + " -o " + basePath + "/annotation.gff3 -u " + basePath + "/unmapped_features.txt -dir " + basePath + "/liftoff_intermediate_files/ " + consensusPath + " " + annotationFasta;
+	std::cerr << "running liftoff with command:" << std::endl;
+	std::cerr << command << std::endl;
+	system(command.c_str());
+}
+
 void HandleCluster(const ClusterParams& params)
 {
 	std::cerr << "running MBG" << std::endl;
@@ -857,4 +873,9 @@ void HandleCluster(const ClusterParams& params)
 	writeVariantGraph(params.basePath + "/graph.gfa", heavyPath, variants, params.basePath + "/variant-graph.gfa");
 	std::cerr << "writing variant vcf" << std::endl;
 	writeVariantVCF(params.basePath + "/variants.vcf", heavyPath, graph, variants);
+	if (params.annotationFasta.size() > 0)
+	{
+		std::cerr << "lifting over annotations to consensus" << std::endl;
+		liftoverAnnotationsToConsensus(params.basePath, params.basePath + "/consensus.fa", params.annotationFasta, params.annotationGff3);
+	}
 }

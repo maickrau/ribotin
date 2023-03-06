@@ -1,0 +1,64 @@
+##gff-version 3
+#!gff-spec-version 1.21
+#!processor NCBI annotwriter
+##sequence-region KY962518.1 1 44838
+##species https://www.ncbi.nlm.nih.gov/Taxonomy/Browser/wwwtax.cgi?id=9606
+KY962518.1	Genbank	region	1	44838	.	+	.	ID=KY962518.1:1..44838;Dbxref=taxon:9606;Name=21;chromosome=21;gbkey=Src;genome=genomic;mol_type=genomic DNA
+KY962518.1	Genbank	transcript	1	3657	.	+	.	ID=rna-KY962518.1:1..3657;Note=5'ETS;gbkey=misc_RNA;product=external transcribed spacer
+KY962518.1	Genbank	exon	1	3657	.	+	.	ID=exon-KY962518.1:1..3657-1;Parent=rna-KY962518.1:1..3657;Note=5'ETS;gbkey=misc_RNA;product=external transcribed spacer
+KY962518.1	Genbank	rRNA	3658	5526	.	+	.	ID=rna-KY962518.1:3658..5526;gbkey=rRNA;product=18S ribosomal RNA
+KY962518.1	Genbank	exon	3658	5526	.	+	.	ID=exon-KY962518.1:3658..5526-1;Parent=rna-KY962518.1:3658..5526;gbkey=rRNA;product=18S ribosomal RNA
+KY962518.1	Genbank	transcript	5527	6596	.	+	.	ID=rna-KY962518.1:5527..6596;Note=ITS-1;gbkey=misc_RNA;product=internal transcribed spacer 1
+KY962518.1	Genbank	exon	5527	6596	.	+	.	ID=exon-KY962518.1:5527..6596-1;Parent=rna-KY962518.1:5527..6596;Note=ITS-1;gbkey=misc_RNA;product=internal transcribed spacer 1
+KY962518.1	Genbank	repeat_region	6081	6189	.	+	.	ID=id-KY962518.1:6081..6189;Note=similar to MER45C;gbkey=repeat_region
+KY962518.1	Genbank	rRNA	6597	6753	.	+	.	ID=rna-KY962518.1:6597..6753;gbkey=rRNA;product=5.8S ribosomal RNA
+KY962518.1	Genbank	exon	6597	6753	.	+	.	ID=exon-KY962518.1:6597..6753-1;Parent=rna-KY962518.1:6597..6753;gbkey=rRNA;product=5.8S ribosomal RNA
+KY962518.1	Genbank	transcript	6754	7920	.	+	.	ID=rna-KY962518.1:6754..7920;Note=ITS-2;gbkey=misc_RNA;product=internal transcribed spacer 2
+KY962518.1	Genbank	exon	6754	7920	.	+	.	ID=exon-KY962518.1:6754..7920-1;Parent=rna-KY962518.1:6754..7920;Note=ITS-2;gbkey=misc_RNA;product=internal transcribed spacer 2
+KY962518.1	Genbank	rRNA	7921	12971	.	+	.	ID=rna-KY962518.1:7921..12971;gbkey=rRNA;product=28S ribosomal RNA
+KY962518.1	Genbank	exon	7921	12971	.	+	.	ID=exon-KY962518.1:7921..12971-1;Parent=rna-KY962518.1:7921..12971;gbkey=rRNA;product=28S ribosomal RNA
+KY962518.1	Genbank	transcript	12972	13332	.	+	.	ID=rna-KY962518.1:12972..13332;Note=3'ETS;gbkey=misc_RNA;product=external transcribed spacer
+KY962518.1	Genbank	exon	12972	13332	.	+	.	ID=exon-KY962518.1:12972..13332-1;Parent=rna-KY962518.1:12972..13332;Note=3'ETS;gbkey=misc_RNA;product=external transcribed spacer
+KY962518.1	Genbank	tandem_repeat	13494	15552	.	+	.	ID=id-KY962518.1:13494..15552;Note=Tandem repeat block%3BTR1;gbkey=repeat_region;rpt_type=tandem
+KY962518.1	Genbank	repeat_region	15627	15761	.	-	.	ID=id-KY962518.1:15627..15761;Note=similar to AluSg;gbkey=repeat_region;rpt_family=SINE/Alu
+KY962518.1	Genbank	repeat_region	16099	16205	.	+	.	ID=id-KY962518.1:16099..16205;Note=similar to AluSz6;gbkey=repeat_region;rpt_family=SINE/Alu
+KY962518.1	Genbank	repeat_region	16464	16585	.	-	.	ID=id-KY962518.1:16464..16585;Note=similar to AluJb;gbkey=repeat_region;rpt_family=SINE/Alu
+KY962518.1	Genbank	repeat_region	16709	16823	.	-	.	ID=id-KY962518.1:16709..16823;Note=similar to AluJr;gbkey=repeat_region;rpt_family=SINE/Alu
+KY962518.1	Genbank	repeat_region	16981	17088	.	-	.	ID=id-KY962518.1:16981..17088;Note=similar to AluJb;gbkey=repeat_region;rpt_family=SINE/Alu
+KY962518.1	Genbank	repeat_region	17190	17430	.	-	.	ID=id-KY962518.1:17190..17430;Note=similar to AluSp;gbkey=repeat_region;rpt_family=SINE/Alu
+KY962518.1	Genbank	repeat_region	18735	19023	.	+	.	ID=id-KY962518.1:18735..19023;Note=similar to AluSz;gbkey=repeat_region;rpt_family=SINE/Alu
+KY962518.1	Genbank	repeat_region	19039	19165	.	+	.	ID=id-KY962518.1:19039..19165;Note=similar to AluJb;gbkey=repeat_region;rpt_family=SINE/Alu
+KY962518.1	Genbank	repeat_region	19371	19427	.	-	.	ID=id-KY962518.1:19371..19427;Note=similar to AluJo;gbkey=repeat_region;rpt_family=SINE/Alu
+KY962518.1	Genbank	repeat_region	19496	19650	.	-	.	ID=id-KY962518.1:19496..19650;Note=similar to AluJr;gbkey=repeat_region;rpt_family=SINE/Alu
+KY962518.1	Genbank	repeat_region	19651	19956	.	-	.	ID=id-KY962518.1:19651..19956;Note=similar to AluSp;gbkey=repeat_region;rpt_family=SINE/Alu
+KY962518.1	Genbank	repeat_region	19957	20063	.	-	.	ID=id-KY962518.1:19957..20063;Note=similar to AluJr;gbkey=repeat_region;rpt_family=SINE/Alu
+KY962518.1	Genbank	repeat_region	20639	25081	.	+	.	ID=id-KY962518.1:20639..25081;Note=similar to Long Repeat 1;gbkey=repeat_region;rpt_type=other
+KY962518.1	Genbank	repeat_region	20714	20983	.	+	.	ID=id-KY962518.1:20714..20983;Note=similar to L1PREC2;gbkey=repeat_region;rpt_family=LINE/L1
+KY962518.1	Genbank	repeat_region	21154	21448	.	-	.	ID=id-KY962518.1:21154..21448;Note=similar to AluSz;gbkey=repeat_region;rpt_family=SINE/Alu
+KY962518.1	Genbank	repeat_region	21762	21991	.	+	.	ID=id-KY962518.1:21762..21991;Note=similar to AluSx1;gbkey=repeat_region;rpt_family=SINE/Alu
+KY962518.1	Genbank	repeat_region	22148	24828	.	+	.	ID=id-KY962518.1:22148..24828;Note=Simple sequence Repeat block 1%3B SSR1;gbkey=repeat_region;rpt_type=other
+KY962518.1	Genbank	repeat_region	23778	24009	.	-	.	ID=id-KY962518.1:23778..24009;Note=similar to HERVIP10FH-int;gbkey=repeat_region;rpt_family=LTR/ERV1
+KY962518.1	Genbank	repeat_region	24810	24953	.	+	.	ID=id-KY962518.1:24810..24953;Note=similar to MER39B;gbkey=repeat_region;rpt_family=LTR/ERV1
+KY962518.1	Genbank	repeat_region	25083	29617	.	+	.	ID=id-KY962518.1:25083..29617;Note=Long repeat 2%3B LR2;gbkey=repeat_region;rpt_type=other
+KY962518.1	Genbank	repeat_region	25152	25421	.	+	.	ID=id-KY962518.1:25152..25421;Note=similar to L1PREC2;gbkey=repeat_region;rpt_family=LINE/L1
+KY962518.1	Genbank	repeat_region	25616	25910	.	-	.	ID=id-KY962518.1:25616..25910;Note=similar to AluSz;gbkey=repeat_region;rpt_family=SINE/Alu
+KY962518.1	Genbank	repeat_region	26203	26432	.	+	.	ID=id-KY962518.1:26203..26432;Note=similar to AluSx1;gbkey=repeat_region;rpt_family=SINE/Alu
+KY962518.1	Genbank	repeat_region	26578	29364	.	+	.	ID=id-KY962518.1:26578..29364;Note=Simple sequence repeat block 2%3B SSR2;gbkey=repeat_region;rpt_type=other
+KY962518.1	Genbank	repeat_region	29346	29489	.	+	.	ID=id-KY962518.1:29346..29489;Note=similar to MER39B;gbkey=repeat_region;rpt_family=LTR/ERV1
+KY962518.1	Genbank	repeat_region	29633	29834	.	+	.	ID=id-KY962518.1:29633..29834;Note=similar to AluSx1;gbkey=repeat_region;rpt_family=SINE/Alu
+KY962518.1	Genbank	repeat_region	31195	32422	.	+	.	ID=id-KY962518.1:31195..32422;Note=Simple sequence repeat block 3%3B SSR3;gbkey=repeat_region;rpt_type=other
+KY962518.1	Genbank	repeat_region	32819	32931	.	-	.	ID=id-KY962518.1:32819..32931;Note=similar to L1MD;gbkey=repeat_region;rpt_family=LINE/L1
+KY962518.1	Genbank	repeat_region	33747	33869	.	-	.	ID=id-KY962518.1:33747..33869;Note=similar to AluSx3;gbkey=repeat_region;rpt_family=SINE/Alu
+KY962518.1	Genbank	repeat_region	34767	35073	.	-	.	ID=id-KY962518.1:34767..35073;Note=similar to AluSc;gbkey=repeat_region;rpt_family=SINE/Alu
+KY962518.1	Genbank	pseudogene	35760	37737	.	+	.	ID=gene-KY962518.1:35760..37737;Note=similar to INSD accession U00001;description=CDC27-like protein;gbkey=Gene;gene_biotype=pseudogene;pseudo=true
+KY962518.1	Genbank	repeat_region	37265	37349	.	-	.	ID=id-KY962518.1:37265..37349;Note=similar to OldhAT1;gbkey=repeat_region;rpt_family=DNA/hAT-Ac
+KY962518.1	Genbank	repeat_region	38349	38517	.	+	.	ID=id-KY962518.1:38349..38517;Note=similar to AluJb;gbkey=repeat_region;rpt_family=SINE/Alu
+KY962518.1	Genbank	repeat_region	38613	38911	.	-	.	ID=id-KY962518.1:38613..38911;Note=similar to AluSp;gbkey=repeat_region;rpt_family=SINE/Alu
+KY962518.1	Genbank	repeat_region	39002	39311	.	-	.	ID=id-KY962518.1:39002..39311;Note=similar to AluY;gbkey=repeat_region;rpt_family=SINE/Alu
+KY962518.1	Genbank	repeat_region	39376	39495	.	-	.	ID=id-KY962518.1:39376..39495;Note=similar to FLAM_C;gbkey=repeat_region;rpt_family=SINE/Alu
+KY962518.1	Genbank	repeat_region	40435	40736	.	+	.	ID=id-KY962518.1:40435..40736;Note=similar to AluSp;gbkey=repeat_region;rpt_family=SINE/Alu
+KY962518.1	Genbank	repeat_region	40807	41116	.	+	.	ID=id-KY962518.1:40807..41116;Note=similar to AluSg;gbkey=repeat_region;rpt_family=SINE/Alu
+KY962518.1	Genbank	repeat_region	41640	41951	.	-	.	ID=id-KY962518.1:41640..41951;Note=similar to AluSp;gbkey=repeat_region;rpt_family=SINE/Alu
+KY962518.1	Genbank	tandem_repeat	41990	42575	.	+	.	ID=id-KY962518.1:41990..42575;Note=tandem repeat block%3B TR2;gbkey=repeat_region;rpt_type=tandem
+KY962518.1	Genbank	repeat_region	42559	42878	.	-	.	ID=id-KY962518.1:42559..42878;Note=similar to AluSp;gbkey=repeat_region;rpt_family=SINE/Alu
+

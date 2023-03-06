@@ -81,6 +81,8 @@ int main(int argc, char** argv)
 		("orient-by-reference", "Rotate and possibly reverse complement the consensus to match the orientation of the given reference", cxxopts::value<std::string>())
 		("mbg", "MBG path (required)", cxxopts::value<std::string>())
 		("k", "k-mer size", cxxopts::value<size_t>()->default_value("101"))
+		("annotation-reference-fasta", "Lift over the annotations from given reference fasta+gff3 (requires liftoff)", cxxopts::value<std::string>())
+		("annotation-gff3", "Lift over the annotations from given reference fasta+gff3 (requires liftoff)", cxxopts::value<std::string>())
 	;
 	auto params = options.parse(argc, argv);
 	if (params.count("v") == 1)
@@ -119,6 +121,26 @@ int main(int argc, char** argv)
 		std::cerr << "k must be at least 31" << std::endl;
 		paramError = true;
 	}
+	if (params.count("annotation-gff3") == 1 && params.count("annotation-reference-fasta") == 0)
+	{
+		std::cerr << "--annotation-reference-fasta is missing while --annotation-gff3 is used" << std::endl;
+		paramError = true;
+	}
+	if (params.count("annotation-gff3") == 0 && params.count("annotation-reference-fasta") == 1)
+	{
+		std::cerr << "--annotation-gff3 is missing while --annotation-reference-fasta is used" << std::endl;
+		paramError = true;
+	}
+	if (params.count("annotation-gff3") == 1 || params.count("annotation-reference-fasta") == 1)
+	{
+		std::cerr << "checking for liftoff" << std::endl;
+		int foundMinimap2 = system("which liftoff");
+		if (foundMinimap2 != 0)
+		{
+			std::cerr << "liftoff not found" << std::endl;
+			paramError = true;
+		}
+	}
 	if (paramError)
 	{
 		std::abort();
@@ -129,7 +151,11 @@ int main(int argc, char** argv)
 	size_t k = params["k"].as<size_t>();
 	std::cerr << "output prefix: " << outputPrefix << std::endl;
 	std::string orientReferencePath;
+	std::string annotationFasta;
+	std::string annotationGff3;
 	if (params.count("orient-by-reference") == 1) orientReferencePath = params["orient-by-reference"].as<std::string>();
+	if (params.count("annotation-reference-fasta") == 1) annotationFasta = params["annotation-reference-fasta"].as<std::string>();
+	if (params.count("annotation-gff3") == 1) annotationGff3 = params["annotation-gff3"].as<std::string>();
 	std::vector<std::vector<std::string>> clusterNodes;
 	if (params.count("c") >= 1)
 	{
@@ -177,6 +203,8 @@ int main(int argc, char** argv)
 		clusterParams.MBGPath = MBGPath;
 		clusterParams.k = k;
 		clusterParams.orientReferencePath = orientReferencePath;
+		clusterParams.annotationFasta = annotationFasta;
+		clusterParams.annotationGff3 = annotationGff3;
 		std::cerr << "running cluster " << i << " in folder " << outputPrefix + std::to_string(i) << std::endl;
 		HandleCluster(clusterParams);
 	}
