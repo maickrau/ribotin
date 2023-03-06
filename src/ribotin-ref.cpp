@@ -58,17 +58,17 @@ int main(int argc, char** argv)
 		std::abort();
 	}
 	std::string refPath = params["r"].as<std::string>();
-	std::string MBGPath = params["mbg"].as<std::string>();
-	std::string outputPath = params["o"].as<std::string>();
 	std::vector<std::string> readPaths = params["i"].as<std::vector<std::string>>();
-	std::string orientReferencePath;
-	if (params.count("orient-by-reference") == 1) orientReferencePath = params["orient-by-reference"].as<std::string>();
-	size_t k = params["k"].as<size_t>();
-	std::cerr << "output folder: " << outputPath << std::endl;
-	std::filesystem::create_directories(outputPath);
+	ClusterParams clusterParams;
+	clusterParams.MBGPath = params["mbg"].as<std::string>();
+	clusterParams.basePath = params["o"].as<std::string>();
+	clusterParams.k = params["k"].as<size_t>();
+	if (params.count("orient-by-reference") == 1) clusterParams.orientReferencePath = params["orient-by-reference"].as<std::string>();
+	std::cerr << "output folder: " << clusterParams.basePath << std::endl;
+	std::filesystem::create_directories(clusterParams.basePath);
 	std::cerr << "extracting reads" << std::endl;
 	{
-		std::ofstream readsfile { outputPath + "/reads.fa" };
+		std::ofstream readsfile { clusterParams.basePath + "/reads.fa" };
 		iterateMatchingReads(refPath, readPaths, 101, 2000, [&readsfile](const FastQ& seq)
 		{
 			readsfile << ">" << seq.seq_id << std::endl;
@@ -76,5 +76,6 @@ int main(int argc, char** argv)
 		});
 	}
 	std::cerr << "running" << std::endl;
-	HandleCluster(outputPath, outputPath + "/reads.fa", MBGPath, k, orientReferencePath);
+	clusterParams.readPath = clusterParams.basePath + "/reads.fa";
+	HandleCluster(clusterParams);
 }

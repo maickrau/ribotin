@@ -171,8 +171,14 @@ int main(int argc, char** argv)
 			clustersWithoutReads.push_back(i);
 			continue;
 		}
+		ClusterParams clusterParams;
+		clusterParams.basePath = outputPrefix + std::to_string(i);
+		clusterParams.readPath = outputPrefix + std::to_string(i) + "/reads.fa";
+		clusterParams.MBGPath = MBGPath;
+		clusterParams.k = k;
+		clusterParams.orientReferencePath = orientReferencePath;
 		std::cerr << "running cluster " << i << " in folder " << outputPrefix + std::to_string(i) << std::endl;
-		HandleCluster(outputPrefix + std::to_string(i), outputPrefix + std::to_string(i) + "/reads.fa", MBGPath, k, orientReferencePath);
+		HandleCluster(clusterParams);
 	}
 	if (clustersWithoutReads.size() > 0)
 	{

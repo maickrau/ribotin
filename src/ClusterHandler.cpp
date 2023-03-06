@@ -829,32 +829,32 @@ void writeVariantVCF(std::string filename, const Path& heavyPath, const GfaGraph
 	}
 }
 
-void HandleCluster(std::string basePath, std::string readPath, std::string MBGPath, size_t k, std::string orientReferencePath)
+void HandleCluster(const ClusterParams& params)
 {
 	std::cerr << "running MBG" << std::endl;
-	runMBG(basePath, readPath, MBGPath, k);
+	runMBG(params.basePath, params.readPath, params.MBGPath, params.k);
 	std::cerr << "reading graph" << std::endl;
 	GfaGraph graph;
-	graph.loadFromFile(basePath + "/graph.gfa");
+	graph.loadFromFile(params.basePath + "/graph.gfa");
 	std::cerr << "getting consensus" << std::endl;
 	Path heavyPath = getHeavyPath(graph);
-	if (orientReferencePath.size() > 0)
+	if (params.orientReferencePath.size() > 0)
 	{
 		std::cerr << "orienting consensus" << std::endl;
-		heavyPath = orientPath(graph, heavyPath, orientReferencePath, 101);
+		heavyPath = orientPath(graph, heavyPath, params.orientReferencePath, 101);
 	}
 	std::cerr << "writing consensus" << std::endl;
-	writePathSequence(heavyPath, graph, basePath + "/consensus.fa");
-	writePathGaf(heavyPath, graph, basePath + "/consensus_path.gaf");
+	writePathSequence(heavyPath, graph, params.basePath + "/consensus.fa");
+	writePathGaf(heavyPath, graph, params.basePath + "/consensus_path.gaf");
 	std::cerr << "reading read paths" << std::endl;
-	std::vector<ReadPath> readPaths = loadReadPaths(basePath + "/paths.gaf");
+	std::vector<ReadPath> readPaths = loadReadPaths(params.basePath + "/paths.gaf");
 	std::cerr << "getting variants" << std::endl;
 	std::vector<Variant> variants = getVariants(graph, heavyPath, readPaths, 3);
 	nameVariants(variants, graph, heavyPath);
 	std::cerr << "writing variants" << std::endl;
-	writeVariants(heavyPath, graph, variants, basePath + "/variants.txt");
+	writeVariants(heavyPath, graph, variants, params.basePath + "/variants.txt");
 	std::cerr << "making variant graph" << std::endl;
-	writeVariantGraph(basePath + "/graph.gfa", heavyPath, variants, basePath + "/variant-graph.gfa");
+	writeVariantGraph(params.basePath + "/graph.gfa", heavyPath, variants, params.basePath + "/variant-graph.gfa");
 	std::cerr << "writing variant vcf" << std::endl;
-	writeVariantVCF(basePath + "/variants.vcf", heavyPath, graph, variants);
+	writeVariantVCF(params.basePath + "/variants.vcf", heavyPath, graph, variants);
 }
