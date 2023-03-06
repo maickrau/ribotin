@@ -40,6 +40,10 @@ bin/ribotin-verkko -i /path/to/verkko/assembly --mbg /path/to/MBG -o output_fold
 
 This extracts HiFi reads uniquely assigned to each node cluster, and for each cluster builds a graph and a consensus and finds variants supported by at least 3 reads. Results are written per cluster to `output_folder_prefix[x]` where `[x]` is the cluster number.
 
+##### Annotations
+
+You can lift over annotations with the optional parameters `--annotation-reference-fasta` and `--annotation-gff3`, for example `bin/ribotin-verkko ... --annotation-reference-fasta template_seqs/rDNA_one_unit.fasta --annotation-gff3 template_seqs/rDNA_annotation.gff3`. This requires [liftoff](https://github.com/agshumate/Liftoff) to be installed.
+
 #### Output
 
 The output folder will contain several files:
@@ -53,3 +57,4 @@ The output folder will contain several files:
 - `variants.txt`: A list of variants supported by at least 3 reads. Format is: variant ID, variant path, reference path, variant read support, reference read support, variant sequence, reference sequence.
 - `variant-graph.gfa`: `graph.gfa` filtered only to the consensus path and the variant paths in `variants.txt`.
 - `variants.vcf`: A list of variants supported by at least 3 reads. Variant IDs match `variants.txt`
+- `annotation.gff3`: Annotations lifted over from a previous reference. Only if using parameters `--annotation-reference-fasta` and `--annotation-gff3`
