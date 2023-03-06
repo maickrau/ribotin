@@ -825,7 +825,7 @@ void writeVariantVCF(std::string filename, const Path& heavyPath, const GfaGraph
 	file << "#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO" << std::endl;
 	for (size_t i = 0; i < variants.size(); i++)
 	{
-		file << "heavy_path\t" << variants[i].referenceStartPos << "\t" << variants[i].name << "\t" << variants[i].referenceSeq << "\t" << variants[i].variantSeq << "\t" << "." << "\t" << "AD=" << variants[i].referenceCoverage << "," << variants[i].coverage << std::endl;
+		file << "heavy_path\t" << variants[i].referenceStartPos+1 << "\t" << variants[i].name << "\t" << variants[i].referenceSeq << "\t" << variants[i].variantSeq << "\t" << "." << "\t" << "AD=" << variants[i].referenceCoverage << "," << variants[i].coverage << "\t." << std::endl;
 	}
 }
 
