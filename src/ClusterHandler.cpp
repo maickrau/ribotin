@@ -345,7 +345,7 @@ void writePathGaf(const Path& path, const GfaGraph& graph, std::string outputFil
 void runMBG(std::string basePath, std::string readPath, std::string MBGPath, size_t k)
 {
 	std::string mbgCommand;
-	mbgCommand = MBGPath + " -o " + basePath + "/graph.gfa -i " +readPath + " -k " + std::to_string(k) + " -w " + std::to_string(k-30) + " -a 2 -u 3 -r 15000 -R 4000 --error-masking=msat --output-sequence-paths " + basePath + "/paths.gaf --only-local-resolve 1> " + basePath + "/mbg_stdout.txt 2> " + basePath + "/mbg_stderr.txt";
+	mbgCommand = MBGPath + " -o " + basePath + "/graph.gfa -i " + readPath + " -k " + std::to_string(k) + " -w " + std::to_string(k-30) + " -a 2 -u 3 -r 15000 -R 4000 --error-masking=msat --output-sequence-paths " + basePath + "/paths.gaf --only-local-resolve 1> " + basePath + "/mbg_stdout.txt 2> " + basePath + "/mbg_stderr.txt";
 	std::cerr << "MBG command:" << std::endl;
 	std::cerr << mbgCommand << std::endl;
 	system(mbgCommand.c_str());
@@ -848,7 +848,7 @@ void liftoverAnnotationsToConsensus(const std::string& basePath, const std::stri
 void HandleCluster(const ClusterParams& params)
 {
 	std::cerr << "running MBG" << std::endl;
-	runMBG(params.basePath, params.readPath, params.MBGPath, params.k);
+	runMBG(params.basePath, params.hifiReadPath, params.MBGPath, params.k);
 	std::cerr << "reading graph" << std::endl;
 	GfaGraph graph;
 	graph.loadFromFile(params.basePath + "/graph.gfa");

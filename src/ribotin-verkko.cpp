@@ -23,7 +23,7 @@ std::vector<std::string> getNodesFromFile(std::string filename)
 	return result;
 }
 
-std::vector<std::string> getRawReadFilenames(std::string configPath)
+std::vector<std::string> getRawReadFilenames(std::string configPath, std::string readTypeLine)
 {
 	// terrible way, but works for now
 	std::vector<std::string> result;
@@ -36,7 +36,7 @@ std::vector<std::string> getRawReadFilenames(std::string configPath)
 		if (line.find(":") != std::string::npos)
 		{
 			nowHifiFiles = false;
-			if (line.find("HIFI_READS") != std::string::npos)
+			if (line.find(readTypeLine) != std::string::npos)
 			{
 				nowHifiFiles = true;
 			}
@@ -177,17 +177,17 @@ int main(int argc, char** argv)
 	auto reads = getReadNamesPerCluster(verkkoBasePath, clusterNodes);
 	for (size_t i = 0; i < reads.size(); i++)
 	{
-		std::cerr << "cluster " << i << " has " << reads[i].size() << " reads" << std::endl;
+		std::cerr << "cluster " << i << " has " << reads[i].size() << " hifi reads" << std::endl;
 	}
 	std::vector<std::string> readFileNames;
 	for (size_t i = 0; i < numClusters; i++)
 	{
 		std::filesystem::create_directories(outputPrefix + std::to_string(i));
-		readFileNames.push_back(outputPrefix + std::to_string(i) + "/reads.fa");
+		readFileNames.push_back(outputPrefix + std::to_string(i) + "/hifi_reads.fa");
 		writeNodes(outputPrefix + std::to_string(i) + "/nodes.txt", clusterNodes[i]);
 	}
 	std::cerr << "extracting reads per cluster" << std::endl;
-	splitReads(getRawReadFilenames(verkkoBasePath + "/verkko.yml"), reads, readFileNames);
+	splitReads(getRawReadFilenames(verkkoBasePath + "/verkko.yml", "HIFI_READS"), reads, readFileNames);
 	std::vector<size_t> clustersWithoutReads;
 	for (size_t i = 0; i < numClusters; i++)
 	{
@@ -199,7 +199,7 @@ int main(int argc, char** argv)
 		}
 		ClusterParams clusterParams;
 		clusterParams.basePath = outputPrefix + std::to_string(i);
-		clusterParams.readPath = outputPrefix + std::to_string(i) + "/reads.fa";
+		clusterParams.hifiReadPath = outputPrefix + std::to_string(i) + "/hifi_reads.fa";
 		clusterParams.MBGPath = MBGPath;
 		clusterParams.k = k;
 		clusterParams.orientReferencePath = orientReferencePath;

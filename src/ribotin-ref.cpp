@@ -92,7 +92,7 @@ int main(int argc, char** argv)
 	std::filesystem::create_directories(clusterParams.basePath);
 	std::cerr << "extracting reads" << std::endl;
 	{
-		std::ofstream readsfile { clusterParams.basePath + "/reads.fa" };
+		std::ofstream readsfile { clusterParams.basePath + "/hifi_reads.fa" };
 		iterateMatchingReads(refPath, readPaths, 101, 2000, [&readsfile](const FastQ& seq)
 		{
 			readsfile << ">" << seq.seq_id << std::endl;
@@ -100,6 +100,6 @@ int main(int argc, char** argv)
 		});
 	}
 	std::cerr << "running" << std::endl;
-	clusterParams.readPath = clusterParams.basePath + "/reads.fa";
+	clusterParams.hifiReadPath = clusterParams.basePath + "/hifi_reads.fa";
 	HandleCluster(clusterParams);
 }
