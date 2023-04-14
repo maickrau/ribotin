@@ -11,10 +11,12 @@ public:
 	std::string hifiReadPath;
 	std::string ontReadPath;
 	std::string MBGPath;
+	std::string GraphAlignerPath;
 	size_t k;
 	std::string orientReferencePath;
 	std::string annotationFasta;
 	std::string annotationGff3;
+	size_t numThreads;
 };
 
 void HandleCluster(const ClusterParams& params);

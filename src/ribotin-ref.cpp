@@ -18,11 +18,13 @@ int main(int argc, char** argv)
 		("nano", "Input ultralong ONT reads. Multiple files can be input with --nano file1.fa --nano file2.fa etc", cxxopts::value<std::vector<std::string>>())
 		("o,out", "Output folder", cxxopts::value<std::string>()->default_value("./result"))
 		("mbg", "MBG path (required)", cxxopts::value<std::string>())
+		("graphaligner", "GraphAligner path", cxxopts::value<std::string>())
 		("r,reference", "Reference used for recruiting reads (required)", cxxopts::value<std::string>())
 		("orient-by-reference", "Rotate and possibly reverse complement the consensus to match the orientation of the given reference", cxxopts::value<std::string>())
 		("k", "k-mer size", cxxopts::value<size_t>()->default_value("101"))
 		("annotation-reference-fasta", "Lift over the annotations from given reference fasta+gff3 (requires liftoff)", cxxopts::value<std::string>())
 		("annotation-gff3", "Lift over the annotations from given reference fasta+gff3 (requires liftoff)", cxxopts::value<std::string>())
+		("t", "Number of threads (default 1)", cxxopts::value<size_t>())
 	;
 	auto params = options.parse(argc, argv);
 	if (params.count("v") == 1)
@@ -49,6 +51,16 @@ int main(int argc, char** argv)
 	if (params.count("mbg") == 0)
 	{
 		std::cerr << "MBG path (--mbg) is required" << std::endl;
+		paramError = true;
+	}
+	if (params.count("graphaligner") == 0 && params.count("nano") >= 1)
+	{
+		std::cerr << "GraphAligner path (--graphaligner) is required when using ultralong ONT reads" << std::endl;
+		paramError = true;
+	}
+	if (params.count("t") == 1 && params["t"].as<size_t>() == 0)
+	{
+		std::cerr << "number of threads can't be 0" << std::endl;
 		paramError = true;
 	}
 	if (params.count("k") == 1 && params["k"].as<size_t>() < 31)
@@ -87,9 +99,12 @@ int main(int argc, char** argv)
 	clusterParams.MBGPath = params["mbg"].as<std::string>();
 	clusterParams.basePath = params["o"].as<std::string>();
 	clusterParams.k = params["k"].as<size_t>();
+	clusterParams.numThreads = 1;
+	if (params.count("t") == 1) clusterParams.numThreads = params["t"].as<size_t>();
 	if (params.count("orient-by-reference") == 1) clusterParams.orientReferencePath = params["orient-by-reference"].as<std::string>();
 	if (params.count("annotation-reference-fasta") == 1) clusterParams.annotationFasta = params["annotation-reference-fasta"].as<std::string>();
 	if (params.count("annotation-gff3") == 1) clusterParams.annotationGff3 = params["annotation-gff3"].as<std::string>();
+	if (params.count("graphaligner") == 1) clusterParams.GraphAlignerPath = params["graphaligner"].as<std::string>();
 	std::cerr << "output folder: " << clusterParams.basePath << std::endl;
 	std::filesystem::create_directories(clusterParams.basePath);
 	std::cerr << "extracting HiFi/duplex reads" << std::endl;

@@ -845,6 +845,15 @@ void liftoverAnnotationsToConsensus(const std::string& basePath, const std::stri
 	system(command.c_str());
 }
 
+void alignONTToVariantGraph(std::string graphAlignerPath, std::string ontReadPath, std::string graphPath, std::string outputAlnPath, size_t numThreads)
+{
+	std::string graphalignerCommand;
+	graphalignerCommand = graphAlignerPath + " -g " + graphPath + " -f " + ontReadPath + " -a " + outputAlnPath + " -t " + std::to_string(numThreads) + " --seeds-mxm-length 30 --seeds-mem-count 10000 --bandwidth 15 --multimap-score-fraction 0.99 --precise-clipping 0.85 --min-alignment-score 5000 --discard-cigar --clip-ambiguous-ends 100 --overlap-incompatible-cutoff 0.15 --mem-index-no-wavelet-tree --max-trace-count 5";
+	std::cerr << "GraphAligner command:" << std::endl;
+	std::cerr << graphalignerCommand << std::endl;
+	system(graphalignerCommand.c_str());
+}
+
 void HandleCluster(const ClusterParams& params)
 {
 	std::cerr << "running MBG" << std::endl;
@@ -877,5 +886,11 @@ void HandleCluster(const ClusterParams& params)
 	{
 		std::cerr << "lifting over annotations to consensus" << std::endl;
 		liftoverAnnotationsToConsensus(params.basePath, params.basePath + "/consensus.fa", params.annotationFasta, params.annotationGff3);
+	}
+	if (params.ontReadPath.size() > 0)
+	{
+		std::cerr << "aligning ultralong ONT reads to variant graph" << std::endl;
+		alignONTToVariantGraph(params.GraphAlignerPath, params.ontReadPath, params.basePath + "/variant-graph.gfa", params.basePath + "/ont-alns.gaf", params.numThreads);
+
 	}
 }
