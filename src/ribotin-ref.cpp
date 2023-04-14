@@ -14,7 +14,8 @@ int main(int argc, char** argv)
 	options.add_options()
 		("h,help", "Print help")
 		("v,version", "Print version")
-		("i,in", "Input reads. Multiple files can be input with -i file1.fa -i file2.fa etc (required)", cxxopts::value<std::vector<std::string>>())
+		("i,in", "Input HiFi/duplex reads. Multiple files can be input with -i file1.fa -i file2.fa etc (required)", cxxopts::value<std::vector<std::string>>())
+		("nano", "Input ultralong ONT reads. Multiple files can be input with --nano file1.fa --nano file2.fa etc", cxxopts::value<std::vector<std::string>>())
 		("o,out", "Output folder", cxxopts::value<std::string>()->default_value("./result"))
 		("mbg", "MBG path (required)", cxxopts::value<std::string>())
 		("r,reference", "Reference used for recruiting reads (required)", cxxopts::value<std::string>())
@@ -80,7 +81,8 @@ int main(int argc, char** argv)
 		std::abort();
 	}
 	std::string refPath = params["r"].as<std::string>();
-	std::vector<std::string> readPaths = params["i"].as<std::vector<std::string>>();
+	std::vector<std::string> hifiReadPaths = params["i"].as<std::vector<std::string>>();
+	std::vector<std::string> ontReadPaths = params["nano"].as<std::vector<std::string>>();
 	ClusterParams clusterParams;
 	clusterParams.MBGPath = params["mbg"].as<std::string>();
 	clusterParams.basePath = params["o"].as<std::string>();
@@ -90,14 +92,25 @@ int main(int argc, char** argv)
 	if (params.count("annotation-gff3") == 1) clusterParams.annotationGff3 = params["annotation-gff3"].as<std::string>();
 	std::cerr << "output folder: " << clusterParams.basePath << std::endl;
 	std::filesystem::create_directories(clusterParams.basePath);
-	std::cerr << "extracting reads" << std::endl;
+	std::cerr << "extracting HiFi/duplex reads" << std::endl;
 	{
 		std::ofstream readsfile { clusterParams.basePath + "/hifi_reads.fa" };
-		iterateMatchingReads(refPath, readPaths, 101, 2000, [&readsfile](const FastQ& seq)
+		iterateMatchingReads(refPath, hifiReadPaths, 101, 2000, [&readsfile](const FastQ& seq)
 		{
 			readsfile << ">" << seq.seq_id << std::endl;
 			readsfile << seq.sequence << std::endl;
 		});
+	}
+	if (ontReadPaths.size() > 0)
+	{
+		std::cerr << "extracting ultralong ONT reads" << std::endl;
+		std::ofstream readsfile { clusterParams.basePath + "/ont_reads.fa" };
+		iterateMatchingReads(refPath, ontReadPaths, 21, 20000, [&readsfile](const FastQ& seq)
+		{
+			readsfile << ">" << seq.seq_id << std::endl;
+			readsfile << seq.sequence << std::endl;
+		});
+		clusterParams.ontReadPath = clusterParams.basePath + "/ont_reads.fa";
 	}
 	std::cerr << "running" << std::endl;
 	clusterParams.hifiReadPath = clusterParams.basePath + "/hifi_reads.fa";
