@@ -15,6 +15,17 @@
 #include "fastqloader.h"
 #include "ClusterHandler.h"
 
+namespace std
+{
+	template <> struct hash<std::pair<std::string, std::string>>
+	{
+		size_t operator()(const std::pair<std::string, std::string>& x) const
+		{
+			return std::hash<std::string>{}(x.first) ^ std::hash<std::string>{}(x.second);
+		}
+	};
+}
+
 std::string revcomp(std::string seq)
 {
 	std::reverse(seq.begin(), seq.end());
@@ -75,6 +86,16 @@ std::vector<std::string> canon(const std::vector<std::string>& path)
 	auto bw = reverse(path);
 	if (bw < path) return bw;
 	return path;
+}
+
+std::pair<std::string, std::string> canon(const std::string& left, const std::string& right)
+{
+	auto revleft = reverse(left);
+	auto revright = reverse(right);
+	if (revright < left) return std::make_pair(revright, revleft);
+	if (left < revright) return std::make_pair(left, right);
+	if (revleft < right) return std::make_pair(revright, revleft);
+	return std::make_pair(left, right);
 }
 
 class ReadPath
@@ -854,6 +875,281 @@ void alignONTToVariantGraph(std::string graphAlignerPath, std::string ontReadPat
 	system(graphalignerCommand.c_str());
 }
 
+std::string getPathSequence(const ReadPath& readPath, const GfaGraph& graph, const std::unordered_map<std::pair<std::string, std::string>, size_t>& edgeOverlaps)
+{
+	std::string result;
+	for (size_t i = 0; i < readPath.path.size(); i++)
+	{
+		size_t overlap = 0;
+		if (i > 0) overlap = edgeOverlaps.at(canon(readPath.path[i-1], readPath.path[i]));
+		std::string add = graph.nodeSeqs.at(readPath.path[i].substr(1));
+		if (readPath.path[i].substr(0) == "<")
+		{
+			add = revcomp(add);
+		}
+		if (overlap > 0) add = add.substr(overlap);
+		result += add;
+	}
+	return result;
+}
+
+std::unordered_map<std::pair<std::string, std::string>, size_t> getEdgeOverlaps(const GfaGraph& graph)
+{
+	std::unordered_map<std::pair<std::string, std::string>, size_t> result;
+	for (const auto& pair : graph.edges)
+	{
+		for (const auto& target : pair.second)
+		{
+			auto key = canon(pair.first, std::get<0>(target));
+			size_t overlap = std::get<1>(target);
+			assert(result.count(key) == 0 || result.at(key) == overlap);
+			result[key] = overlap;
+		}
+	}
+	return result;
+}
+
+std::unordered_map<std::string, bool> getNodeOrientations(const std::vector<std::string>& referencePath)
+{
+	std::unordered_map<std::string, bool> result;
+	for (const auto& str : referencePath)
+	{
+		assert(result.count(str.substr(1)) == 0);
+		result[str.substr(1)] = (str[0] == '>');
+	}
+	return result;
+}
+
+void orientPath(std::vector<std::string>& path, const std::unordered_map<std::string, bool>& referenceOrientations)
+{
+	size_t fwMatches = 0;
+	size_t bwMatches = 0;
+	for (const auto& node : path)
+	{
+		if (referenceOrientations.count(node.substr(1)) == 0) continue;
+		bool orientHere = (node[0] == '>');
+		bool refOrient = referenceOrientations.at(node.substr(1));
+		if (orientHere == refOrient)
+		{
+			fwMatches += 1;
+		}
+		else
+		{
+			bwMatches += 1;
+		}
+	}
+	if (bwMatches > fwMatches) path = reverse(path);
+}
+
+std::vector<std::string> extractCorrectedONTPaths(std::string gafFile, const Path& heavyPath, const size_t minLength, const GfaGraph& graph)
+{
+	std::vector<std::string> result;
+	std::ifstream file { gafFile };
+	auto edgeOverlaps = getEdgeOverlaps(graph);
+	auto nodeOrientations = getNodeOrientations(heavyPath.nodes);
+	while (file.good())
+	{
+		std::string line;
+		getline(file, line);
+		if (line.size() == 0) continue;
+		std::stringstream sstr { line };
+		ReadPath readPath;
+		readPath.pathStartClip = 0;
+		readPath.pathEndClip = 0;
+		std::string pathstr;
+		std::string dummy;
+		size_t readlength;
+		size_t mapq;
+		sstr >> readPath.readName >> readlength >> readPath.readStart >> readPath.readEnd >> dummy >> pathstr >> dummy >> dummy >> dummy >> dummy >> dummy >> mapq;
+		if (mapq < 20) continue;
+		if (readPath.readEnd - readPath.readStart < minLength) continue;
+		readPath.path = parsePath(pathstr);
+		orientPath(readPath.path, nodeOrientations);
+		result.emplace_back(getPathSequence(readPath, graph, edgeOverlaps));
+	}
+	return result;
+}
+
+std::vector<std::string> extractLoopSequences(const std::vector<std::string>& correctedReads, const Path& heavyPath, const size_t minLength, const GfaGraph& graph)
+{
+	const size_t k = 101;
+	const size_t borderSize = 200;
+	std::string consensusSequence = heavyPath.getSequence(graph.nodeSeqs);
+	std::unordered_map<std::string, size_t> startKmers;
+	std::unordered_map<std::string, size_t> endKmers;
+	std::unordered_set<std::string> repeats;
+	for (size_t i = 0; i < borderSize; i++)
+	{
+		std::string subs = consensusSequence.substr(i, k);
+		if (endKmers.count(subs) == 1 || startKmers.count(subs) == 1)
+		{
+			endKmers[subs] = std::numeric_limits<size_t>::max();
+			startKmers[subs] = std::numeric_limits<size_t>::max();
+		}
+		else
+		{
+			startKmers[subs] = i;
+		}
+		subs = consensusSequence.substr(consensusSequence.size()-k-i, k);
+		if (endKmers.count(subs) == 1 || startKmers.count(subs) == 1)
+		{
+			endKmers[subs] = std::numeric_limits<size_t>::max();
+			startKmers[subs] = std::numeric_limits<size_t>::max();
+		}
+		else
+		{
+			endKmers[subs] = i;
+		}
+	}
+	for (size_t i = borderSize; i < consensusSequence.size() - borderSize; i++)
+	{
+		std::string subs = consensusSequence.substr(i, k);
+		if (endKmers.count(subs) == 1 || startKmers.count(subs) == 1)
+		{
+			endKmers[subs] = std::numeric_limits<size_t>::max();
+			startKmers[subs] = std::numeric_limits<size_t>::max();
+		}
+	}
+	std::vector<std::string> result;
+	for (const std::string& seq : correctedReads)
+	{
+		if (seq.size() < minLength) continue;
+		std::vector<size_t> breakpoints;
+		for (size_t i = 0; i < seq.size()-k; i++)
+		{
+			std::string subs = seq.substr(i, k);
+			if (startKmers.count(subs) == 1)
+			{
+				size_t refPos = startKmers.at(subs);
+				if (refPos != std::numeric_limits<size_t>::max())
+				{
+					if (i >= refPos) breakpoints.push_back(i - refPos);
+				}
+			}
+			if (endKmers.count(subs) == 1)
+			{
+				size_t refPos = endKmers.at(subs);
+				if (refPos != std::numeric_limits<size_t>::max())
+				{
+					if (i+refPos+k < seq.size()) breakpoints.push_back(i+refPos+k);
+				}
+			}
+		}
+		std::sort(breakpoints.begin(), breakpoints.end());
+		std::vector<size_t> actualBreakpoints;
+		for (size_t i = 10; i < breakpoints.size(); i++)
+		{
+			if (breakpoints[i-10] != breakpoints[i]) continue;
+			if (actualBreakpoints.size() > 0 && breakpoints[i] == actualBreakpoints.back()) continue;
+			if (actualBreakpoints.size() > 0 && breakpoints[i] < actualBreakpoints.back() + minLength) continue;
+			actualBreakpoints.push_back(breakpoints[i]);
+		}
+		for (size_t i = 1; i < actualBreakpoints.size(); i++)
+		{
+			result.emplace_back(seq.substr(actualBreakpoints[i-1], actualBreakpoints[i] - actualBreakpoints[i-1]));
+		}
+	}
+	return result;
+}
+
+size_t getEditDistance(const std::string& left, const std::string& right, const size_t maxEdits)
+{
+	if (left.size() > right.size()+maxEdits) return maxEdits+1;
+	if (right.size() > left.size()+maxEdits) return maxEdits+1;
+	assert(left.size() > maxEdits);
+	assert(right.size() > maxEdits);
+	std::vector<size_t> offsets;
+	std::vector<size_t> nextOffsets;
+	offsets.resize(1, 0);
+	while (offsets[0] < left.size() && offsets[0] < right.size() && left[offsets[0]] == right[offsets[0]]) offsets[0] += 1;
+	if (offsets[0] == left.size()) return right.size() - left.size();
+	if (offsets[0] == right.size()) return left.size() - right.size();
+	size_t zeroPos = 1;
+	for (size_t score = 0; score < maxEdits; score++)
+	{
+		nextOffsets.resize(offsets.size()+2);
+		for (size_t i = 0; i < nextOffsets.size(); i++)
+		{
+			nextOffsets[i] = 0;
+			if (i >= 1 && i < nextOffsets.size()-1) nextOffsets[i] = offsets[i-1]+1;
+			if (i >= 2) nextOffsets[i] = std::max(nextOffsets[i], offsets[i-2]);
+			if (i < nextOffsets.size()-2) nextOffsets[i] = std::max(nextOffsets[i], offsets[i]+1);
+			assert(nextOffsets[i] + i >= zeroPos);
+			nextOffsets[i] = std::min(nextOffsets[i], right.size() - i + zeroPos);
+			nextOffsets[i] = std::min(nextOffsets[i], left.size());
+			while (nextOffsets[i] < left.size() && nextOffsets[i]+i-zeroPos < right.size() && left[nextOffsets[i]] == right[nextOffsets[i]+i-zeroPos]) nextOffsets[i] += 1;
+			if (nextOffsets[i] == left.size() && nextOffsets[i]+i-zeroPos == right.size()) return score;
+		}
+		std::swap(offsets, nextOffsets);
+		zeroPos += 1;
+	}
+	return maxEdits+1;
+}
+
+std::vector<std::vector<std::string>> clusterLoopSequences(const std::vector<std::string>& loops, const size_t maxEdits)
+{
+	std::vector<size_t> parent;
+	parent.resize(loops.size());
+	for (size_t i = 0; i < loops.size(); i++)
+	{
+		parent[i] = i;
+	}
+	for (size_t i = 0; i < loops.size(); i++)
+	{
+		while (parent[i] != parent[parent[i]]) parent[i] = parent[parent[i]];
+		for (size_t j = 0; j < i; j++)
+		{
+			while (parent[j] != parent[parent[j]]) parent[j] = parent[parent[j]];
+			if (parent[i] == parent[j]) continue;
+			size_t edits = getEditDistance(loops[i], loops[j], maxEdits);
+			if (edits > maxEdits) continue;
+			parent[j] = parent[i];
+		}
+	}
+	std::vector<size_t> parentToCluster;
+	parentToCluster.resize(parent.size(), std::numeric_limits<size_t>::max());
+	std::vector<std::vector<std::string>> result;
+	for (size_t i = 0; i < parent.size(); i++)
+	{
+		while (parent[i] != parent[parent[i]]) parent[i] = parent[parent[i]];
+		if (parent[i] != i) continue;
+		parentToCluster[i] = result.size();
+		result.emplace_back();
+	}
+	for (size_t i = 0; i < parent.size(); i++)
+	{
+		result[parentToCluster[parent[i]]].emplace_back(loops[i]);
+	}
+	return result;
+}
+
+std::string getConsensusSequence(const std::vector<std::string>& rawSequences)
+{
+	assert(rawSequences.size() >= 1);
+	// todo implement
+	return rawSequences[0];
+}
+
+std::vector<std::tuple<std::string, size_t>> getMorphConsensuses(const std::vector<std::vector<std::string>>& clusters)
+{
+	std::vector<std::tuple<std::string, size_t>> result;
+	for (size_t i = 0; i < clusters.size(); i++)
+	{
+		result.emplace_back(getConsensusSequence(clusters[i]), clusters[i].size());
+	}
+	return result;
+}
+
+void writeMorphConsensuses(std::string outFile, const std::vector<std::tuple<std::string, size_t>>& morphConsensuses)
+{
+	std::ofstream file { outFile };
+	for (size_t i = 0; i < morphConsensuses.size(); i++)
+	{
+		file << ">morphconsensus" << i << "_coverage" << std::get<1>(morphConsensuses[i]) << std::endl;
+		file << std::get<0>(morphConsensuses[i]) << std::endl;
+	}
+}
+
 void HandleCluster(const ClusterParams& params)
 {
 	std::cerr << "running MBG" << std::endl;
@@ -891,6 +1187,29 @@ void HandleCluster(const ClusterParams& params)
 	{
 		std::cerr << "aligning ultralong ONT reads to variant graph" << std::endl;
 		alignONTToVariantGraph(params.GraphAlignerPath, params.ontReadPath, params.basePath + "/variant-graph.gfa", params.basePath + "/ont-alns.gaf", params.numThreads);
-
+		std::cerr << "extract corrected ultralong paths" << std::endl;
+		size_t heavyPathLength = heavyPath.getSequence(graph.nodeSeqs).size();
+		size_t minLength = heavyPathLength * 0.5;
+		std::cerr << "consensus path length " << heavyPathLength << ", using " << minLength << " as minimum morph length" << std::endl;
+		auto ontPaths = extractCorrectedONTPaths(params.basePath + "/ont-alns.gaf", heavyPath, minLength, graph);
+		std::cerr << ontPaths.size() << " corrected paths" << std::endl;
+		std::cerr << "extract corrected morph sequences from ONTs" << std::endl;
+		auto loopSequences = extractLoopSequences(ontPaths, heavyPath, minLength, graph);
+		std::cerr << loopSequences.size() << " morph sequences in ONTs" << std::endl;
+		{
+			std::ofstream file { params.basePath + "/loops.fa" };
+			for (size_t i = 0; i < loopSequences.size(); i++)
+			{
+				file << ">loop" << i << std::endl;
+				file << loopSequences[i] << std::endl;
+			}
+		}
+		std::cerr << "cluster morphs" << std::endl;
+		auto clusters = clusterLoopSequences(loopSequences, 300);
+		std::cerr << clusters.size() << " morph clusters" << std::endl;
+		std::cerr << "getting morph consensuses" << std::endl;
+		auto morphConsensuses = getMorphConsensuses(clusters);
+		std::cerr << "write morph consensuses" << std::endl;
+		writeMorphConsensuses(params.basePath + "/morphs.fa", morphConsensuses);
 	}
 }
