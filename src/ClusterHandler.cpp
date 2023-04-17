@@ -81,6 +81,12 @@ std::vector<std::string> reverse(const std::vector<std::string>& path)
 	return bw;
 }
 
+std::pair<std::vector<std::string>, std::vector<std::string>> canon(const std::vector<std::string>& left, const std::vector<std::string>& right)
+{
+	if (left < right) return std::make_pair(left, right);
+	return std::make_pair(right, left);
+}
+
 std::vector<std::string> canon(const std::vector<std::string>& path)
 {
 	auto bw = reverse(path);
@@ -889,10 +895,10 @@ void liftoverAnnotationsToConsensus(const std::string& basePath, const std::stri
 	system(command.c_str());
 }
 
-void alignONTToVariantGraph(std::string graphAlignerPath, std::string ontReadPath, std::string graphPath, std::string outputAlnPath, size_t numThreads)
+void alignONTToVariantGraph(std::string basePath, std::string graphAlignerPath, std::string ontReadPath, std::string graphPath, std::string outputAlnPath, size_t numThreads)
 {
 	std::string graphalignerCommand;
-	graphalignerCommand = graphAlignerPath + " -g " + graphPath + " -f " + ontReadPath + " -a " + outputAlnPath + " -t " + std::to_string(numThreads) + " --seeds-mxm-length 30 --seeds-mem-count 10000 --bandwidth 15 --multimap-score-fraction 0.99 --precise-clipping 0.85 --min-alignment-score 5000 --discard-cigar --clip-ambiguous-ends 100 --overlap-incompatible-cutoff 0.15 --mem-index-no-wavelet-tree --max-trace-count 5";
+	graphalignerCommand = graphAlignerPath + " -g " + graphPath + " -f " + ontReadPath + " -a " + outputAlnPath + " -t " + std::to_string(numThreads) + " --seeds-mxm-length 30 --seeds-mem-count 10000 --bandwidth 15 --multimap-score-fraction 0.99 --precise-clipping 0.85 --min-alignment-score 5000 --discard-cigar --clip-ambiguous-ends 100 --overlap-incompatible-cutoff 0.15 --mem-index-no-wavelet-tree --max-trace-count 5 1> " + basePath + "/graphaligner_stdout.txt 2> " + basePath + "/graphaligner_stderr.txt";
 	std::cerr << "GraphAligner command:" << std::endl;
 	std::cerr << graphalignerCommand << std::endl;
 	system(graphalignerCommand.c_str());
@@ -993,7 +999,37 @@ std::vector<std::vector<std::string>> extractCorrectedONTPaths(std::string gafFi
 	return result;
 }
 
-std::vector<std::vector<std::string>> extractLoopSequences(const std::vector<std::vector<std::string>>& correctedPaths, const Path& heavyPath, const size_t minLength, const GfaGraph& graph)
+std::unordered_set<std::string> getCoreNodes(const GfaGraph& graph, const std::vector<std::vector<std::string>>& paths, const std::unordered_set<std::string>& borderNodes)
+{
+	std::unordered_set<std::string> existingNodes;
+	std::unordered_set<std::string> notUniqueNodes;
+	for (const auto& path : paths)
+	{
+		std::unordered_map<std::string, size_t> coverage;
+		for (const auto& node : path)
+		{
+			coverage[node.substr(1)] += 1;
+		}
+		for (auto pair : coverage)
+		{
+			if (pair.second == 1) existingNodes.insert(pair.first);
+			if (pair.second != 1) notUniqueNodes.insert(pair.first);
+		}
+		for (auto node : existingNodes)
+		{
+			if (coverage.count(node) == 0) notUniqueNodes.insert(node);
+		}
+	}
+	std::unordered_set<std::string> result;
+	for (auto node : existingNodes)
+	{
+		if (notUniqueNodes.count(node) == 1) continue;
+		result.insert(node);
+	}
+	return result;
+}
+
+std::tuple<std::unordered_set<std::string>, std::unordered_map<std::string, size_t>, std::unordered_map<std::string, size_t>> getBorderNodes(const Path& heavyPath, const GfaGraph& graph)
 {
 	const size_t k = 101;
 	const size_t borderSize = 200;
@@ -1033,6 +1069,8 @@ std::vector<std::vector<std::string>> extractLoopSequences(const std::vector<std
 		}
 	}
 	std::unordered_set<std::string> borderNodes;
+	std::unordered_map<std::string, size_t> pathStartClip;
+	std::unordered_map<std::string, size_t> pathEndClip;
 	for (const auto& pair : graph.nodeSeqs)
 	{
 		std::vector<size_t> fwBreaks;
@@ -1078,8 +1116,32 @@ std::vector<std::vector<std::string>> extractLoopSequences(const std::vector<std
 				}
 			}
 		}
-		if (fwBreaks.size() >= 3 || bwBreaks.size() >= 3) borderNodes.insert(pair.first);
+		if (fwBreaks.size() >= 3)
+		{
+			size_t breakPos = fwBreaks[fwBreaks.size()/2];
+			pathStartClip[">" + pair.first] = breakPos;
+			pathEndClip[">" + pair.first] = pair.second.size() - breakPos;
+			breakPos = pair.second.size() - 1 - breakPos;
+			pathStartClip["<" + pair.first] = breakPos;
+			pathEndClip["<" + pair.first] = pair.second.size() - breakPos;
+			borderNodes.insert(pair.first);
+		}
+		if (bwBreaks.size() >= 3)
+		{
+			size_t breakPos = bwBreaks[bwBreaks.size()/2];
+			pathStartClip["<" + pair.first] = breakPos;
+			pathEndClip["<" + pair.first] = pair.second.size() - breakPos;
+			breakPos = pair.second.size() - 1 - breakPos;
+			pathStartClip[">" + pair.first] = breakPos;
+			pathEndClip[">" + pair.first] = pair.second.size() - breakPos;
+			borderNodes.insert(pair.first);
+		}
 	}
+	return std::make_tuple(borderNodes, pathStartClip, pathEndClip);
+}
+
+std::vector<std::vector<std::string>> extractLoopSequences(const std::vector<std::vector<std::string>>& correctedPaths, const Path& heavyPath, const size_t minLength, const GfaGraph& graph, const std::unordered_set<std::string>& borderNodes)
+{
 	std::vector<std::vector<std::string>> result;
 	for (const std::vector<std::string>& path : correctedPaths)
 	{
@@ -1103,42 +1165,125 @@ std::vector<std::vector<std::string>> extractLoopSequences(const std::vector<std
 	return result;
 }
 
-size_t getEditDistance(const std::vector<std::string>& left, const std::vector<std::string>& right, const GfaGraph& graph, const size_t maxEdits)
+size_t getEditDistanceWfa(const std::string& left, const std::string& right, const size_t maxEdits)
 {
-	return 0; // todo implement
-	// if (left.size() > right.size()+maxEdits) return maxEdits+1;
-	// if (right.size() > left.size()+maxEdits) return maxEdits+1;
-	// assert(left.size() > maxEdits);
-	// assert(right.size() > maxEdits);
-	// std::vector<size_t> offsets;
-	// std::vector<size_t> nextOffsets;
-	// offsets.resize(1, 0);
-	// while (offsets[0] < left.size() && offsets[0] < right.size() && left[offsets[0]] == right[offsets[0]]) offsets[0] += 1;
-	// if (offsets[0] == left.size()) return right.size() - left.size();
-	// if (offsets[0] == right.size()) return left.size() - right.size();
-	// size_t zeroPos = 1;
-	// for (size_t score = 0; score < maxEdits; score++)
-	// {
-	// 	nextOffsets.resize(offsets.size()+2);
-	// 	for (size_t i = 0; i < nextOffsets.size(); i++)
-	// 	{
-	// 		nextOffsets[i] = 0;
-	// 		if (i >= 1 && i < nextOffsets.size()-1) nextOffsets[i] = offsets[i-1]+1;
-	// 		if (i >= 2) nextOffsets[i] = std::max(nextOffsets[i], offsets[i-2]);
-	// 		if (i < nextOffsets.size()-2) nextOffsets[i] = std::max(nextOffsets[i], offsets[i]+1);
-	// 		assert(nextOffsets[i] + i >= zeroPos);
-	// 		nextOffsets[i] = std::min(nextOffsets[i], right.size() - i + zeroPos);
-	// 		nextOffsets[i] = std::min(nextOffsets[i], left.size());
-	// 		while (nextOffsets[i] < left.size() && nextOffsets[i]+i-zeroPos < right.size() && left[nextOffsets[i]] == right[nextOffsets[i]+i-zeroPos]) nextOffsets[i] += 1;
-	// 		if (nextOffsets[i] == left.size() && nextOffsets[i]+i-zeroPos == right.size()) return score;
-	// 	}
-	// 	std::swap(offsets, nextOffsets);
-	// 	zeroPos += 1;
-	// }
-	// return maxEdits+1;
+	if (left.size() > right.size()+maxEdits) return maxEdits+1;
+	if (right.size() > left.size()+maxEdits) return maxEdits+1;
+	std::vector<size_t> offsets;
+	std::vector<size_t> nextOffsets;
+	offsets.resize(1, 0);
+	while (offsets[0] < left.size() && offsets[0] < right.size() && left[offsets[0]] == right[offsets[0]]) offsets[0] += 1;
+	if (offsets[0] == left.size()) return right.size() - left.size();
+	if (offsets[0] == right.size()) return left.size() - right.size();
+	size_t zeroPos = 1;
+	for (size_t score = 0; score < maxEdits; score++)
+	{
+		nextOffsets.resize(offsets.size()+2);
+		for (size_t i = 0; i < nextOffsets.size(); i++)
+		{
+			nextOffsets[i] = 0;
+			if (i >= 1 && i < nextOffsets.size()-1) nextOffsets[i] = offsets[i-1]+1;
+			if (i >= 2) nextOffsets[i] = std::max(nextOffsets[i], offsets[i-2]);
+			if (i < nextOffsets.size()-2) nextOffsets[i] = std::max(nextOffsets[i], offsets[i]+1);
+			assert(nextOffsets[i] + i >= zeroPos);
+			nextOffsets[i] = std::min(nextOffsets[i], right.size() - i + zeroPos);
+			nextOffsets[i] = std::min(nextOffsets[i], left.size());
+			while (nextOffsets[i] < left.size() && nextOffsets[i]+i-zeroPos < right.size() && left[nextOffsets[i]] == right[nextOffsets[i]+i-zeroPos]) nextOffsets[i] += 1;
+			if (nextOffsets[i] == left.size() && nextOffsets[i]+i-zeroPos == right.size()) return score;
+		}
+		std::swap(offsets, nextOffsets);
+		zeroPos += 1;
+	}
+	return maxEdits+1;
 }
 
-std::vector<std::vector<std::vector<std::string>>> clusterLoopSequences(const std::vector<std::vector<std::string>>& loops, const GfaGraph& graph, const size_t maxEdits)
+size_t getEditDistancePossiblyMemoized(const std::vector<std::string>& left, const std::vector<std::string>& right, const size_t leftStartClipBp, const size_t rightStartClipBp, const size_t leftEndClipBp, const size_t rightEndClipBp, const GfaGraph& graph, const size_t maxEdits, std::map<std::pair<std::vector<std::string>, std::vector<std::string>>, size_t>& memoizedEditDistances)
+{
+	if (left == right) return 0;
+	auto key = canon(left, right);
+	size_t add;
+	if (memoizedEditDistances.count(key) == 0)
+	{
+		size_t startClip = 0;
+		size_t endClip = 0;
+		if (left[0] == right[0])
+		{
+			while (startClip+1 < left.size() && startClip+1 < right.size() && left[startClip+1] == right[startClip+1]) startClip += 1;
+		}
+		if (left.back() == right.back())
+		{
+			while (endClip+1 < left.size() && endClip+1 < right.size() && left[left.size()-2-endClip] == right[right.size()-2-endClip]) endClip += 1;
+		}
+		if (startClip > 0 || endClip > 0)
+		{
+			assert(startClip + endClip < left.size());
+			assert(startClip + endClip < right.size());
+			auto leftSubseq = getSequence(std::vector<std::string> { left.begin() + startClip, left.end() - endClip }, graph.nodeSeqs, graph.edges);
+			auto rightSubseq = getSequence(std::vector<std::string> { right.begin() + startClip, right.end() - endClip }, graph.nodeSeqs, graph.edges);
+			if (leftStartClipBp != 0 || leftEndClipBp != 0) leftSubseq = leftSubseq.substr(leftStartClipBp, left.size() - leftStartClipBp - leftEndClipBp);
+			if (rightStartClipBp != 0 || rightEndClipBp != 0) rightSubseq = rightSubseq.substr(rightStartClipBp, right.size() - rightStartClipBp - rightEndClipBp);
+			add = getEditDistanceWfa(leftSubseq, rightSubseq, maxEdits);
+			memoizedEditDistances[key] = add;
+		}
+		else
+		{
+			auto leftSubseq = getSequence(left, graph.nodeSeqs, graph.edges);
+			auto rightSubseq = getSequence(right, graph.nodeSeqs, graph.edges);
+			if (leftStartClipBp != 0 || leftEndClipBp != 0) leftSubseq = leftSubseq.substr(leftStartClipBp, left.size() - leftStartClipBp - leftEndClipBp);
+			if (rightStartClipBp != 0 || rightEndClipBp != 0) rightSubseq = rightSubseq.substr(rightStartClipBp, right.size() - rightStartClipBp - rightEndClipBp);
+			add = getEditDistanceWfa(leftSubseq, rightSubseq, maxEdits);
+			memoizedEditDistances[key] = add;
+		}
+	}
+	else
+	{
+		add = memoizedEditDistances.at(key);
+	}
+	return add;
+}
+
+size_t getEditDistance(const std::vector<std::string>& left, const std::vector<std::string>& right, const GfaGraph& graph, const std::unordered_map<std::string, size_t>& pathStartClip, const std::unordered_map<std::string, size_t>& pathEndClip, const size_t maxEdits, const std::unordered_set<std::string>& coreNodes, std::vector<std::map<std::pair<std::vector<std::string>, std::vector<std::string>>, size_t>>& memoizedEditDistances)
+{
+	std::vector<std::pair<size_t, size_t>> nodeMatches;
+	size_t j = 0;
+	for (size_t i = 0; i < left.size(); i++)
+	{
+		if (coreNodes.count(left[i].substr(1)) == 0) continue;
+		while (j < right.size() && coreNodes.count(right[j].substr(1)) == 0) j++;
+		if (j == right.size()) break;
+		assert(left[i] == right[j]);
+		nodeMatches.emplace_back(i, j);
+		j += 1;
+		if (j == right.size()) break;
+	}
+	size_t result = 0;
+	assert(nodeMatches.size() >= 1);
+	size_t add = 0;
+	for (size_t i = 1; i < nodeMatches.size(); i++)
+	{
+		assert(nodeMatches[i].first > nodeMatches[i-1].first);
+		assert(nodeMatches[i].second > nodeMatches[i-1].second);
+		if (nodeMatches[i].first == nodeMatches[i-1].first+1 && nodeMatches[i].second == nodeMatches[i-1].second+1) continue;
+		std::vector<std::string> leftPath { left.begin() + nodeMatches[i-1].first, left.begin()+nodeMatches[i].first+1 };
+		std::vector<std::string> rightPath { right.begin() + nodeMatches[i-1].second, right.begin()+nodeMatches[i].second+1 };
+		add = getEditDistancePossiblyMemoized(leftPath, rightPath, 0, 0, 0, 0, graph, maxEdits, memoizedEditDistances[i]);
+		result += add;
+		if (result >= maxEdits) return maxEdits+1;
+	}
+	std::vector<std::string> leftPath { left.begin(), left.begin()+nodeMatches[0].first+1 };
+	std::vector<std::string> rightPath { right.begin(), right.begin()+nodeMatches[0].second+1 };
+	add = getEditDistancePossiblyMemoized(leftPath, rightPath, pathStartClip.at(leftPath[0]), pathStartClip.at(rightPath[0]), 0, 0, graph, maxEdits, memoizedEditDistances[0]);
+	result += add;
+	if (result >= maxEdits) return maxEdits+1;
+	leftPath = std::vector<std::string> { left.begin()+nodeMatches.back().first, left.end() };
+	rightPath = std::vector<std::string> { right.begin()+nodeMatches.back().second, right.end() };
+	add = getEditDistancePossiblyMemoized(leftPath, rightPath, 0, 0, pathEndClip.at(leftPath.back()), pathEndClip.at(rightPath.back()), graph, maxEdits, memoizedEditDistances.back());
+	result += add;
+	if (result >= maxEdits) return maxEdits+1;
+	return result;
+}
+
+std::vector<std::vector<std::vector<std::string>>> clusterLoopSequences(const std::vector<std::vector<std::string>>& loops, const GfaGraph& graph, const std::unordered_map<std::string, size_t>& pathStartClip, const std::unordered_map<std::string, size_t>& pathEndClip, const std::unordered_set<std::string>& coreNodes, const size_t maxEdits)
 {
 	std::vector<size_t> parent;
 	parent.resize(loops.size());
@@ -1146,14 +1291,20 @@ std::vector<std::vector<std::vector<std::string>>> clusterLoopSequences(const st
 	{
 		parent[i] = i;
 	}
+	std::vector<std::map<std::pair<std::vector<std::string>, std::vector<std::string>>, size_t>> memoizedEditDistances;
+	memoizedEditDistances.resize(coreNodes.size()+1);
+	size_t sumAligned = 0;
+	size_t totalNeedsAligning = loops.size() * (loops.size()-1) / 2;
 	for (size_t i = 0; i < loops.size(); i++)
 	{
 		while (parent[i] != parent[parent[i]]) parent[i] = parent[parent[i]];
 		for (size_t j = 0; j < i; j++)
 		{
+			if (sumAligned % 1000000 == 0) std::cerr << "aligning morph path pair " << sumAligned << " / " << totalNeedsAligning << std::endl;
+			sumAligned += 1;
 			while (parent[j] != parent[parent[j]]) parent[j] = parent[parent[j]];
 			if (parent[i] == parent[j]) continue;
-			size_t edits = getEditDistance(loops[i], loops[j], graph, maxEdits);
+			size_t edits = getEditDistance(loops[i], loops[j], graph, pathStartClip, pathEndClip, maxEdits, coreNodes, memoizedEditDistances);
 			if (edits > maxEdits) continue;
 			parent[j] = parent[i];
 		}
@@ -1226,7 +1377,7 @@ void HandleCluster(const ClusterParams& params)
 	nameVariants(variants, graph, heavyPath);
 	std::cerr << "writing variants" << std::endl;
 	writeVariants(heavyPath, graph, variants, params.basePath + "/variants.txt");
-	std::cerr << "making variant graph" << std::endl;
+	std::cerr << "writing variant graph" << std::endl;
 	writeVariantGraph(params.basePath + "/graph.gfa", heavyPath, variants, params.basePath + "/variant-graph.gfa");
 	std::cerr << "writing variant vcf" << std::endl;
 	writeVariantVCF(params.basePath + "/variants.vcf", heavyPath, graph, variants);
@@ -1237,30 +1388,44 @@ void HandleCluster(const ClusterParams& params)
 	}
 	if (params.ontReadPath.size() > 0)
 	{
+		std::cerr << "start ultralong ONT analysis" << std::endl;
+		std::cerr << "reading variant graph" << std::endl;
+		GfaGraph variantGraph;
+		variantGraph.loadFromFile(params.basePath + "/variant-graph.gfa");
 		std::cerr << "aligning ultralong ONT reads to variant graph" << std::endl;
-		alignONTToVariantGraph(params.GraphAlignerPath, params.ontReadPath, params.basePath + "/variant-graph.gfa", params.basePath + "/ont-alns.gaf", params.numThreads);
+		alignONTToVariantGraph(params.basePath, params.GraphAlignerPath, params.ontReadPath, params.basePath + "/variant-graph.gfa", params.basePath + "/ont-alns.gaf", params.numThreads);
 		std::cerr << "extract corrected ultralong paths" << std::endl;
-		size_t heavyPathLength = heavyPath.getSequence(graph.nodeSeqs).size();
+		size_t heavyPathLength = heavyPath.getSequence(variantGraph.nodeSeqs).size();
 		size_t minLength = heavyPathLength * 0.5;
 		std::cerr << "consensus path length " << heavyPathLength << ", using " << minLength << " as minimum morph length" << std::endl;
-		auto ontPaths = extractCorrectedONTPaths(params.basePath + "/ont-alns.gaf", heavyPath, minLength, graph);
+		auto ontPaths = extractCorrectedONTPaths(params.basePath + "/ont-alns.gaf", heavyPath, minLength, variantGraph);
 		std::cerr << ontPaths.size() << " corrected paths" << std::endl;
-		std::cerr << "extract corrected morph sequences from ONTs" << std::endl;
-		auto loopSequences = extractLoopSequences(ontPaths, heavyPath, minLength, graph);
-		std::cerr << loopSequences.size() << " morph sequences in ONTs" << std::endl;
+		std::cerr << "extract morph paths from ONTs" << std::endl;
+		std::unordered_map<std::string, size_t> pathStartClip;
+		std::unordered_map<std::string, size_t> pathEndClip;
+		std::unordered_set<std::string> borderNodes;
+		std::tie(borderNodes, pathStartClip, pathEndClip) = getBorderNodes(heavyPath, variantGraph);
+		auto loopSequences = extractLoopSequences(ontPaths, heavyPath, minLength, variantGraph, borderNodes);
+		auto coreNodes = getCoreNodes(variantGraph, loopSequences, borderNodes);
+		std::cerr << loopSequences.size() << " morph paths in ONTs" << std::endl;
 		{
 			std::ofstream file { params.basePath + "/loops.fa" };
 			for (size_t i = 0; i < loopSequences.size(); i++)
 			{
 				file << ">loop" << i << std::endl;
-				file << getSequence(loopSequences[i], graph.nodeSeqs, graph.edges) << std::endl;
+				std::string loopSeq = getSequence(loopSequences[i], variantGraph.nodeSeqs, variantGraph.edges);
+				size_t leftClipBp = pathStartClip.at(loopSequences[i][0]);
+				size_t rightClipBp = pathEndClip.at(loopSequences[i].back());
+				loopSeq = loopSeq.substr(leftClipBp, loopSeq.size() - leftClipBp - rightClipBp);
+				file << loopSeq << std::endl;
 			}
 		}
 		std::cerr << "cluster morphs" << std::endl;
-		auto clusters = clusterLoopSequences(loopSequences, graph, 300);
+		auto clusters = clusterLoopSequences(loopSequences, variantGraph, pathStartClip, pathEndClip, coreNodes, 300);
 		std::cerr << clusters.size() << " morph clusters" << std::endl;
+		std::sort(clusters.begin(), clusters.end(), [](const auto& left, const auto& right) { return left.size() > right.size(); });
 		std::cerr << "getting morph consensuses" << std::endl;
-		auto morphConsensuses = getMorphConsensuses(clusters, graph);
+		auto morphConsensuses = getMorphConsensuses(clusters, variantGraph);
 		std::cerr << "write morph consensuses" << std::endl;
 		writeMorphConsensuses(params.basePath + "/morphs.fa", morphConsensuses);
 	}
