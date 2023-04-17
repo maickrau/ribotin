@@ -248,6 +248,29 @@ std::string getSequence(const std::vector<std::string>& nodes, const std::unorde
 	return result;
 }
 
+size_t getPathLength(const std::vector<std::string>& nodes, const std::unordered_map<std::string, std::string>& nodeSeqs, const std::unordered_map<std::string, std::set<std::tuple<std::string, size_t, size_t>>>& edges)
+{
+	size_t result = 0;
+	for (size_t i = 0; i < nodes.size(); i++)
+	{
+		size_t add = nodeSeqs.at(nodes[i].substr(1)).size();
+		if (i > 0)
+		{
+			size_t overlap = std::numeric_limits<size_t>::max();
+			for (auto edge : edges.at(nodes[i-1]))
+			{
+				if (std::get<0>(edge) != nodes[i]) continue;
+				assert(overlap == std::numeric_limits<size_t>::max());
+				overlap = std::get<1>(edge);
+			}
+			assert(overlap != std::numeric_limits<size_t>::max());
+			add -= overlap;
+		}
+		result += add;
+	}
+	return result;
+}
+
 std::string getPathGaf(const Path& path, const GfaGraph& graph)
 {
 	std::string pathseq = path.getSequence(graph.nodeSeqs);
@@ -941,9 +964,9 @@ void orientPath(std::vector<std::string>& path, const std::unordered_map<std::st
 	if (bwMatches > fwMatches) path = reverse(path);
 }
 
-std::vector<std::string> extractCorrectedONTPaths(std::string gafFile, const Path& heavyPath, const size_t minLength, const GfaGraph& graph)
+std::vector<std::vector<std::string>> extractCorrectedONTPaths(std::string gafFile, const Path& heavyPath, const size_t minLength, const GfaGraph& graph)
 {
-	std::vector<std::string> result;
+	std::vector<std::vector<std::string>> result;
 	std::ifstream file { gafFile };
 	auto edgeOverlaps = getEdgeOverlaps(graph);
 	auto nodeOrientations = getNodeOrientations(heavyPath.nodes);
@@ -965,19 +988,18 @@ std::vector<std::string> extractCorrectedONTPaths(std::string gafFile, const Pat
 		if (readPath.readEnd - readPath.readStart < minLength) continue;
 		readPath.path = parsePath(pathstr);
 		orientPath(readPath.path, nodeOrientations);
-		result.emplace_back(getPathSequence(readPath, graph, edgeOverlaps));
+		result.emplace_back(readPath.path);
 	}
 	return result;
 }
 
-std::vector<std::string> extractLoopSequences(const std::vector<std::string>& correctedReads, const Path& heavyPath, const size_t minLength, const GfaGraph& graph)
+std::vector<std::vector<std::string>> extractLoopSequences(const std::vector<std::vector<std::string>>& correctedPaths, const Path& heavyPath, const size_t minLength, const GfaGraph& graph)
 {
 	const size_t k = 101;
 	const size_t borderSize = 200;
 	std::string consensusSequence = heavyPath.getSequence(graph.nodeSeqs);
 	std::unordered_map<std::string, size_t> startKmers;
 	std::unordered_map<std::string, size_t> endKmers;
-	std::unordered_set<std::string> repeats;
 	for (size_t i = 0; i < borderSize; i++)
 	{
 		std::string subs = consensusSequence.substr(i, k);
@@ -1010,83 +1032,113 @@ std::vector<std::string> extractLoopSequences(const std::vector<std::string>& co
 			startKmers[subs] = std::numeric_limits<size_t>::max();
 		}
 	}
-	std::vector<std::string> result;
-	for (const std::string& seq : correctedReads)
+	std::unordered_set<std::string> borderNodes;
+	for (const auto& pair : graph.nodeSeqs)
 	{
-		if (seq.size() < minLength) continue;
-		std::vector<size_t> breakpoints;
-		for (size_t i = 0; i < seq.size()-k; i++)
+		std::vector<size_t> fwBreaks;
+		for (size_t i = 0; i < pair.second.size()-k; i++)
 		{
-			std::string subs = seq.substr(i, k);
+			std::string subs = pair.second.substr(i, k);
 			if (startKmers.count(subs) == 1)
 			{
-				size_t refPos = startKmers.at(subs);
-				if (refPos != std::numeric_limits<size_t>::max())
+				size_t pos = startKmers.at(subs);
+				if (pos != std::numeric_limits<size_t>::max() && pos <= i)
 				{
-					if (i >= refPos) breakpoints.push_back(i - refPos);
+					fwBreaks.push_back(i - pos);
 				}
 			}
 			if (endKmers.count(subs) == 1)
 			{
-				size_t refPos = endKmers.at(subs);
-				if (refPos != std::numeric_limits<size_t>::max())
+				size_t pos = endKmers.at(subs);
+				if (pos != std::numeric_limits<size_t>::max() && i+pos+k < pair.second.size())
 				{
-					if (i+refPos+k < seq.size()) breakpoints.push_back(i+refPos+k);
+					fwBreaks.push_back(i+pos+k);
 				}
 			}
 		}
-		std::sort(breakpoints.begin(), breakpoints.end());
-		std::vector<size_t> actualBreakpoints;
-		for (size_t i = 10; i < breakpoints.size(); i++)
+		std::vector<size_t> bwBreaks;
+		std::string reverseSeq = revcomp(pair.second);
+		for (size_t i = 0; i < reverseSeq.size()-k; i++)
 		{
-			if (breakpoints[i-10] != breakpoints[i]) continue;
-			if (actualBreakpoints.size() > 0 && breakpoints[i] == actualBreakpoints.back()) continue;
-			if (actualBreakpoints.size() > 0 && breakpoints[i] < actualBreakpoints.back() + minLength) continue;
-			actualBreakpoints.push_back(breakpoints[i]);
+			std::string subs = reverseSeq.substr(i, k);
+			if (startKmers.count(subs) == 1)
+			{
+				size_t pos = startKmers.at(subs);
+				if (pos != std::numeric_limits<size_t>::max() && pos <= i)
+				{
+					bwBreaks.push_back(i - pos);
+				}
+			}
+			if (endKmers.count(subs) == 1)
+			{
+				size_t pos = endKmers.at(subs);
+				if (pos != std::numeric_limits<size_t>::max() && i+pos+k < reverseSeq.size())
+				{
+					bwBreaks.push_back(i+pos+k);
+				}
+			}
 		}
-		for (size_t i = 1; i < actualBreakpoints.size(); i++)
+		if (fwBreaks.size() >= 3 || bwBreaks.size() >= 3) borderNodes.insert(pair.first);
+	}
+	std::vector<std::vector<std::string>> result;
+	for (const std::vector<std::string>& path : correctedPaths)
+	{
+		size_t lastBreak = std::numeric_limits<size_t>::max();
+		for (size_t i = 0; i < path.size(); i++)
 		{
-			result.emplace_back(seq.substr(actualBreakpoints[i-1], actualBreakpoints[i] - actualBreakpoints[i-1]));
+			if (borderNodes.count(path[i].substr(1)) == 0) continue;
+			if (lastBreak == std::numeric_limits<size_t>::max())
+			{
+				lastBreak = i;
+				continue;
+			}
+			std::vector<std::string> looppath { path.begin()+lastBreak, path.begin()+i+1 };
+			if (getPathLength(looppath, graph.nodeSeqs, graph.edges) >= minLength)
+			{
+				result.emplace_back(looppath);
+			}
+			lastBreak = i;
 		}
 	}
 	return result;
 }
 
-size_t getEditDistance(const std::string& left, const std::string& right, const size_t maxEdits)
+size_t getEditDistance(const std::vector<std::string>& left, const std::vector<std::string>& right, const GfaGraph& graph, const size_t maxEdits)
 {
-	if (left.size() > right.size()+maxEdits) return maxEdits+1;
-	if (right.size() > left.size()+maxEdits) return maxEdits+1;
-	assert(left.size() > maxEdits);
-	assert(right.size() > maxEdits);
-	std::vector<size_t> offsets;
-	std::vector<size_t> nextOffsets;
-	offsets.resize(1, 0);
-	while (offsets[0] < left.size() && offsets[0] < right.size() && left[offsets[0]] == right[offsets[0]]) offsets[0] += 1;
-	if (offsets[0] == left.size()) return right.size() - left.size();
-	if (offsets[0] == right.size()) return left.size() - right.size();
-	size_t zeroPos = 1;
-	for (size_t score = 0; score < maxEdits; score++)
-	{
-		nextOffsets.resize(offsets.size()+2);
-		for (size_t i = 0; i < nextOffsets.size(); i++)
-		{
-			nextOffsets[i] = 0;
-			if (i >= 1 && i < nextOffsets.size()-1) nextOffsets[i] = offsets[i-1]+1;
-			if (i >= 2) nextOffsets[i] = std::max(nextOffsets[i], offsets[i-2]);
-			if (i < nextOffsets.size()-2) nextOffsets[i] = std::max(nextOffsets[i], offsets[i]+1);
-			assert(nextOffsets[i] + i >= zeroPos);
-			nextOffsets[i] = std::min(nextOffsets[i], right.size() - i + zeroPos);
-			nextOffsets[i] = std::min(nextOffsets[i], left.size());
-			while (nextOffsets[i] < left.size() && nextOffsets[i]+i-zeroPos < right.size() && left[nextOffsets[i]] == right[nextOffsets[i]+i-zeroPos]) nextOffsets[i] += 1;
-			if (nextOffsets[i] == left.size() && nextOffsets[i]+i-zeroPos == right.size()) return score;
-		}
-		std::swap(offsets, nextOffsets);
-		zeroPos += 1;
-	}
-	return maxEdits+1;
+	return 0; // todo implement
+	// if (left.size() > right.size()+maxEdits) return maxEdits+1;
+	// if (right.size() > left.size()+maxEdits) return maxEdits+1;
+	// assert(left.size() > maxEdits);
+	// assert(right.size() > maxEdits);
+	// std::vector<size_t> offsets;
+	// std::vector<size_t> nextOffsets;
+	// offsets.resize(1, 0);
+	// while (offsets[0] < left.size() && offsets[0] < right.size() && left[offsets[0]] == right[offsets[0]]) offsets[0] += 1;
+	// if (offsets[0] == left.size()) return right.size() - left.size();
+	// if (offsets[0] == right.size()) return left.size() - right.size();
+	// size_t zeroPos = 1;
+	// for (size_t score = 0; score < maxEdits; score++)
+	// {
+	// 	nextOffsets.resize(offsets.size()+2);
+	// 	for (size_t i = 0; i < nextOffsets.size(); i++)
+	// 	{
+	// 		nextOffsets[i] = 0;
+	// 		if (i >= 1 && i < nextOffsets.size()-1) nextOffsets[i] = offsets[i-1]+1;
+	// 		if (i >= 2) nextOffsets[i] = std::max(nextOffsets[i], offsets[i-2]);
+	// 		if (i < nextOffsets.size()-2) nextOffsets[i] = std::max(nextOffsets[i], offsets[i]+1);
+	// 		assert(nextOffsets[i] + i >= zeroPos);
+	// 		nextOffsets[i] = std::min(nextOffsets[i], right.size() - i + zeroPos);
+	// 		nextOffsets[i] = std::min(nextOffsets[i], left.size());
+	// 		while (nextOffsets[i] < left.size() && nextOffsets[i]+i-zeroPos < right.size() && left[nextOffsets[i]] == right[nextOffsets[i]+i-zeroPos]) nextOffsets[i] += 1;
+	// 		if (nextOffsets[i] == left.size() && nextOffsets[i]+i-zeroPos == right.size()) return score;
+	// 	}
+	// 	std::swap(offsets, nextOffsets);
+	// 	zeroPos += 1;
+	// }
+	// return maxEdits+1;
 }
 
-std::vector<std::vector<std::string>> clusterLoopSequences(const std::vector<std::string>& loops, const size_t maxEdits)
+std::vector<std::vector<std::vector<std::string>>> clusterLoopSequences(const std::vector<std::vector<std::string>>& loops, const GfaGraph& graph, const size_t maxEdits)
 {
 	std::vector<size_t> parent;
 	parent.resize(loops.size());
@@ -1101,14 +1153,14 @@ std::vector<std::vector<std::string>> clusterLoopSequences(const std::vector<std
 		{
 			while (parent[j] != parent[parent[j]]) parent[j] = parent[parent[j]];
 			if (parent[i] == parent[j]) continue;
-			size_t edits = getEditDistance(loops[i], loops[j], maxEdits);
+			size_t edits = getEditDistance(loops[i], loops[j], graph, maxEdits);
 			if (edits > maxEdits) continue;
 			parent[j] = parent[i];
 		}
 	}
 	std::vector<size_t> parentToCluster;
 	parentToCluster.resize(parent.size(), std::numeric_limits<size_t>::max());
-	std::vector<std::vector<std::string>> result;
+	std::vector<std::vector<std::vector<std::string>>> result;
 	for (size_t i = 0; i < parent.size(); i++)
 	{
 		while (parent[i] != parent[parent[i]]) parent[i] = parent[parent[i]];
@@ -1123,19 +1175,19 @@ std::vector<std::vector<std::string>> clusterLoopSequences(const std::vector<std
 	return result;
 }
 
-std::string getConsensusSequence(const std::vector<std::string>& rawSequences)
+std::string getConsensusSequence(const std::vector<std::vector<std::string>>& rawPaths, const GfaGraph& graph)
 {
-	assert(rawSequences.size() >= 1);
+	assert(rawPaths.size() >= 1);
 	// todo implement
-	return rawSequences[0];
+	return getSequence(rawPaths[0], graph.nodeSeqs, graph.edges);
 }
 
-std::vector<std::tuple<std::string, size_t>> getMorphConsensuses(const std::vector<std::vector<std::string>>& clusters)
+std::vector<std::tuple<std::string, size_t>> getMorphConsensuses(const std::vector<std::vector<std::vector<std::string>>>& clusters, const GfaGraph& graph)
 {
 	std::vector<std::tuple<std::string, size_t>> result;
 	for (size_t i = 0; i < clusters.size(); i++)
 	{
-		result.emplace_back(getConsensusSequence(clusters[i]), clusters[i].size());
+		result.emplace_back(getConsensusSequence(clusters[i], graph), clusters[i].size());
 	}
 	return result;
 }
@@ -1201,14 +1253,14 @@ void HandleCluster(const ClusterParams& params)
 			for (size_t i = 0; i < loopSequences.size(); i++)
 			{
 				file << ">loop" << i << std::endl;
-				file << loopSequences[i] << std::endl;
+				file << getSequence(loopSequences[i], graph.nodeSeqs, graph.edges) << std::endl;
 			}
 		}
 		std::cerr << "cluster morphs" << std::endl;
-		auto clusters = clusterLoopSequences(loopSequences, 300);
+		auto clusters = clusterLoopSequences(loopSequences, graph, 300);
 		std::cerr << clusters.size() << " morph clusters" << std::endl;
 		std::cerr << "getting morph consensuses" << std::endl;
-		auto morphConsensuses = getMorphConsensuses(clusters);
+		auto morphConsensuses = getMorphConsensuses(clusters, graph);
 		std::cerr << "write morph consensuses" << std::endl;
 		writeMorphConsensuses(params.basePath + "/morphs.fa", morphConsensuses);
 	}
