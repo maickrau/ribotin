@@ -1015,9 +1015,14 @@ std::unordered_set<std::string> getCoreNodes(const std::vector<std::vector<std::
 			if (pair.second == 1) existingNodes.insert(pair.first);
 			if (pair.second != 1) notUniqueNodes.insert(pair.first);
 		}
+	}
+	for (const auto& path : paths)
+	{
+		std::unordered_set<std::string> nodesHere;
+		for (const auto& node : path) nodesHere.insert(node.substr(1));
 		for (auto node : existingNodes)
 		{
-			if (coverage.count(node) == 0) notUniqueNodes.insert(node);
+			if (nodesHere.count(node) == 0) notUniqueNodes.insert(node);
 		}
 	}
 	std::unordered_set<std::string> result;
@@ -1291,17 +1296,24 @@ std::vector<std::vector<std::vector<std::string>>> clusterLoopSequences(const st
 	{
 		parent[i] = i;
 	}
+	std::vector<size_t> loopLengths;
+	loopLengths.reserve(loops.size());
+	for (size_t i = 0; i < loops.size(); i++)
+	{
+		loopLengths.emplace_back(getPathLength(loops[i], graph.nodeSeqs, graph.edges));
+	}
 	std::vector<std::map<std::pair<std::vector<std::string>, std::vector<std::string>>, size_t>> memoizedEditDistances;
 	memoizedEditDistances.resize(coreNodes.size()+1);
 	size_t sumAligned = 0;
-	size_t totalNeedsAligning = loops.size() * (loops.size()-1) / 2;
 	for (size_t i = 0; i < loops.size(); i++)
 	{
 		while (parent[i] != parent[parent[i]]) parent[i] = parent[parent[i]];
-		for (size_t j = 0; j < i; j++)
+		for (size_t j = i-1; j < i; j--)
 		{
-			if (sumAligned % 1000000 == 0) std::cerr << "aligning morph path pair " << sumAligned << " / " << totalNeedsAligning << std::endl;
+			if (sumAligned % 1000000 == 0) std::cerr << "aligning morph path pair " << sumAligned << std::endl;
 			sumAligned += 1;
+			assert(loopLengths[j] <= loopLengths[i]);
+			if (loopLengths[j]+maxEdits < loopLengths[i]) break;
 			while (parent[j] != parent[parent[j]]) parent[j] = parent[parent[j]];
 			if (parent[i] == parent[j]) continue;
 			size_t edits = getEditDistance(loops[i], loops[j], graph, pathStartClip, pathEndClip, maxEdits, coreNodes, memoizedEditDistances);
@@ -1396,6 +1408,24 @@ void writeMorphConsensuses(std::string outFile, const std::vector<std::tuple<std
 	}
 }
 
+void orderLoopsByLength(std::vector<std::vector<std::string>>& loops, const GfaGraph& graph)
+{
+	std::vector<std::pair<size_t, size_t>> indexAndLength;
+	indexAndLength.reserve(loops.size());
+	for (size_t i = 0; i < loops.size(); i++)
+	{
+		indexAndLength.emplace_back(i, getPathLength(loops[i], graph.nodeSeqs, graph.edges));
+	}
+	std::sort(indexAndLength.begin(), indexAndLength.end(), [](auto left, auto right) { return left.second < right.second; });
+	std::vector<std::vector<std::string>> result;
+	result.resize(loops.size());
+	for (size_t i = 0; i < loops.size(); i++)
+	{
+		std::swap(result[i], loops[indexAndLength[i].first]);
+	}
+	std::swap(result, loops);
+}
+
 void HandleCluster(const ClusterParams& params)
 {
 	std::cerr << "running MBG" << std::endl;
@@ -1464,6 +1494,7 @@ void HandleCluster(const ClusterParams& params)
 			}
 		}
 		std::cerr << "cluster morphs" << std::endl;
+		orderLoopsByLength(loopSequences, variantGraph);
 		auto clusters = clusterLoopSequences(loopSequences, variantGraph, pathStartClip, pathEndClip, coreNodes, 300);
 		std::cerr << clusters.size() << " morph clusters" << std::endl;
 		std::sort(clusters.begin(), clusters.end(), [](const auto& left, const auto& right) { return left.size() > right.size(); });
