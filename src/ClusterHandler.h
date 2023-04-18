@@ -20,5 +20,6 @@ public:
 };
 
 void HandleCluster(const ClusterParams& params);
+void DoClusterONTAnalysis(const ClusterParams& params);
 
 #endif

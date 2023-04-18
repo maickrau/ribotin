@@ -130,4 +130,8 @@ int main(int argc, char** argv)
 	std::cerr << "running" << std::endl;
 	clusterParams.hifiReadPath = clusterParams.basePath + "/hifi_reads.fa";
 	HandleCluster(clusterParams);
+	if (ontReadPaths.size() > 0)
+	{
+		DoClusterONTAnalysis(clusterParams);
+	}
 }

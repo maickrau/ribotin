@@ -1459,48 +1459,59 @@ void HandleCluster(const ClusterParams& params)
 		std::cerr << "lifting over annotations to consensus" << std::endl;
 		liftoverAnnotationsToConsensus(params.basePath, params.basePath + "/consensus.fa", params.annotationFasta, params.annotationGff3);
 	}
-	if (params.ontReadPath.size() > 0)
+}
+
+void DoClusterONTAnalysis(const ClusterParams& params)
+{
+	std::cerr << "start ultralong ONT analysis" << std::endl;
+	std::cerr << "reading graph" << std::endl;
+	GfaGraph graph;
+	graph.loadFromFile(params.basePath + "/graph.gfa");
+	std::cerr << "getting consensus" << std::endl;
+	Path heavyPath = getHeavyPath(graph);
+	if (params.orientReferencePath.size() > 0)
 	{
-		std::cerr << "start ultralong ONT analysis" << std::endl;
-		std::cerr << "reading variant graph" << std::endl;
-		GfaGraph variantGraph;
-		variantGraph.loadFromFile(params.basePath + "/variant-graph.gfa");
-		std::cerr << "aligning ultralong ONT reads to variant graph" << std::endl;
-		alignONTToVariantGraph(params.basePath, params.GraphAlignerPath, params.ontReadPath, params.basePath + "/variant-graph.gfa", params.basePath + "/ont-alns.gaf", params.numThreads);
-		std::cerr << "extract corrected ultralong paths" << std::endl;
-		size_t heavyPathLength = heavyPath.getSequence(variantGraph.nodeSeqs).size();
-		size_t minLength = heavyPathLength * 0.5;
-		std::cerr << "consensus path length " << heavyPathLength << ", using " << minLength << " as minimum morph length" << std::endl;
-		auto ontPaths = extractCorrectedONTPaths(params.basePath + "/ont-alns.gaf", heavyPath, minLength, variantGraph);
-		std::cerr << ontPaths.size() << " corrected paths" << std::endl;
-		std::cerr << "extract morph paths from ONTs" << std::endl;
-		std::unordered_map<std::string, size_t> pathStartClip;
-		std::unordered_map<std::string, size_t> pathEndClip;
-		std::unordered_set<std::string> borderNodes;
-		std::tie(borderNodes, pathStartClip, pathEndClip) = getBorderNodes(heavyPath, variantGraph);
-		auto loopSequences = extractLoopSequences(ontPaths, heavyPath, minLength, variantGraph, borderNodes);
-		auto coreNodes = getCoreNodes(loopSequences);
-		std::cerr << loopSequences.size() << " morph paths in ONTs" << std::endl;
-		{
-			std::ofstream file { params.basePath + "/loops.fa" };
-			for (size_t i = 0; i < loopSequences.size(); i++)
-			{
-				file << ">loop" << i << std::endl;
-				std::string loopSeq = getSequence(loopSequences[i], variantGraph.nodeSeqs, variantGraph.edges);
-				size_t leftClipBp = pathStartClip.at(loopSequences[i][0]);
-				size_t rightClipBp = pathEndClip.at(loopSequences[i].back());
-				loopSeq = loopSeq.substr(leftClipBp, loopSeq.size() - leftClipBp - rightClipBp);
-				file << loopSeq << std::endl;
-			}
-		}
-		std::cerr << "cluster morphs" << std::endl;
-		orderLoopsByLength(loopSequences, variantGraph);
-		auto clusters = clusterLoopSequences(loopSequences, variantGraph, pathStartClip, pathEndClip, coreNodes, 300);
-		std::cerr << clusters.size() << " morph clusters" << std::endl;
-		std::sort(clusters.begin(), clusters.end(), [](const auto& left, const auto& right) { return left.size() > right.size(); });
-		std::cerr << "getting morph consensuses" << std::endl;
-		auto morphConsensuses = getMorphConsensuses(clusters, variantGraph, pathStartClip, pathEndClip);
-		std::cerr << "write morph consensuses" << std::endl;
-		writeMorphConsensuses(params.basePath + "/morphs.fa", morphConsensuses);
+		std::cerr << "orienting consensus" << std::endl;
+		heavyPath = orientPath(graph, heavyPath, params.orientReferencePath, 101);
 	}
+	std::cerr << "reading variant graph" << std::endl;
+	GfaGraph variantGraph;
+	variantGraph.loadFromFile(params.basePath + "/variant-graph.gfa");
+	std::cerr << "aligning ultralong ONT reads to variant graph" << std::endl;
+	alignONTToVariantGraph(params.basePath, params.GraphAlignerPath, params.ontReadPath, params.basePath + "/variant-graph.gfa", params.basePath + "/ont-alns.gaf", params.numThreads);
+	std::cerr << "extract corrected ultralong paths" << std::endl;
+	size_t heavyPathLength = heavyPath.getSequence(variantGraph.nodeSeqs).size();
+	size_t minLength = heavyPathLength * 0.5;
+	std::cerr << "consensus path length " << heavyPathLength << ", using " << minLength << " as minimum morph length" << std::endl;
+	auto ontPaths = extractCorrectedONTPaths(params.basePath + "/ont-alns.gaf", heavyPath, minLength, variantGraph);
+	std::cerr << ontPaths.size() << " corrected paths" << std::endl;
+	std::cerr << "extract morph paths from ONTs" << std::endl;
+	std::unordered_map<std::string, size_t> pathStartClip;
+	std::unordered_map<std::string, size_t> pathEndClip;
+	std::unordered_set<std::string> borderNodes;
+	std::tie(borderNodes, pathStartClip, pathEndClip) = getBorderNodes(heavyPath, variantGraph);
+	auto loopSequences = extractLoopSequences(ontPaths, heavyPath, minLength, variantGraph, borderNodes);
+	auto coreNodes = getCoreNodes(loopSequences);
+	std::cerr << loopSequences.size() << " morph paths in ONTs" << std::endl;
+	{
+		std::ofstream file { params.basePath + "/loops.fa" };
+		for (size_t i = 0; i < loopSequences.size(); i++)
+		{
+			file << ">loop" << i << std::endl;
+			std::string loopSeq = getSequence(loopSequences[i], variantGraph.nodeSeqs, variantGraph.edges);
+			size_t leftClipBp = pathStartClip.at(loopSequences[i][0]);
+			size_t rightClipBp = pathEndClip.at(loopSequences[i].back());
+			loopSeq = loopSeq.substr(leftClipBp, loopSeq.size() - leftClipBp - rightClipBp);
+			file << loopSeq << std::endl;
+		}
+	}
+	std::cerr << "cluster morphs" << std::endl;
+	orderLoopsByLength(loopSequences, variantGraph);
+	auto clusters = clusterLoopSequences(loopSequences, variantGraph, pathStartClip, pathEndClip, coreNodes, 300);
+	std::cerr << clusters.size() << " morph clusters" << std::endl;
+	std::sort(clusters.begin(), clusters.end(), [](const auto& left, const auto& right) { return left.size() > right.size(); });
+	std::cerr << "getting morph consensuses" << std::endl;
+	auto morphConsensuses = getMorphConsensuses(clusters, variantGraph, pathStartClip, pathEndClip);
+	std::cerr << "write morph consensuses" << std::endl;
+	writeMorphConsensuses(params.basePath + "/morphs.fa", morphConsensuses);
 }
