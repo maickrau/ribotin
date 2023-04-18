@@ -999,7 +999,7 @@ std::vector<std::vector<std::string>> extractCorrectedONTPaths(std::string gafFi
 	return result;
 }
 
-std::unordered_set<std::string> getCoreNodes(const GfaGraph& graph, const std::vector<std::vector<std::string>>& paths, const std::unordered_set<std::string>& borderNodes)
+std::unordered_set<std::string> getCoreNodes(const std::vector<std::vector<std::string>>& paths)
 {
 	std::unordered_set<std::string> existingNodes;
 	std::unordered_set<std::string> notUniqueNodes;
@@ -1326,19 +1326,62 @@ std::vector<std::vector<std::vector<std::string>>> clusterLoopSequences(const st
 	return result;
 }
 
-std::string getConsensusSequence(const std::vector<std::vector<std::string>>& rawPaths, const GfaGraph& graph)
+std::string getConsensusSequence(const std::vector<std::vector<std::string>>& rawPaths, const GfaGraph& graph, const std::unordered_map<std::string, size_t>& pathStartClip, const std::unordered_map<std::string, size_t>& pathEndClip)
 {
 	assert(rawPaths.size() >= 1);
-	// todo implement
-	return getSequence(rawPaths[0], graph.nodeSeqs, graph.edges);
+	auto coreNodes = getCoreNodes(rawPaths);
+	std::vector<std::map<std::vector<std::string>, size_t>> alleleCounts;
+	alleleCounts.resize(coreNodes.size()+1);
+	for (const auto& path : rawPaths)
+	{
+		size_t lastCore = 0;
+		size_t coreIndex = 0;
+		for (size_t i = 0; i < path.size(); i++)
+		{
+			if (coreNodes.count(path[i].substr(1)) == 0) continue;
+			std::vector<std::string> subpath { path.begin() + lastCore, path.begin() + i + 1 };
+			alleleCounts[coreIndex][subpath] += 1;
+			lastCore = i;
+			coreIndex += 1;
+		}
+		assert(coreIndex == alleleCounts.size()-1);
+		std::vector<std::string> subpath { path.begin() + lastCore, path.end()};
+		alleleCounts[coreIndex][subpath] += 1;
+	}
+	std::vector<std::string> consensusPath;
+	for (size_t i = 0; i < alleleCounts.size(); i++)
+	{
+		size_t maxCount = 0;
+		for (const auto& pair : alleleCounts[i])
+		{
+			maxCount = std::max(maxCount, pair.second);
+		}
+		for (const auto& pair : alleleCounts[i])
+		{
+			if (pair.second != maxCount) continue;
+			if (i == 0)
+			{
+				consensusPath.insert(consensusPath.end(), pair.first.begin(), pair.first.end());
+			}
+			else
+			{
+				consensusPath.insert(consensusPath.end(), pair.first.begin()+1, pair.first.end());
+			}
+			break;
+		}
+	}
+	// todo handle cases where plurality path is not consensus
+	std::string consensusSeq = getSequence(consensusPath, graph.nodeSeqs, graph.edges);
+	consensusSeq = consensusSeq.substr(pathStartClip.at(consensusPath[0]), consensusSeq.size() - pathStartClip.at(consensusPath[0]) - pathEndClip.at(consensusPath.back()));
+	return consensusSeq;
 }
 
-std::vector<std::tuple<std::string, size_t>> getMorphConsensuses(const std::vector<std::vector<std::vector<std::string>>>& clusters, const GfaGraph& graph)
+std::vector<std::tuple<std::string, size_t>> getMorphConsensuses(const std::vector<std::vector<std::vector<std::string>>>& clusters, const GfaGraph& graph, const std::unordered_map<std::string, size_t>& pathStartClip, const std::unordered_map<std::string, size_t>& pathEndClip)
 {
 	std::vector<std::tuple<std::string, size_t>> result;
 	for (size_t i = 0; i < clusters.size(); i++)
 	{
-		result.emplace_back(getConsensusSequence(clusters[i], graph), clusters[i].size());
+		result.emplace_back(getConsensusSequence(clusters[i], graph, pathStartClip, pathEndClip), clusters[i].size());
 	}
 	return result;
 }
@@ -1406,7 +1449,7 @@ void HandleCluster(const ClusterParams& params)
 		std::unordered_set<std::string> borderNodes;
 		std::tie(borderNodes, pathStartClip, pathEndClip) = getBorderNodes(heavyPath, variantGraph);
 		auto loopSequences = extractLoopSequences(ontPaths, heavyPath, minLength, variantGraph, borderNodes);
-		auto coreNodes = getCoreNodes(variantGraph, loopSequences, borderNodes);
+		auto coreNodes = getCoreNodes(loopSequences);
 		std::cerr << loopSequences.size() << " morph paths in ONTs" << std::endl;
 		{
 			std::ofstream file { params.basePath + "/loops.fa" };
@@ -1425,7 +1468,7 @@ void HandleCluster(const ClusterParams& params)
 		std::cerr << clusters.size() << " morph clusters" << std::endl;
 		std::sort(clusters.begin(), clusters.end(), [](const auto& left, const auto& right) { return left.size() > right.size(); });
 		std::cerr << "getting morph consensuses" << std::endl;
-		auto morphConsensuses = getMorphConsensuses(clusters, variantGraph);
+		auto morphConsensuses = getMorphConsensuses(clusters, variantGraph, pathStartClip, pathEndClip);
 		std::cerr << "write morph consensuses" << std::endl;
 		writeMorphConsensuses(params.basePath + "/morphs.fa", morphConsensuses);
 	}
