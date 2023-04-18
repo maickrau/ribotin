@@ -1,13 +1,17 @@
+#include <cassert>
 #include <fstream>
 #include <vector>
 #include <string>
 #include <iostream>
 #include <filesystem>
+#include <regex>
 #include <cxxopts.hpp>
+#include "fastqloader.h"
 #include "VerkkoReadAssignment.h"
 #include "ReadExtractor.h"
 #include "ClusterHandler.h"
 #include "VerkkoClusterGuesser.h"
+#include "KmerMatcher.h"
 
 std::vector<std::string> getNodesFromFile(std::string filename)
 {
@@ -52,6 +56,21 @@ std::vector<std::string> getRawReadFilenames(std::string configPath, std::string
 	return result;
 }
 
+bool checkAssemblyHasNanopore(std::string configPath)
+{
+	// terrible way, but works for now
+	std::ifstream file { configPath };
+	while (file.good())
+	{
+		std::string line;
+		getline(file, line);
+		if (line.find("withONT:") == std::string::npos) continue;
+		if (line.find("True") != std::string::npos) return true;
+		return false;
+	}
+	return false;
+}
+
 void writeNodes(std::string filename, const std::vector<std::string>& nodes)
 {
 	std::ofstream file { filename };
@@ -67,6 +86,130 @@ void writeName(std::string filename, const std::string& name)
 	file << name;
 }
 
+void getKmers(std::string outputPrefix, size_t numClusters, std::string outputFile)
+{
+	std::ofstream file { outputFile };
+	for (size_t i = 0; i < numClusters; i++)
+	{
+		FastQ::streamFastqFromFile(outputPrefix + std::to_string(i) + "/consensus.fa", false, [&file, i](FastQ& fastq)
+		{
+			file << ">consensus" << i << std::endl;
+			file << fastq.sequence << std::endl;
+		});
+		std::ifstream variantgraph { outputPrefix + std::to_string(i) + "/variant-graph.gfa" };
+		while (variantgraph.good())
+		{
+			std::string line;
+			getline(variantgraph, line);
+			if (line.size() < 5 || line[0] != 'S') continue;
+			std::stringstream sstr { line };
+			std::string dummy, node, sequence;
+			sstr >> dummy >> node >> sequence;
+			file << ">graph" << i << "node" << node << std::endl;
+			file << sequence;
+		}
+	}
+}
+
+void mergeVariantGraphs(std::string outputPrefix, size_t numClusters, std::string outputFile)
+{
+	std::ofstream file { outputFile };
+	for (size_t i = 0; i < numClusters; i++)
+	{
+		std::ifstream variantgraph { outputPrefix + std::to_string(i) + "/variant-graph.gfa" };
+		while (variantgraph.good())
+		{
+			std::string line;
+			getline(variantgraph, line);
+			std::stringstream sstr { line };
+			std::string linetype;
+			sstr >> linetype;
+			if (linetype == "S")
+			{
+				std::string node, sequence;
+				sstr >> node >> sequence;
+				node = "graph" + std::to_string(i) + "node" + node;
+				file << "S\t" << node << "\t" << sequence << std::endl;
+			}
+			else if (linetype == "L")
+			{
+				std::string fromnode, fromorient, tonode, toorient, overlap;
+				sstr >> fromnode >> fromorient >> tonode >> toorient >> overlap;
+				fromnode = "graph" + std::to_string(i) + "node" + fromnode;
+				tonode = "graph" + std::to_string(i) + "node" + tonode;
+				file << "L\t" << fromnode << "\t" << fromorient << "\t" << tonode << "\t" << toorient << "\t" << overlap << std::endl;
+			}
+		}
+	}
+}
+
+size_t getClusterNum(const std::string& pathstr)
+{
+	size_t firstGraph = pathstr.find("graph");
+	size_t firstNode = pathstr.find("node");
+	assert(firstGraph != std::string::npos);
+	assert(firstNode != std::string::npos);
+	assert(firstNode > firstGraph+5);
+	size_t result = std::stoull(pathstr.substr(firstGraph+5, firstNode-firstGraph-5));
+	return result;
+}
+
+void splitAlignmentsPerCluster(std::string outputPrefix, size_t numClusters, std::string rawGafFile)
+{
+	std::unordered_map<std::string, size_t> uniqueMatch;
+	{
+		std::ifstream file { rawGafFile };
+		while (file.good())
+		{
+			std::string line;
+			getline(file, line);
+			if (!file.good()) break;
+			std::stringstream sstr { line };
+			std::string readname;
+			size_t readstart, readend;
+			std::string pathstr;
+			size_t mapq;
+			std::string dummy;
+			sstr >> readname >> dummy >> readstart >> readend >> dummy >> pathstr >> dummy >> dummy >> dummy >> dummy >> dummy >> mapq;
+			if (mapq < 20) continue;
+			assert(readend > readstart);
+			if (readend - readstart < 20000) continue;
+			size_t clusterNum = getClusterNum(pathstr);
+			assert(clusterNum < numClusters);
+			if (uniqueMatch.count(readname) == 0) uniqueMatch[readname] = clusterNum;
+			if (uniqueMatch.count(readname) == 1 && uniqueMatch.at(readname) != clusterNum) uniqueMatch[readname] = std::numeric_limits<size_t>::max();
+		}
+	}
+	std::vector<std::ofstream> perClusterFiles;
+	for (size_t i = 0; i < numClusters; i++)
+	{
+		perClusterFiles.emplace_back(outputPrefix + std::to_string(i) + "/ont-alns.gaf");
+	}
+	std::ifstream file { rawGafFile };
+	std::regex extraGraphRemover { "([<>])graph\\d+node" };
+	while (file.good())
+	{
+		std::string line;
+		getline(file, line);
+		if (!file.good()) break;
+		std::stringstream sstr { line };
+		std::string readname;
+		size_t readstart, readend;
+		std::string pathstr;
+		size_t mapq;
+		std::string dummy;
+		sstr >> readname >> dummy >> readstart >> readend >> dummy >> pathstr >> dummy >> dummy >> dummy >> dummy >> dummy >> mapq;
+		if (mapq < 20) continue;
+		assert(readend > readstart);
+		if (readend - readstart < 20000) continue;
+		if (uniqueMatch.at(readname) == std::numeric_limits<size_t>::max()) continue;
+		size_t clusterNum = uniqueMatch.at(readname);
+		assert(clusterNum < perClusterFiles.size());
+		line = std::regex_replace(line, extraGraphRemover, "$1");
+		perClusterFiles[clusterNum] << line << std::endl;
+	}
+}
+
 int main(int argc, char** argv)
 {
 	std::cerr << "ribotin-verkko version " << VERSION << std::endl;
@@ -80,9 +223,13 @@ int main(int argc, char** argv)
 		("guess-clusters-using-reference", "Guess the rDNA clusters using k-mer matches to given reference sequence (required)", cxxopts::value<std::vector<std::string>>())
 		("orient-by-reference", "Rotate and possibly reverse complement the consensus to match the orientation of the given reference", cxxopts::value<std::string>())
 		("mbg", "MBG path (required)", cxxopts::value<std::string>())
+		("graphaligner", "GraphAligner path (required if including ultralong ONT)", cxxopts::value<std::string>())
+		("do-ul", "Do ultralong ONT read analysis (requires GraphAligner)")
+		("ul-tmp-folder", "Temporary folder for ultralong ONT read analysis", cxxopts::value<std::string>()->default_value("./tmp"))
 		("k", "k-mer size", cxxopts::value<size_t>()->default_value("101"))
 		("annotation-reference-fasta", "Lift over the annotations from given reference fasta+gff3 (requires liftoff)", cxxopts::value<std::string>())
 		("annotation-gff3", "Lift over the annotations from given reference fasta+gff3 (requires liftoff)", cxxopts::value<std::string>())
+		("t", "Number of threads (default 1)", cxxopts::value<size_t>()->default_value("1"))
 	;
 	auto params = options.parse(argc, argv);
 	if (params.count("v") == 1)
@@ -141,18 +288,33 @@ int main(int argc, char** argv)
 			paramError = true;
 		}
 	}
+	if (params.count("do-ul") == 1 && params.count("graphaligner") == 0)
+	{
+		std::cerr << "--graphaligner is required when using --ul-ont" << std::endl;
+		paramError = true;
+	}
 	if (paramError)
 	{
 		std::abort();
 	}
+	bool doUL = params.count("do-ul") == 1;
 	std::string verkkoBasePath = params["i"].as<std::string>();
+	if (doUL && !checkAssemblyHasNanopore(verkkoBasePath + "/verkko.yml"))
+	{
+		std::cerr << "Assembly did not use ultralong ONT reads, cannot do ultralong ONT analysis." << std::endl;
+		std::cerr << "Try running without --do-ul to skip ultralong ONT analysis, or rerun Verkko with nanopore reads." << std::endl;
+		std::abort();
+	}
 	std::string MBGPath = params["mbg"].as<std::string>();
+	std::string GraphAlignerPath = params["graphaligner"].as<std::string>();
 	std::string outputPrefix = params["o"].as<std::string>();
 	size_t k = params["k"].as<size_t>();
 	std::cerr << "output prefix: " << outputPrefix << std::endl;
 	std::string orientReferencePath;
 	std::string annotationFasta;
 	std::string annotationGff3;
+	std::string ulTmpFolder = params["ul-tmp-folder"].as<std::string>();
+	size_t numThreads = params["t"].as<size_t>();
 	if (params.count("orient-by-reference") == 1) orientReferencePath = params["orient-by-reference"].as<std::string>();
 	if (params.count("annotation-reference-fasta") == 1) annotationFasta = params["annotation-reference-fasta"].as<std::string>();
 	if (params.count("annotation-gff3") == 1) annotationGff3 = params["annotation-gff3"].as<std::string>();
@@ -186,21 +348,26 @@ int main(int argc, char** argv)
 		readFileNames.push_back(outputPrefix + std::to_string(i) + "/hifi_reads.fa");
 		writeNodes(outputPrefix + std::to_string(i) + "/nodes.txt", clusterNodes[i]);
 	}
-	std::cerr << "extracting reads per cluster" << std::endl;
+	std::cerr << "extracting HiFi/duplex reads per cluster" << std::endl;
 	splitReads(getRawReadFilenames(verkkoBasePath + "/verkko.yml", "HIFI_READS"), reads, readFileNames);
 	std::vector<size_t> clustersWithoutReads;
 	for (size_t i = 0; i < numClusters; i++)
 	{
 		if (reads[i].size() == 0)
 		{
-			std::cerr << "WARNING: cluster " << i << " has no reads, skipping" << std::endl;
+			std::cerr << "WARNING: cluster " << i << " has no HiFi/duplex reads, skipping" << std::endl;
 			clustersWithoutReads.push_back(i);
 			continue;
 		}
 		ClusterParams clusterParams;
 		clusterParams.basePath = outputPrefix + std::to_string(i);
 		clusterParams.hifiReadPath = outputPrefix + std::to_string(i) + "/hifi_reads.fa";
+		if (doUL)
+		{
+			clusterParams.ontReadPath = outputPrefix + std::to_string(i) + "/ont_reads.fa";
+		}
 		clusterParams.MBGPath = MBGPath;
+		clusterParams.GraphAlignerPath = GraphAlignerPath;
 		clusterParams.k = k;
 		clusterParams.orientReferencePath = orientReferencePath;
 		clusterParams.annotationFasta = annotationFasta;
@@ -208,9 +375,51 @@ int main(int argc, char** argv)
 		std::cerr << "running cluster " << i << " in folder " << outputPrefix + std::to_string(i) << std::endl;
 		HandleCluster(clusterParams);
 	}
+	if (doUL)
+	{
+		std::filesystem::create_directories(ulTmpFolder);
+		std::cerr << "getting kmers from clusters" << std::endl;
+		getKmers(outputPrefix, numClusters, ulTmpFolder + "/rdna_kmers.fa");
+		std::cerr << "extracting ultralong ONT reads" << std::endl;
+		auto fileNames = getRawReadFilenames(verkkoBasePath + "/verkko.yml", "ONT_READS");
+		std::ofstream readsfile { ulTmpFolder + "/ont_reads.fa" };
+		iterateMatchingReads(ulTmpFolder + "/rdna_kmers.fa", fileNames, 21, 20000, [&readsfile](const FastQ& seq)
+		{
+			readsfile << ">" << seq.seq_id << std::endl;
+			readsfile << seq.sequence << std::endl;
+		});
+		std::cerr << "merging variant graphs" << std::endl;
+		mergeVariantGraphs(outputPrefix, numClusters, ulTmpFolder + "/merged-variant-graph.gfa");
+		std::cerr << "aligning ONT reads" << std::endl;
+		AlignONTReads(ulTmpFolder, GraphAlignerPath, ulTmpFolder + "/ont_reads.fa", ulTmpFolder + "/merged-variant-graph.gfa", ulTmpFolder + "/ont-alns.gaf", numThreads);
+		std::cerr << "splitting ONTs per cluster" << std::endl;
+		splitAlignmentsPerCluster(outputPrefix, numClusters, ulTmpFolder + "/ont-alns.gaf");
+		for (size_t i = 0; i < numClusters; i++)
+		{
+			if (reads[i].size() == 0)
+			{
+				continue;
+			}
+			std::cerr << "running cluster " << i << std::endl;
+			ClusterParams clusterParams;
+			clusterParams.basePath = outputPrefix + std::to_string(i);
+			clusterParams.hifiReadPath = outputPrefix + std::to_string(i) + "/hifi_reads.fa";
+			if (doUL)
+			{
+				clusterParams.ontReadPath = outputPrefix + std::to_string(i) + "/ont_reads.fa";
+			}
+			clusterParams.MBGPath = MBGPath;
+			clusterParams.GraphAlignerPath = GraphAlignerPath;
+			clusterParams.k = k;
+			clusterParams.orientReferencePath = orientReferencePath;
+			clusterParams.annotationFasta = annotationFasta;
+			clusterParams.annotationGff3 = annotationGff3;
+			DoClusterONTAnalysis(clusterParams);
+		}
+	}
 	if (clustersWithoutReads.size() > 0)
 	{
-		std::cerr << "WARNING: some clusters did not have any reads assigned:";
+		std::cerr << "WARNING: some clusters did not have any HiFi/duplex reads assigned:";
 		for (auto cluster : clustersWithoutReads) std::cerr << " " << cluster;
 		std::cerr << ", something likely went wrong." << std::endl;
 	}

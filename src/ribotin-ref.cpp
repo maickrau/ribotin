@@ -24,7 +24,7 @@ int main(int argc, char** argv)
 		("k", "k-mer size", cxxopts::value<size_t>()->default_value("101"))
 		("annotation-reference-fasta", "Lift over the annotations from given reference fasta+gff3 (requires liftoff)", cxxopts::value<std::string>())
 		("annotation-gff3", "Lift over the annotations from given reference fasta+gff3 (requires liftoff)", cxxopts::value<std::string>())
-		("t", "Number of threads (default 1)", cxxopts::value<size_t>())
+		("t", "Number of threads (default 1)", cxxopts::value<size_t>()->default_value("1"))
 	;
 	auto params = options.parse(argc, argv);
 	if (params.count("v") == 1)
@@ -100,7 +100,7 @@ int main(int argc, char** argv)
 	clusterParams.basePath = params["o"].as<std::string>();
 	clusterParams.k = params["k"].as<size_t>();
 	clusterParams.numThreads = 1;
-	if (params.count("t") == 1) clusterParams.numThreads = params["t"].as<size_t>();
+	clusterParams.numThreads = params["t"].as<size_t>();
 	if (params.count("orient-by-reference") == 1) clusterParams.orientReferencePath = params["orient-by-reference"].as<std::string>();
 	if (params.count("annotation-reference-fasta") == 1) clusterParams.annotationFasta = params["annotation-reference-fasta"].as<std::string>();
 	if (params.count("annotation-gff3") == 1) clusterParams.annotationGff3 = params["annotation-gff3"].as<std::string>();

@@ -943,7 +943,7 @@ std::unordered_map<std::string, bool> getNodeOrientations(const std::vector<std:
 	std::unordered_map<std::string, bool> result;
 	for (const auto& str : referencePath)
 	{
-		assert(result.count(str.substr(1)) == 0);
+		assert(result.count(str.substr(1)) == 0 || (str == referencePath[0] && str == referencePath.back()));
 		result[str.substr(1)] = (str[0] == '>');
 	}
 	return result;
@@ -1262,6 +1262,7 @@ size_t getEditDistance(const std::vector<std::string>& left, const std::vector<s
 		if (j == right.size()) break;
 	}
 	size_t result = 0;
+	assert(nodeMatches.size() == coreNodes.size());
 	assert(nodeMatches.size() >= 1);
 	size_t add = 0;
 	for (size_t i = 1; i < nodeMatches.size(); i++)
@@ -1487,8 +1488,10 @@ void DoClusterONTAnalysis(const ClusterParams& params)
 	std::unordered_map<std::string, size_t> pathEndClip;
 	std::unordered_set<std::string> borderNodes;
 	std::tie(borderNodes, pathStartClip, pathEndClip) = getBorderNodes(heavyPath, variantGraph);
+	assert(borderNodes.size() > 0);
 	auto loopSequences = extractLoopSequences(ontPaths, heavyPath, minLength, variantGraph, borderNodes);
 	auto coreNodes = getCoreNodes(loopSequences);
+	assert(coreNodes.size() > 0);
 	std::cerr << loopSequences.size() << " morph paths in ONTs" << std::endl;
 	{
 		std::ofstream file { params.basePath + "/loops.fa" };
