@@ -895,7 +895,7 @@ void liftoverAnnotationsToConsensus(const std::string& basePath, const std::stri
 	system(command.c_str());
 }
 
-void alignONTToVariantGraph(std::string basePath, std::string graphAlignerPath, std::string ontReadPath, std::string graphPath, std::string outputAlnPath, size_t numThreads)
+void AlignONTReads(std::string basePath, std::string graphAlignerPath, std::string ontReadPath, std::string graphPath, std::string outputAlnPath, size_t numThreads)
 {
 	std::string graphalignerCommand;
 	graphalignerCommand = graphAlignerPath + " -g " + graphPath + " -f " + ontReadPath + " -a " + outputAlnPath + " -t " + std::to_string(numThreads) + " --seeds-mxm-length 30 --seeds-mem-count 10000 --bandwidth 15 --multimap-score-fraction 0.99 --precise-clipping 0.85 --min-alignment-score 5000 --discard-cigar --clip-ambiguous-ends 100 --overlap-incompatible-cutoff 0.15 --mem-index-no-wavelet-tree --max-trace-count 5 1> " + basePath + "/graphaligner_stdout.txt 2> " + basePath + "/graphaligner_stderr.txt";
@@ -1463,7 +1463,6 @@ void HandleCluster(const ClusterParams& params)
 
 void DoClusterONTAnalysis(const ClusterParams& params)
 {
-	std::cerr << "start ultralong ONT analysis" << std::endl;
 	std::cerr << "reading graph" << std::endl;
 	GfaGraph graph;
 	graph.loadFromFile(params.basePath + "/graph.gfa");
@@ -1477,8 +1476,6 @@ void DoClusterONTAnalysis(const ClusterParams& params)
 	std::cerr << "reading variant graph" << std::endl;
 	GfaGraph variantGraph;
 	variantGraph.loadFromFile(params.basePath + "/variant-graph.gfa");
-	std::cerr << "aligning ultralong ONT reads to variant graph" << std::endl;
-	alignONTToVariantGraph(params.basePath, params.GraphAlignerPath, params.ontReadPath, params.basePath + "/variant-graph.gfa", params.basePath + "/ont-alns.gaf", params.numThreads);
 	std::cerr << "extract corrected ultralong paths" << std::endl;
 	size_t heavyPathLength = heavyPath.getSequence(variantGraph.nodeSeqs).size();
 	size_t minLength = heavyPathLength * 0.5;
