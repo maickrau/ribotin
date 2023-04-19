@@ -1247,23 +1247,110 @@ size_t getEditDistancePossiblyMemoized(const std::vector<std::string>& left, con
 	return add;
 }
 
-size_t getEditDistance(const std::vector<std::string>& left, const std::vector<std::string>& right, const GfaGraph& graph, const std::unordered_map<std::string, size_t>& pathStartClip, const std::unordered_map<std::string, size_t>& pathEndClip, const size_t maxEdits, const std::unordered_set<std::string>& coreNodes, std::vector<std::map<std::pair<std::vector<std::string>, std::vector<std::string>>, size_t>>& memoizedEditDistances)
+std::vector<std::pair<size_t, size_t>> getNodeMatches(const std::vector<std::string>& left, size_t leftStart, size_t leftEnd, const std::vector<std::string>& right, size_t rightStart, size_t rightEnd)
 {
-	std::vector<std::pair<size_t, size_t>> nodeMatches;
-	size_t j = 0;
+	std::vector<std::pair<size_t, size_t>> unfilteredMatches;
+	if (leftEnd == leftStart) return unfilteredMatches;
+	if (rightEnd == rightStart) return unfilteredMatches;
+	assert(leftEnd > leftStart);
+	assert(rightEnd > rightStart);
+	assert(leftEnd <= left.size());
+	assert(rightEnd <= right.size());
+	std::unordered_map<std::string, size_t> leftCoverage;
+	std::unordered_map<std::string, size_t> rightCoverage;
+	std::unordered_map<std::string, size_t> rightPos;
+	for (size_t i = leftStart; i < leftEnd; i++)
+	{
+		leftCoverage[left[i]] += 1;
+	}
+	for (size_t i = rightStart; i < rightEnd; i++)
+	{
+		rightCoverage[right[i]] += 1;
+		rightPos[right[i]] = i;
+	}
+	bool allIncreasing = true;
+	for (size_t i = leftStart; i < leftEnd; i++)
+	{
+		if (leftCoverage[left[i]] != 1 || rightCoverage[left[i]] != 1) continue;
+		unfilteredMatches.emplace_back(i, rightPos.at(left[i]));
+		if (unfilteredMatches.size() >= 2 && unfilteredMatches.back().second <= unfilteredMatches[unfilteredMatches.size()-2].second) allIncreasing = false;
+	}
+	if (unfilteredMatches.size() == 0) return unfilteredMatches;
+	if (allIncreasing) return unfilteredMatches;
+	std::vector<size_t> maxIncreasing;
+	maxIncreasing.resize(unfilteredMatches.size(), 1);
+	for (size_t i = 1; i < unfilteredMatches.size(); i++)
+	{
+		for (size_t j = 0; j < i; j++)
+		{
+			if (unfilteredMatches[i].first <= unfilteredMatches[j].first) continue;
+			if (unfilteredMatches[i].second <= unfilteredMatches[j].second) continue;
+			maxIncreasing[i] = std::max(maxIncreasing[i], maxIncreasing[j]+1);
+		}
+	}
+	if (maxIncreasing.back() == unfilteredMatches.size()) return unfilteredMatches;
+	size_t maxpos = 0;
+	for (size_t i = 1; i < maxIncreasing.size(); i++)
+	{
+		if (maxIncreasing[i] > maxIncreasing[maxpos]) maxpos = i;
+	}
+	std::vector<std::pair<size_t, size_t>> result;
+	while (true)
+	{
+		result.push_back(unfilteredMatches[maxpos]);
+		if (maxIncreasing[maxpos] == 1) break;
+		size_t next = maxpos;
+		for (size_t j = maxpos-1; j < maxpos; j--)
+		{
+			if (maxIncreasing[j] == maxIncreasing[maxpos]-1)
+			{
+				next = j;
+				break;
+			}
+		}
+		assert(next < maxpos);
+		maxpos = next;
+	}
+	std::reverse(result.begin(), result.end());
+	return result;
+}
+
+size_t getEditDistance(const std::vector<std::string>& left, const std::vector<std::string>& right, const GfaGraph& graph, const std::unordered_map<std::string, size_t>& pathStartClip, const std::unordered_map<std::string, size_t>& pathEndClip, const size_t maxEdits, const std::unordered_set<std::string>& coreNodes, std::map<std::pair<std::vector<std::string>, std::vector<std::string>>, size_t>& memoizedEditDistances)
+{
+	std::vector<size_t> leftCoreMatchPositions;
 	for (size_t i = 0; i < left.size(); i++)
 	{
 		if (coreNodes.count(left[i].substr(1)) == 0) continue;
-		while (j < right.size() && coreNodes.count(right[j].substr(1)) == 0) j++;
-		if (j == right.size()) break;
-		assert(left[i] == right[j]);
-		nodeMatches.emplace_back(i, j);
-		j += 1;
-		if (j == right.size()) break;
+		leftCoreMatchPositions.push_back(i);
 	}
-	size_t result = 0;
-	assert(nodeMatches.size() == coreNodes.size());
+	std::vector<size_t> rightCoreMatchPositions;
+	for (size_t i = 0; i < right.size(); i++)
+	{
+		if (coreNodes.count(right[i].substr(1)) == 0) continue;
+		rightCoreMatchPositions.push_back(i);
+	}
+	assert(leftCoreMatchPositions.size() == coreNodes.size());
+	assert(rightCoreMatchPositions.size() == coreNodes.size());
+	for (size_t i = 0; i < leftCoreMatchPositions.size(); i++)
+	{
+		assert(left[leftCoreMatchPositions[i]] == right[rightCoreMatchPositions[i]]);
+	}
+	std::vector<std::pair<size_t, size_t>> nodeMatches;
+	size_t lastLeftStart = 0;
+	size_t lastRightStart = 0;
+	for (size_t i = 0; i < leftCoreMatchPositions.size(); i++)
+	{
+		auto addMatches = getNodeMatches(left, lastLeftStart, leftCoreMatchPositions[i], right, lastRightStart, rightCoreMatchPositions[i]);
+		nodeMatches.insert(nodeMatches.end(), addMatches.begin(), addMatches.end());
+		nodeMatches.emplace_back(leftCoreMatchPositions[i], rightCoreMatchPositions[i]);
+		lastLeftStart = leftCoreMatchPositions[i]+1;
+		lastRightStart = rightCoreMatchPositions[i]+1;
+	}
+	auto addMatches = getNodeMatches(left, lastLeftStart, left.size(), right, lastRightStart, right.size());
+	nodeMatches.insert(nodeMatches.end(), addMatches.begin(), addMatches.end());
+	assert(nodeMatches.size() >= coreNodes.size());
 	assert(nodeMatches.size() >= 1);
+	size_t result = 0;
 	size_t add = 0;
 	for (size_t i = 1; i < nodeMatches.size(); i++)
 	{
@@ -1272,20 +1359,33 @@ size_t getEditDistance(const std::vector<std::string>& left, const std::vector<s
 		if (nodeMatches[i].first == nodeMatches[i-1].first+1 && nodeMatches[i].second == nodeMatches[i-1].second+1) continue;
 		std::vector<std::string> leftPath { left.begin() + nodeMatches[i-1].first, left.begin()+nodeMatches[i].first+1 };
 		std::vector<std::string> rightPath { right.begin() + nodeMatches[i-1].second, right.begin()+nodeMatches[i].second+1 };
-		add = getEditDistancePossiblyMemoized(leftPath, rightPath, 0, 0, 0, 0, graph, maxEdits, memoizedEditDistances[i]);
+		add = getEditDistancePossiblyMemoized(leftPath, rightPath, 0, 0, 0, 0, graph, maxEdits, memoizedEditDistances);
 		result += add;
 		if (result >= maxEdits) return maxEdits+1;
 	}
 	std::vector<std::string> leftPath { left.begin(), left.begin()+nodeMatches[0].first+1 };
 	std::vector<std::string> rightPath { right.begin(), right.begin()+nodeMatches[0].second+1 };
-	add = getEditDistancePossiblyMemoized(leftPath, rightPath, pathStartClip.at(leftPath[0]), pathStartClip.at(rightPath[0]), 0, 0, graph, maxEdits, memoizedEditDistances[0]);
+	add = getEditDistancePossiblyMemoized(leftPath, rightPath, pathStartClip.at(leftPath[0]), pathStartClip.at(rightPath[0]), 0, 0, graph, maxEdits, memoizedEditDistances);
 	result += add;
 	if (result >= maxEdits) return maxEdits+1;
 	leftPath = std::vector<std::string> { left.begin()+nodeMatches.back().first, left.end() };
 	rightPath = std::vector<std::string> { right.begin()+nodeMatches.back().second, right.end() };
-	add = getEditDistancePossiblyMemoized(leftPath, rightPath, 0, 0, pathEndClip.at(leftPath.back()), pathEndClip.at(rightPath.back()), graph, maxEdits, memoizedEditDistances.back());
+	add = getEditDistancePossiblyMemoized(leftPath, rightPath, 0, 0, pathEndClip.at(leftPath.back()), pathEndClip.at(rightPath.back()), graph, maxEdits, memoizedEditDistances);
 	result += add;
 	if (result >= maxEdits) return maxEdits+1;
+	return result;
+}
+
+size_t countNeedsAligning(const std::vector<size_t>& loopLengths, size_t maxEdits)
+{
+	size_t result = 0;
+	size_t j = 0;
+	for (size_t i = 1; i < loopLengths.size(); i++)
+	{
+		while (loopLengths[j]+maxEdits < loopLengths[i]) j += 1;
+		assert(j <= i);
+		result += i-j;
+	}
 	return result;
 }
 
@@ -1303,15 +1403,15 @@ std::vector<std::vector<std::vector<std::string>>> clusterLoopSequences(const st
 	{
 		loopLengths.emplace_back(getPathLength(loops[i], graph.nodeSeqs, graph.edges));
 	}
-	std::vector<std::map<std::pair<std::vector<std::string>, std::vector<std::string>>, size_t>> memoizedEditDistances;
-	memoizedEditDistances.resize(coreNodes.size()+1);
+	std::map<std::pair<std::vector<std::string>, std::vector<std::string>>, size_t> memoizedEditDistances;
 	size_t sumAligned = 0;
+	size_t needsAligning = countNeedsAligning(loopLengths, maxEdits);
 	for (size_t i = 0; i < loops.size(); i++)
 	{
 		while (parent[i] != parent[parent[i]]) parent[i] = parent[parent[i]];
 		for (size_t j = i-1; j < i; j--)
 		{
-			if (sumAligned % 1000000 == 0) std::cerr << "aligning morph path pair " << sumAligned << std::endl;
+			if (sumAligned % 1000000 == 0) std::cerr << "aligning morph path pair " << sumAligned << " / " << needsAligning << std::endl;
 			sumAligned += 1;
 			assert(loopLengths[j] <= loopLengths[i]);
 			if (loopLengths[j]+maxEdits < loopLengths[i]) break;
@@ -1491,7 +1591,6 @@ void DoClusterONTAnalysis(const ClusterParams& params)
 	assert(borderNodes.size() > 0);
 	auto loopSequences = extractLoopSequences(ontPaths, heavyPath, minLength, variantGraph, borderNodes);
 	auto coreNodes = getCoreNodes(loopSequences);
-	assert(coreNodes.size() > 0);
 	std::cerr << loopSequences.size() << " morph paths in ONTs" << std::endl;
 	{
 		std::ofstream file { params.basePath + "/loops.fa" };
