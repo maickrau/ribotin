@@ -1443,6 +1443,7 @@ std::string getConsensusSequence(const std::vector<std::vector<std::string>>& ra
 {
 	assert(rawPaths.size() >= 1);
 	auto coreNodes = getCoreNodes(rawPaths);
+	assert(coreNodes.size() >= 1);
 	std::vector<std::map<std::vector<std::string>, size_t>> alleleCounts;
 	alleleCounts.resize(coreNodes.size()+1);
 	for (const auto& path : rawPaths)
@@ -1472,12 +1473,15 @@ std::string getConsensusSequence(const std::vector<std::vector<std::string>>& ra
 		for (const auto& pair : alleleCounts[i])
 		{
 			if (pair.second != maxCount) continue;
+			assert(pair.first.size() >= 2);
 			if (i == 0)
 			{
+				assert(consensusPath.size() == 0);
 				consensusPath.insert(consensusPath.end(), pair.first.begin(), pair.first.end());
 			}
 			else
 			{
+				assert(consensusPath.size() >= 1 && consensusPath.back() == pair.first[0]);
 				consensusPath.insert(consensusPath.end(), pair.first.begin()+1, pair.first.end());
 			}
 			break;
