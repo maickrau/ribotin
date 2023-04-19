@@ -1217,7 +1217,7 @@ size_t getEditDistancePossiblyMemoized(const std::vector<std::string>& left, con
 		}
 		if (left.back() == right.back())
 		{
-			while (endClip+1 < left.size() && endClip+1 < right.size() && left[left.size()-2-endClip] == right[right.size()-2-endClip]) endClip += 1;
+			while (startClip+endClip+1 < left.size() && startClip+endClip+1 < right.size() && left[left.size()-2-endClip] == right[right.size()-2-endClip]) endClip += 1;
 		}
 		if (startClip > 0 || endClip > 0)
 		{
@@ -1454,12 +1454,14 @@ std::string getConsensusSequence(const std::vector<std::vector<std::string>>& ra
 		{
 			if (coreNodes.count(path[i].substr(1)) == 0) continue;
 			std::vector<std::string> subpath { path.begin() + lastCore, path.begin() + i + 1 };
+			assert(subpath.size() >= 2 || (i == 0 && subpath.size() == 1));
 			alleleCounts[coreIndex][subpath] += 1;
 			lastCore = i;
 			coreIndex += 1;
 		}
 		assert(coreIndex == alleleCounts.size()-1);
 		std::vector<std::string> subpath { path.begin() + lastCore, path.end()};
+		assert(subpath.size() >= 2 || (lastCore == path.size()-1 && subpath.size() == 1));
 		alleleCounts[coreIndex][subpath] += 1;
 	}
 	std::vector<std::string> consensusPath;
@@ -1473,7 +1475,7 @@ std::string getConsensusSequence(const std::vector<std::vector<std::string>>& ra
 		for (const auto& pair : alleleCounts[i])
 		{
 			if (pair.second != maxCount) continue;
-			assert(pair.first.size() >= 2);
+			assert(pair.first.size() >= 1);
 			if (i == 0)
 			{
 				assert(consensusPath.size() == 0);
@@ -1481,7 +1483,8 @@ std::string getConsensusSequence(const std::vector<std::vector<std::string>>& ra
 			}
 			else
 			{
-				assert(consensusPath.size() >= 1 && consensusPath.back() == pair.first[0]);
+				assert(consensusPath.size() >= 1);
+				assert(consensusPath.back() == pair.first[0]);
 				consensusPath.insert(consensusPath.end(), pair.first.begin()+1, pair.first.end());
 			}
 			break;
