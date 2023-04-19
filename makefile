@@ -1,4 +1,4 @@
-GPP=g++-8
+GPP=$(CXX)
 CPPFLAGS=-Wall -Wextra -std=c++17 -O3 -g -Izstr/src -Iparallel-hashmap/parallel_hashmap/ -Icxxopts/include -Wno-unused-parameter `pkg-config --cflags zlib`
 
 ODIR=obj
