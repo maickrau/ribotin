@@ -1025,13 +1025,52 @@ std::unordered_set<std::string> getCoreNodes(const std::vector<std::vector<std::
 			if (nodesHere.count(node) == 0) notUniqueNodes.insert(node);
 		}
 	}
-	std::unordered_set<std::string> result;
+	std::unordered_set<std::string> potentialCoreNodes;
 	for (auto node : existingNodes)
 	{
 		if (notUniqueNodes.count(node) == 1) continue;
-		result.insert(node);
+		potentialCoreNodes.insert(node);
 	}
-	return result;
+	std::unordered_map<std::string, std::string> uniqueCorePredecessor;
+	std::unordered_map<std::string, std::string> uniqueCoreSuccessor;
+	for (const auto& path : paths)
+	{
+		std::string lastCore;
+		for (const auto& node : path)
+		{
+			std::string nodename = node.substr(1);
+			if (potentialCoreNodes.count(nodename) == 0) continue;
+			if (lastCore.size() == 0) continue;
+			if (uniqueCorePredecessor.count(nodename) == 1 && uniqueCorePredecessor.at(nodename) != lastCore) uniqueCorePredecessor[nodename] = "-";
+			if (uniqueCoreSuccessor.count(lastCore) == 1 && uniqueCoreSuccessor.at(lastCore) != nodename) uniqueCoreSuccessor[lastCore] = "-";
+		}
+	}
+	for (const auto& pair : uniqueCoreSuccessor)
+	{
+		if (pair.second != "-") continue;
+		if (uniqueCorePredecessor.count(pair.first) == 0) continue;
+		if (uniqueCorePredecessor.at(pair.first) != "-") continue;
+		potentialCoreNodes.erase(pair.first);
+	}
+	std::unordered_map<std::string, size_t> uniqueCoreIndex;
+	for (const auto& path : paths)
+	{
+		size_t coreIndex = 0;
+		for (const auto& node : path)
+		{
+			std::string nodename = node.substr(1);
+			if (potentialCoreNodes.count(node) == 0) continue;
+			if (uniqueCoreIndex.count(node) == 1 && uniqueCoreIndex.at(node) != coreIndex) uniqueCoreIndex[node] = std::numeric_limits<size_t>::max();
+			if (uniqueCoreIndex.count(node) == 0) uniqueCoreIndex[node] = coreIndex;
+			coreIndex += 1;
+		}
+	}
+	for (const auto& pair : uniqueCoreIndex)
+	{
+		if (pair.second != std::numeric_limits<size_t>::max()) continue;
+		potentialCoreNodes.erase(pair.first);
+	}
+	return potentialCoreNodes;
 }
 
 std::tuple<std::unordered_set<std::string>, std::unordered_map<std::string, size_t>, std::unordered_map<std::string, size_t>> getBorderNodes(const Path& heavyPath, const GfaGraph& graph)
