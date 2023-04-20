@@ -1025,10 +1025,18 @@ std::unordered_set<std::string> getCoreNodes(const std::vector<std::vector<std::
 			if (nodesHere.count(node) == 0) notUniqueNodes.insert(node);
 		}
 	}
+	std::unordered_set<std::string> firstNodes;
+	std::unordered_set<std::string> lastNodes;
+	for (const auto& path : paths)
+	{
+		firstNodes.insert(path[0].substr(1));
+		lastNodes.insert(path.back().substr(1));
+	}
 	std::unordered_set<std::string> potentialCoreNodes;
 	for (auto node : existingNodes)
 	{
 		if (notUniqueNodes.count(node) == 1) continue;
+		if (firstNodes.count(node) == 1 && lastNodes.count(node) == 1) continue;
 		potentialCoreNodes.insert(node);
 	}
 	std::unordered_map<std::string, std::string> uniqueCorePredecessor;
@@ -1059,9 +1067,9 @@ std::unordered_set<std::string> getCoreNodes(const std::vector<std::vector<std::
 		for (const auto& node : path)
 		{
 			std::string nodename = node.substr(1);
-			if (potentialCoreNodes.count(node) == 0) continue;
-			if (uniqueCoreIndex.count(node) == 1 && uniqueCoreIndex.at(node) != coreIndex) uniqueCoreIndex[node] = std::numeric_limits<size_t>::max();
-			if (uniqueCoreIndex.count(node) == 0) uniqueCoreIndex[node] = coreIndex;
+			if (potentialCoreNodes.count(nodename) == 0) continue;
+			if (uniqueCoreIndex.count(nodename) == 1 && uniqueCoreIndex.at(nodename) != coreIndex) uniqueCoreIndex[nodename] = std::numeric_limits<size_t>::max();
+			if (uniqueCoreIndex.count(nodename) == 0) uniqueCoreIndex[nodename] = coreIndex;
 			coreIndex += 1;
 		}
 	}
