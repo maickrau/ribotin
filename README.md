@@ -40,6 +40,10 @@ bin/ribotin-verkko -i /path/to/verkko/assembly --mbg /path/to/MBG -o output_fold
 
 This extracts HiFi reads uniquely assigned to each node cluster, and for each cluster builds a graph and a consensus and finds variants supported by at least 3 reads. Results are written per cluster to `output_folder_prefix[x]` where `[x]` is the cluster number.
 
+##### Clustering morphs with ultralong ONT reads
+
+If you have ultralong ONT reads, you can include them to produce consensuses of highly abundant rDNA morphs similar to the CHM13 assembly. For `ribotin-ref`, add the parameter `--nano /path/to/ont/reads.fa` (multiple files may be added with `--nano file1.fa --nano file2.fa` etc). For `ribotin-verkko`, add the parameter `--do-ul`. This will error correct the ultralong ONT reads by aligning them to the variant graph, extract rDNA morphs from the corrected reads, cluster them based on sequence similarity, and compute a consensus for each cluster.
+
 ##### Annotations
 
 You can lift over annotations with the optional parameters `--annotation-reference-fasta` and `--annotation-gff3`, for example `bin/ribotin-verkko ... --annotation-reference-fasta template_seqs/rDNA_one_unit.fasta --annotation-gff3 template_seqs/rDNA_annotation.gff3`. This requires [liftoff](https://github.com/agshumate/Liftoff) to be installed.
@@ -58,3 +62,6 @@ The output folder will contain several files:
 - `variant-graph.gfa`: `graph.gfa` filtered only to the consensus path and the variant paths in `variants.txt`.
 - `variants.vcf`: A list of variants supported by at least 3 reads. Variant IDs match `variants.txt`
 - `annotation.gff3`: Annotations lifted over from a previous reference. Only if using parameters `--annotation-reference-fasta` and `--annotation-gff3`
+- `ont-alns.gaf`: Aligned paths of ultralong ONT reads to `variant-graph.gfa`. Only if including ultralong ONT reads.
+- `loops.fa`: A list of individual rDNA morphs found in the ultralong ONT reads. Only if including ultralong ONT reads.
+- `morphs.fa`: A list of rDNA morph consensuses and their abundances. Only if including ultralong ONT reads.
