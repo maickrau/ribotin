@@ -222,8 +222,8 @@ int main(int argc, char** argv)
 		("c,cluster", "Input files for node clusters. Multiple files may be inputed with -c file1.txt -c file2.txt ... (required)", cxxopts::value<std::vector<std::string>>())
 		("guess-clusters-using-reference", "Guess the rDNA clusters using k-mer matches to given reference sequence (required)", cxxopts::value<std::vector<std::string>>())
 		("orient-by-reference", "Rotate and possibly reverse complement the consensus to match the orientation of the given reference", cxxopts::value<std::string>())
-		("mbg", "MBG path (required)", cxxopts::value<std::string>())
-		("graphaligner", "GraphAligner path (required if including ultralong ONT)", cxxopts::value<std::string>())
+		("mbg", "MBG path", cxxopts::value<std::string>())
+		("graphaligner", "GraphAligner path", cxxopts::value<std::string>())
 		("do-ul", "Do ultralong ONT read analysis (requires GraphAligner)")
 		("ul-tmp-folder", "Temporary folder for ultralong ONT read analysis", cxxopts::value<std::string>()->default_value("./tmp"))
 		("k", "k-mer size", cxxopts::value<size_t>()->default_value("101"))
@@ -231,6 +231,8 @@ int main(int argc, char** argv)
 		("annotation-gff3", "Lift over the annotations from given reference fasta+gff3 (requires liftoff)", cxxopts::value<std::string>())
 		("t", "Number of threads (default 1)", cxxopts::value<size_t>()->default_value("1"))
 	;
+	std::string MBGPath;
+	std::string GraphAlignerPath;
 	auto params = options.parse(argc, argv);
 	if (params.count("v") == 1)
 	{
@@ -243,6 +245,44 @@ int main(int argc, char** argv)
 		std::exit(0);
 	}
 	bool paramError = false;
+	if (params.count("mbg") == 0)
+	{
+		std::cerr << "checking for MBG" << std::endl;
+		int foundMBG = system("which MBG");
+		if (foundMBG != 0)
+		{
+			std::cerr << "MBG not found" << std::endl;
+			std::cerr << "MBG path (--mbg) is required" << std::endl;
+			paramError = true;
+		}
+		else
+		{
+			MBGPath = "MBG";
+		}
+	}
+	else
+	{
+		MBGPath = params["mbg"].as<std::string>();
+	}
+	if (params.count("graphaligner") == 1)
+	{
+		GraphAlignerPath = params["graphaligner"].as<std::string>();
+	}
+	if (params.count("do-ul") == 1 && params.count("graphaligner") == 0)
+	{
+		std::cerr << "checking for GraphAligner" << std::endl;
+		int foundGraphAligner = system("which GraphAligner");
+		if (foundGraphAligner != 0)
+		{
+			std::cerr << "GraphAligner not found" << std::endl;
+			std::cerr << "--graphaligner is required when using --ul-ont" << std::endl;
+			paramError = true;
+		}
+		else
+		{
+			GraphAlignerPath = "GraphAligner";
+		}
+	}
 	if (params.count("i") == 0)
 	{
 		std::cerr << "Input verkko folder (-i) is required" << std::endl;
@@ -256,11 +296,6 @@ int main(int argc, char** argv)
 	if (params.count("c") == 1 && params.count("guess-clusters-using-reference") == 1)
 	{
 		std::cerr << "Only one of node clusters (-c) or reference used for guessing (--guess-clusters-using-reference) can be used" << std::endl;
-		paramError = true;
-	}
-	if (params.count("mbg") == 0)
-	{
-		std::cerr << "MBG path (--mbg) is required" << std::endl;
 		paramError = true;
 	}
 	if (params.count("k") == 1 && params["k"].as<size_t>() < 31)
@@ -281,17 +316,12 @@ int main(int argc, char** argv)
 	if (params.count("annotation-gff3") == 1 || params.count("annotation-reference-fasta") == 1)
 	{
 		std::cerr << "checking for liftoff" << std::endl;
-		int foundMinimap2 = system("which liftoff");
-		if (foundMinimap2 != 0)
+		int foundLiftoff = system("which liftoff");
+		if (foundLiftoff != 0)
 		{
 			std::cerr << "liftoff not found" << std::endl;
 			paramError = true;
 		}
-	}
-	if (params.count("do-ul") == 1 && params.count("graphaligner") == 0)
-	{
-		std::cerr << "--graphaligner is required when using --ul-ont" << std::endl;
-		paramError = true;
 	}
 	if (paramError)
 	{
@@ -305,8 +335,6 @@ int main(int argc, char** argv)
 		std::cerr << "Try running without --do-ul to skip ultralong ONT analysis, or rerun Verkko with nanopore reads." << std::endl;
 		std::abort();
 	}
-	std::string MBGPath = params["mbg"].as<std::string>();
-	std::string GraphAlignerPath = params["graphaligner"].as<std::string>();
 	std::string outputPrefix = params["o"].as<std::string>();
 	size_t k = params["k"].as<size_t>();
 	std::cerr << "output prefix: " << outputPrefix << std::endl;
