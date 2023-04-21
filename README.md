@@ -42,7 +42,7 @@ This extracts HiFi reads uniquely assigned to each node cluster, and for each cl
 
 ##### Clustering morphs with ultralong ONT reads
 
-If you have ultralong ONT reads, you can include them to produce consensuses of highly abundant rDNA morphs similar to the CHM13 assembly. For `ribotin-ref`, add the parameter `--nano /path/to/ont/reads.fa` (multiple files may be added with `--nano file1.fa --nano file2.fa` etc). For `ribotin-verkko`, add the parameter `--do-ul`. This will error correct the ultralong ONT reads by aligning them to the variant graph, extract rDNA morphs from the corrected reads, cluster them based on sequence similarity, and compute a consensus for each cluster.
+If you have ultralong ONT reads, you can include them to produce consensuses of highly abundant rDNA morphs similar to the CHM13 assembly. For `ribotin-ref`, add the parameter `--nano /path/to/ont/reads.fa` (multiple files may be added with `--nano file1.fa --nano file2.fa` etc). For `ribotin-verkko`, add the parameter `--do-ul`. This will error correct the ultralong ONT reads by aligning them to the variant graph, extract rDNA morphs from the corrected reads, cluster them based on sequence similarity, and compute a consensus for each cluster. This requires [GraphAligner](https://github.com/maickrau/GraphAligner) to be installed.
 
 ##### Annotations
 
