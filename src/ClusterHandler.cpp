@@ -970,6 +970,20 @@ void orientPath(std::vector<std::string>& path, const std::unordered_map<std::st
 	if (bwMatches > fwMatches) path = reverse(path);
 }
 
+std::vector<std::string> split(const std::string& str, char separator)
+{
+	std::vector<std::string> result;
+	size_t lastBreak = 0;
+	for (size_t i = 0; i < str.size(); i++)
+	{
+		if (str[i] != separator) continue;
+		if (i > lastBreak) result.emplace_back(str.begin()+lastBreak, str.begin()+i);
+		lastBreak = i+1;
+	}
+	if (lastBreak < str.size()) result.emplace_back(str.begin()+lastBreak, str.end());
+	return result;
+}
+
 std::vector<std::vector<std::string>> extractCorrectedONTPaths(std::string gafFile, const Path& heavyPath, const size_t minLength, const GfaGraph& graph)
 {
 	std::vector<std::vector<std::string>> result;
@@ -981,15 +995,14 @@ std::vector<std::vector<std::string>> extractCorrectedONTPaths(std::string gafFi
 		std::string line;
 		getline(file, line);
 		if (line.size() == 0) continue;
-		std::stringstream sstr { line };
+		auto parts = split(line, '\t');
 		ReadPath readPath;
-		readPath.pathStartClip = 0;
-		readPath.pathEndClip = 0;
-		std::string pathstr;
-		std::string dummy;
-		size_t readlength;
-		size_t mapq;
-		sstr >> readPath.readName >> readlength >> readPath.readStart >> readPath.readEnd >> dummy >> pathstr >> dummy >> dummy >> dummy >> dummy >> dummy >> mapq;
+		readPath.readName = parts[0];
+		size_t readlength = std::stoi(parts[1]);
+		readPath.readStart = std::stoi(parts[2]);
+		readPath.readEnd = std::stoi(parts[3]);
+		std::string pathstr = parts[5];
+		size_t mapq = std::stoi(parts[11]);
 		if (mapq < 20) continue;
 		if (readPath.readEnd - readPath.readStart < minLength) continue;
 		readPath.path = parsePath(pathstr);
