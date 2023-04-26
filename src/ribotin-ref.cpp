@@ -55,6 +55,10 @@ int main(int argc, char** argv)
 			MBGPath = "MBG";
 		}
 	}
+	else
+	{
+		MBGPath = params["mbg"].as<std::string>();
+	}
 	if (params.count("graphaligner") == 1)
 	{
 		GraphAlignerPath = params["graphaligner"].as<std::string>();
