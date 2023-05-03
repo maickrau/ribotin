@@ -1102,6 +1102,105 @@ std::unordered_set<std::string> getCoreNodes(const std::vector<std::vector<std::
 	return potentialCoreNodes;
 }
 
+size_t getDPRowBacktracePos(const std::string& compareQuerySeq, const std::string& compareRefSeq, const size_t columnNum)
+{
+	std::vector<std::vector<size_t>> DPmatrix;
+	DPmatrix.resize(compareQuerySeq.size()+1);
+	for (size_t i = 0; i < compareQuerySeq.size()+1; i++)
+	{
+		DPmatrix[i].resize(compareRefSeq.size()+1, 0);
+	}
+	for (size_t i = 0; i < compareRefSeq.size()+1; i++)
+	{
+		DPmatrix[0][i] = i;
+	}
+	for (size_t i = 1; i < compareQuerySeq.size()+1; i++)
+	{
+		DPmatrix[i][0] = i;
+		for (size_t j = 1; j < compareRefSeq.size()+1; j++)
+		{
+			bool match = (compareQuerySeq[i-1] == compareRefSeq[j-1]);
+			DPmatrix[i][j] = std::min(DPmatrix[i][j-1]+1, DPmatrix[i-1][j]+1);
+			DPmatrix[i][j] = std::min(DPmatrix[i][j], DPmatrix[i-1][j-1] + (match ? 0 : 1));
+		}
+	}
+	size_t i = compareQuerySeq.size();
+	size_t j = compareRefSeq.size();
+	while (j > columnNum)
+	{
+		assert(j > 0);
+		assert(i > 0);
+		bool match = (compareQuerySeq[i-1] == compareRefSeq[j-1]);
+		if (DPmatrix[i-1][j-1] + (match ? 0 : 1) == DPmatrix[i][j])
+		{
+			i -= 1;
+			j -= 1;
+		}
+		else if (DPmatrix[i-1][j] + 1 == DPmatrix[i][j])
+		{
+			i -= 1;
+		}
+		else if (DPmatrix[i][j-1] + 1 == DPmatrix[i][j])
+		{
+			j -= 1;
+		}
+		else
+		{
+			assert(false);
+		}
+	}
+	std::cerr << compareQuerySeq << " " << compareRefSeq << " " << i << std::endl;
+	return i;
+}
+
+size_t getExactBreakPos(const std::string& nodeseq, const std::string& consensusSeq, const size_t approxPosition)
+{
+	const size_t flankSize = 10;
+	assert(nodeseq.size() >= flankSize);
+	assert(consensusSeq.size() >= flankSize);
+	std::string compareQuerySeq;
+	std::string compareRefSeq;
+	size_t midPos = 0;
+	if (approxPosition < flankSize)
+	{
+		compareQuerySeq += nodeseq.substr(0, approxPosition);
+		compareRefSeq += consensusSeq.substr(consensusSeq.size() - approxPosition);
+		midPos = approxPosition;
+	}
+	else
+	{
+		compareQuerySeq += nodeseq.substr(approxPosition-flankSize, flankSize);
+		compareRefSeq += consensusSeq.substr(consensusSeq.size() - flankSize);
+		midPos = flankSize;
+	}
+	if (approxPosition > nodeseq.size() - flankSize)
+	{
+		compareQuerySeq += nodeseq.substr(approxPosition, flankSize);
+		compareRefSeq += consensusSeq.substr(0, nodeseq.size() - approxPosition);
+	}
+	else
+	{
+		compareQuerySeq += nodeseq.substr(approxPosition, flankSize);
+		compareRefSeq += consensusSeq.substr(0, flankSize);
+	}
+	assert(compareRefSeq.size() == compareQuerySeq.size());
+	size_t zeroPos = approxPosition;
+	if (approxPosition >= flankSize)
+	{
+		zeroPos = approxPosition - flankSize;
+	}
+	else
+	{
+		zeroPos = 0;
+	}
+	size_t exactMatchPos = zeroPos + getDPRowBacktracePos(compareQuerySeq, compareRefSeq, midPos);
+	if (exactMatchPos != approxPosition || nodeseq.substr(exactMatchPos, 5) != "GCTGA")
+	{
+		std::cerr << nodeseq << " " << approxPosition << " " << exactMatchPos << std::endl;
+	}
+	return exactMatchPos;
+}
+
 std::tuple<std::unordered_set<std::string>, std::unordered_map<std::string, size_t>, std::unordered_map<std::string, size_t>> getBorderNodes(const Path& heavyPath, const GfaGraph& graph)
 {
 	const size_t k = 101;
@@ -1191,7 +1290,8 @@ std::tuple<std::unordered_set<std::string>, std::unordered_map<std::string, size
 		}
 		if (fwBreaks.size() >= 3)
 		{
-			size_t breakPos = fwBreaks[fwBreaks.size()/2];
+			size_t breakPos = getExactBreakPos(pair.second, consensusSequence, fwBreaks[fwBreaks.size()/2]);
+			// size_t breakPos = fwBreaks[fwBreaks.size()/2];
 			pathStartClip[">" + pair.first] = breakPos;
 			pathEndClip[">" + pair.first] = pair.second.size() - breakPos;
 			breakPos = pair.second.size() - 1 - breakPos;
@@ -1201,7 +1301,8 @@ std::tuple<std::unordered_set<std::string>, std::unordered_map<std::string, size
 		}
 		if (bwBreaks.size() >= 3)
 		{
-			size_t breakPos = bwBreaks[bwBreaks.size()/2];
+			size_t breakPos = getExactBreakPos(revcomp(pair.second), consensusSequence, bwBreaks[fwBreaks.size()/2]);
+			// size_t breakPos = bwBreaks[bwBreaks.size()/2];
 			pathStartClip["<" + pair.first] = breakPos;
 			pathEndClip["<" + pair.first] = pair.second.size() - breakPos;
 			breakPos = pair.second.size() - 1 - breakPos;
