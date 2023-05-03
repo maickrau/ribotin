@@ -1149,7 +1149,6 @@ size_t getDPRowBacktracePos(const std::string& compareQuerySeq, const std::strin
 			assert(false);
 		}
 	}
-	std::cerr << compareQuerySeq << " " << compareRefSeq << " " << i << std::endl;
 	return i;
 }
 
@@ -1194,10 +1193,6 @@ size_t getExactBreakPos(const std::string& nodeseq, const std::string& consensus
 		zeroPos = 0;
 	}
 	size_t exactMatchPos = zeroPos + getDPRowBacktracePos(compareQuerySeq, compareRefSeq, midPos);
-	if (exactMatchPos != approxPosition || nodeseq.substr(exactMatchPos, 5) != "GCTGA")
-	{
-		std::cerr << nodeseq << " " << approxPosition << " " << exactMatchPos << std::endl;
-	}
 	return exactMatchPos;
 }
 
