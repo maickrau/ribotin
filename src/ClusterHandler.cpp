@@ -104,6 +104,13 @@ std::pair<std::string, std::string> canon(const std::string& left, const std::st
 	return std::make_pair(left, right);
 }
 
+class MorphConsensus
+{
+public:
+	std::string sequence;
+	size_t coverage;
+};
+
 class ReadPath
 {
 public:
@@ -1556,23 +1563,25 @@ std::string getConsensusSequence(const std::vector<std::vector<std::string>>& ra
 	return consensusSeq;
 }
 
-std::vector<std::tuple<std::string, size_t>> getMorphConsensuses(const std::vector<std::vector<std::vector<std::string>>>& clusters, const GfaGraph& graph, const std::unordered_map<std::string, size_t>& pathStartClip, const std::unordered_map<std::string, size_t>& pathEndClip)
+std::vector<MorphConsensus> getMorphConsensuses(const std::vector<std::vector<std::vector<std::string>>>& clusters, const GfaGraph& graph, const std::unordered_map<std::string, size_t>& pathStartClip, const std::unordered_map<std::string, size_t>& pathEndClip)
 {
-	std::vector<std::tuple<std::string, size_t>> result;
+	std::vector<MorphConsensus> result;
 	for (size_t i = 0; i < clusters.size(); i++)
 	{
-		result.emplace_back(getConsensusSequence(clusters[i], graph, pathStartClip, pathEndClip), clusters[i].size());
+		result.emplace_back();
+		result.back().sequence = getConsensusSequence(clusters[i], graph, pathStartClip, pathEndClip);
+		result.back().coverage = clusters[i].size();
 	}
 	return result;
 }
 
-void writeMorphConsensuses(std::string outFile, const std::vector<std::tuple<std::string, size_t>>& morphConsensuses)
+void writeMorphConsensuses(std::string outFile, const std::vector<MorphConsensus>& morphConsensuses)
 {
 	std::ofstream file { outFile };
 	for (size_t i = 0; i < morphConsensuses.size(); i++)
 	{
-		file << ">morphconsensus" << i << "_coverage" << std::get<1>(morphConsensuses[i]) << std::endl;
-		file << std::get<0>(morphConsensuses[i]) << std::endl;
+		file << ">morphconsensus" << i << "_coverage" << morphConsensuses[i].coverage << std::endl;
+		file << morphConsensuses[i].sequence << std::endl;
 	}
 }
 
