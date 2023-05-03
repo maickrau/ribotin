@@ -5,6 +5,13 @@
 #include "KmerMatcher.h"
 #include "VerkkoClusterGuesser.h"
 
+std::string revnode(std::string node)
+{
+	assert(node.size() >= 2);
+	assert(node[0] == '>' || node[0] == '<');
+	return (node[0] == '>' ? "<" : ">") + node.substr(1);
+}
+
 std::unordered_set<std::string> matchNodes(const KmerMatcher& matcher, const std::string& gfaPath)
 {
 	std::unordered_set<std::string> result;
@@ -103,6 +110,94 @@ std::string homopolymerCompress(std::string original)
 	return result;
 }
 
+bool hasCycle(const std::vector<std::string>& clusterNodes, const std::unordered_map<std::string, std::vector<std::string>>& edges)
+{
+	std::unordered_map<std::string, std::unordered_set<std::string>> reachable;
+	for (auto node : clusterNodes)
+	{
+		if (edges.count(">" + node) == 1)
+		{
+			for (auto edge : edges.at(">" + node))
+			{
+				reachable[">" + node].insert(edge);
+				if (edge == ">" + node) return true;
+			}
+		}
+		if (edges.count("<" + node) == 1)
+		{
+			for (auto edge : edges.at("<" + node))
+			{
+				reachable["<" + node].insert(edge);
+				if (edge == "<" + node) return true;
+			}
+		}
+	}
+	while (true)
+	{
+		bool changed = false;
+		for (auto node : clusterNodes)
+		{
+			auto oldReachable = reachable[">" + node];
+			for (auto node2 : oldReachable)
+			{
+				if (edges.count(node2) == 0) continue;
+				for (auto edge : edges.at(node2))
+				{
+					if (reachable[">" + node].count(edge) == 1) continue;
+					reachable[">" + node].insert(edge);
+					changed = true;
+					if (edge == ">" + node) return true;
+				}
+			}
+			oldReachable = reachable["<" + node];
+			for (auto node2 : oldReachable)
+			{
+				if (edges.count(node2) == 0) continue;
+				for (auto edge : edges.at(node2))
+				{
+					if (reachable["<" + node].count(edge) == 1) continue;
+					reachable["<" + node].insert(edge);
+					changed = true;
+					if (edge == "<" + node) return true;
+				}
+			}
+		}
+		if (!changed) break;
+	}
+	return false;
+}
+
+void filterOutAcyclic(std::vector<std::vector<std::string>>& clusterNodes, const std::string& gfaPath)
+{
+	std::unordered_map<std::string, std::vector<std::string>> edges;
+	{
+		std::ifstream file { gfaPath };
+		while (file.good())
+		{
+			std::string line;
+			getline(file, line);
+			if (!file.good()) break;
+			if (line[0] != 'L') continue;
+			std::stringstream sstr { line };
+			std::string dummy, fromnode, tonode;
+			std::string fromorient, toorient;
+			sstr >> dummy >> fromnode >> fromorient >> tonode >> toorient;
+			assert(fromorient == "+" || fromorient == "-");
+			assert(toorient == "+" || toorient == "-");
+			fromnode = (fromorient == "+" ? ">" : "<") + fromnode;
+			tonode = (toorient == "+" ? ">" : "<") + tonode;
+			edges[fromnode].push_back(tonode);
+			edges[revnode(tonode)].push_back(revnode(fromnode));
+		}
+	}
+	for (size_t i = clusterNodes.size()-1; i < clusterNodes.size(); i--)
+	{
+		if (hasCycle(clusterNodes[i], edges)) continue;
+		std::swap(clusterNodes[i], clusterNodes.back());
+		clusterNodes.pop_back();
+	}
+}
+
 std::vector<std::vector<std::string>> guessVerkkoRDNAClusters(std::string verkkoBasePath, const std::vector<std::string>& referencePath)
 {
 	KmerMatcher matcher { 101 };
@@ -115,5 +210,6 @@ std::vector<std::vector<std::string>> guessVerkkoRDNAClusters(std::string verkko
 	}
 	auto nodes = matchNodes(matcher, verkkoBasePath + "/assembly.homopolymer-compressed.gfa");
 	auto clusters = extendClusters(nodes, verkkoBasePath + "/assembly.homopolymer-compressed.gfa");
+	filterOutAcyclic(clusters, verkkoBasePath + "/assembly.homopolymer-compressed.gfa");
 	return clusters;
 }
