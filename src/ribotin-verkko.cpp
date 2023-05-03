@@ -12,6 +12,7 @@
 #include "ClusterHandler.h"
 #include "VerkkoClusterGuesser.h"
 #include "KmerMatcher.h"
+#include "RibotinUtils.h"
 
 std::vector<std::string> getNodesFromFile(std::string filename)
 {
@@ -164,13 +165,12 @@ void splitAlignmentsPerCluster(std::string outputPrefix, size_t numClusters, std
 			std::string line;
 			getline(file, line);
 			if (!file.good()) break;
-			std::stringstream sstr { line };
-			std::string readname;
-			size_t readstart, readend;
-			std::string pathstr;
-			size_t mapq;
-			std::string dummy;
-			sstr >> readname >> dummy >> readstart >> readend >> dummy >> pathstr >> dummy >> dummy >> dummy >> dummy >> dummy >> mapq;
+			auto parts = split(line, '\t');
+			std::string readname = parts[0];
+			size_t readstart = std::stoull(parts[2]);
+			size_t readend = std::stoull(parts[3]);
+			std::string pathstr = parts[5];
+			size_t mapq = std::stoull(parts[11]);
 			if (mapq < 20) continue;
 			assert(readend > readstart);
 			if (readend - readstart < 20000) continue;

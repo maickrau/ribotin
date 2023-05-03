@@ -14,6 +14,7 @@
 #include <sstream>
 #include "fastqloader.h"
 #include "ClusterHandler.h"
+#include "RibotinUtils.h"
 
 namespace std
 {
@@ -976,20 +977,6 @@ void orientPath(std::vector<std::string>& path, const std::unordered_map<std::st
 		}
 	}
 	if (bwMatches > fwMatches) path = reverse(path);
-}
-
-std::vector<std::string> split(const std::string& str, char separator)
-{
-	std::vector<std::string> result;
-	size_t lastBreak = 0;
-	for (size_t i = 0; i < str.size(); i++)
-	{
-		if (str[i] != separator) continue;
-		if (i > lastBreak) result.emplace_back(str.begin()+lastBreak, str.begin()+i);
-		lastBreak = i+1;
-	}
-	if (lastBreak < str.size()) result.emplace_back(str.begin()+lastBreak, str.end());
-	return result;
 }
 
 std::vector<std::vector<std::string>> extractCorrectedONTPaths(std::string gafFile, const Path& heavyPath, const size_t minLength, const GfaGraph& graph)
