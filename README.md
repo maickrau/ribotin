@@ -65,3 +65,4 @@ The output folder will contain several files:
 - `ont-alns.gaf`: Aligned paths of ultralong ONT reads to `variant-graph.gfa`. Only if including ultralong ONT reads.
 - `loops.fa`: A list of individual rDNA morphs found in the ultralong ONT reads. Only if including ultralong ONT reads.
 - `morphs.fa`: A list of rDNA morph consensuses and their abundances. Only if including ultralong ONT reads.
+- `morphs.gaf`: The paths of the rDNA morph consensuses in `variant-graph.gfa`. Only if including ultralong ONT reads.
