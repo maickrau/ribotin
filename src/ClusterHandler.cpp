@@ -1172,7 +1172,8 @@ size_t getExactBreakPos(const std::string& nodeseq, const std::string& consensus
 		compareRefSeq += consensusSeq.substr(consensusSeq.size() - flankSize);
 		midPos = flankSize;
 	}
-	if (approxPosition > nodeseq.size() - flankSize)
+	assert(compareRefSeq.size() == compareQuerySeq.size());
+	if (approxPosition+flankSize > nodeseq.size())
 	{
 		compareQuerySeq += nodeseq.substr(approxPosition, flankSize);
 		compareRefSeq += consensusSeq.substr(0, nodeseq.size() - approxPosition);
