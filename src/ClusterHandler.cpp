@@ -16,6 +16,8 @@
 #include "ClusterHandler.h"
 #include "RibotinUtils.h"
 
+const size_t minPhaseCoverage = 10;
+
 namespace std
 {
 	template <> struct hash<std::pair<std::string, std::string>>
@@ -1008,7 +1010,6 @@ std::vector<std::vector<std::string>> extractCorrectedONTPaths(std::string gafFi
 		auto parts = split(line, '\t');
 		ReadPath readPath;
 		readPath.readName = parts[0];
-		size_t readlength = std::stoi(parts[1]);
 		readPath.readStart = std::stoi(parts[2]);
 		readPath.readEnd = std::stoi(parts[3]);
 		std::string pathstr = parts[5];
@@ -1556,6 +1557,158 @@ size_t countNeedsAligning(const std::vector<size_t>& loopLengths, size_t maxEdit
 	return result;
 }
 
+size_t getMatchCount(const std::vector<size_t>& left, const std::vector<size_t>& right)
+{
+	size_t result = 0;
+	size_t leftindex = 0;
+	size_t rightindex = 0;
+	while (leftindex < left.size() && rightindex < right.size())
+	{
+		if (left[leftindex] == right[rightindex])
+		{
+			result += 1;
+			leftindex += 1;
+			rightindex += 1;
+			continue;
+		}
+		else if (left[leftindex] < right[rightindex])
+		{
+			leftindex += 1;
+		}
+		else
+		{
+			assert(right[rightindex] < left[leftindex]);
+			rightindex += 1;
+		}
+	}
+	return result;
+}
+
+bool bubbleIsPhased(const std::vector<std::vector<std::vector<size_t>>>& readsPerBubble, const size_t left, const size_t right)
+{
+	if (readsPerBubble[left].size() != readsPerBubble[right].size()) return false;
+	if (readsPerBubble[left].size() < 2) return false;
+	for (size_t i = 0; i < readsPerBubble[left].size(); i++)
+	{
+		if (readsPerBubble[left][i].size() < minPhaseCoverage) return false;
+		if (readsPerBubble[right][i].size() < minPhaseCoverage) return false;
+	}
+	std::vector<bool> rightHasMatch;
+	rightHasMatch.resize(readsPerBubble[right].size(), false);
+	for (size_t i = 0; i < readsPerBubble[left].size(); i++)
+	{
+		size_t matchesRight = std::numeric_limits<size_t>::max();
+		for (size_t j = 0; j < readsPerBubble[right].size(); j++)
+		{
+			size_t matchCount = getMatchCount(readsPerBubble[left][i], readsPerBubble[right][j]);
+			if (matchCount == 0) continue;
+			if (matchCount < minPhaseCoverage) return false;
+			if (matchesRight != std::numeric_limits<size_t>::max()) return false;
+			matchesRight = j;
+		}
+		if (matchesRight == std::numeric_limits<size_t>::max()) return false;
+		if (rightHasMatch[matchesRight]) return false;
+		rightHasMatch[matchesRight] = true;
+	}
+	return true;
+}
+
+void phaseAndAppend(const std::vector<std::vector<std::string>>& paths, std::vector<std::vector<std::vector<std::string>>>& result)
+{
+	if (paths.size() < minPhaseCoverage)
+	{
+		result.emplace_back(paths);
+		return;
+	}
+	auto coreNodes = getCoreNodes(paths);
+	std::vector<std::map<std::vector<std::string>, size_t>> bubbleAlleles;
+	bubbleAlleles.resize(coreNodes.size());
+	std::vector<std::vector<std::vector<size_t>>> readsPerBubble;
+	readsPerBubble.resize(coreNodes.size());
+	std::vector<std::vector<size_t>> allelesPerRead;
+	for (size_t i = 0; i < paths.size(); i++)
+	{
+		size_t lastCore = std::numeric_limits<size_t>::max();
+		size_t coreNum = 0;
+		allelesPerRead.emplace_back();
+		for (size_t j = 0; j < paths[i].size(); j++)
+		{
+			if (coreNodes.count(paths[i][j].substr(1)) == 0) continue;
+			if (lastCore == std::numeric_limits<size_t>::max())
+			{
+				lastCore = j;
+				continue;
+			}
+			std::vector<std::string> subpath { paths[i].begin()+lastCore, paths[i].begin()+j+1 };
+			if (bubbleAlleles[coreNum].count(subpath) == 0)
+			{
+				size_t count = readsPerBubble[coreNum].size();
+				bubbleAlleles[coreNum][subpath] = count;
+				readsPerBubble[coreNum].emplace_back();
+			}
+			readsPerBubble[coreNum][bubbleAlleles[coreNum].at(subpath)].push_back(i);
+			allelesPerRead.back().push_back(bubbleAlleles[coreNum].at(subpath));
+			coreNum += 1;
+		}
+	}
+	for (size_t i = 0; i < readsPerBubble.size(); i++)
+	{
+		for (size_t j = 0; j < readsPerBubble[i].size(); j++)
+		{
+			std::sort(readsPerBubble[i][j].begin(), readsPerBubble[i][j].end());
+		}
+	}
+	std::unordered_set<size_t> phaseInformativeBubblesSet;
+	for (size_t i = 0; i < bubbleAlleles.size(); i++)
+	{
+		for (size_t j = i+1; j < bubbleAlleles.size(); j++)
+		{
+			if (!bubbleIsPhased(readsPerBubble, i, j)) continue;
+			phaseInformativeBubblesSet.insert(i);
+			phaseInformativeBubblesSet.insert(j);
+		}
+	}
+	if (phaseInformativeBubblesSet.size() < 2)
+	{
+		result.emplace_back(paths);
+		return;
+	}
+	std::vector<size_t> phaseInformativeBubbles { phaseInformativeBubblesSet.begin(), phaseInformativeBubblesSet.end() };
+	std::sort(phaseInformativeBubbles.begin(), phaseInformativeBubbles.end());
+	std::map<std::vector<size_t>, size_t> bubbleToCluster;
+	std::vector<std::vector<std::vector<std::string>>> phasedClusters;
+	for (size_t i = 0; i < paths.size(); i++)
+	{
+		std::vector<size_t> allelesHere;
+		for (size_t index : phaseInformativeBubbles)
+		{
+			allelesHere.push_back(allelesPerRead[i][index]);
+		}
+		if (bubbleToCluster.count(allelesHere) == 0)
+		{
+			size_t count = bubbleToCluster.size();
+			bubbleToCluster[allelesHere] = count;
+			phasedClusters.emplace_back();
+		}
+		phasedClusters[bubbleToCluster.at(allelesHere)].emplace_back(paths[i]);
+	}
+	assert(phasedClusters.size() >= 2);
+	for (size_t i = 0; i < phasedClusters.size(); i++)
+	{
+		phaseAndAppend(phasedClusters[i], result);
+	}
+}
+
+std::vector<std::vector<std::vector<std::string>>> phaseClusters(const std::vector<std::vector<std::vector<std::string>>>& unphasedClusters)
+{
+	std::vector<std::vector<std::vector<std::string>>> result;
+	for (size_t i = 0; i < unphasedClusters.size(); i++)
+	{
+		phaseAndAppend(unphasedClusters[i], result);
+	}
+	return result;
+}
+
 std::vector<std::vector<std::vector<std::string>>> clusterLoopSequences(const std::vector<std::vector<std::string>>& loops, const GfaGraph& graph, const std::unordered_map<std::string, size_t>& pathStartClip, const std::unordered_map<std::string, size_t>& pathEndClip, const std::unordered_set<std::string>& coreNodes, const size_t maxEdits)
 {
 	std::vector<size_t> parent;
@@ -1803,8 +1956,11 @@ void DoClusterONTAnalysis(const ClusterParams& params)
 	}
 	std::cerr << "cluster morphs" << std::endl;
 	orderLoopsByLength(loopSequences, variantGraph);
-	auto clusters = clusterLoopSequences(loopSequences, variantGraph, pathStartClip, pathEndClip, coreNodes, 300);
-	std::cerr << clusters.size() << " morph clusters" << std::endl;
+	auto unphasedClusters = clusterLoopSequences(loopSequences, variantGraph, pathStartClip, pathEndClip, coreNodes, 300);
+	std::cerr << unphasedClusters.size() << " morph clusters" << std::endl;
+	std::cerr << "phase morph clusters" << std::endl;
+	auto clusters = phaseClusters(unphasedClusters);
+	std::cerr << clusters.size() << " phased morph clusters" << std::endl;
 	std::sort(clusters.begin(), clusters.end(), [](const auto& left, const auto& right) { return left.size() > right.size(); });
 	std::cerr << "getting morph consensuses" << std::endl;
 	auto morphConsensuses = getMorphConsensuses(clusters, variantGraph, pathStartClip, pathEndClip);
