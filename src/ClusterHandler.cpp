@@ -407,7 +407,12 @@ void runMBG(std::string basePath, std::string readPath, std::string MBGPath, siz
 	mbgCommand = MBGPath + " -o " + basePath + "/graph.gfa -i " + readPath + " -k " + std::to_string(k) + " -w " + std::to_string(k-30) + " -a 2 -u 3 -r 15000 -R 4000 --error-masking=msat --output-sequence-paths " + basePath + "/paths.gaf --only-local-resolve 1> " + basePath + "/mbg_stdout.txt 2> " + basePath + "/mbg_stderr.txt";
 	std::cerr << "MBG command:" << std::endl;
 	std::cerr << mbgCommand << std::endl;
-	system(mbgCommand.c_str());
+	int result = system(mbgCommand.c_str());
+	if (result != 0)
+	{
+		std::cerr << "MBG did not run successfully" << std::endl;
+		std::abort();
+	}
 }
 
 std::vector<std::string> parsePath(const std::string& pathstr)
@@ -901,7 +906,12 @@ void liftoverAnnotationsToConsensus(const std::string& basePath, const std::stri
 	std::string command = "liftoff -f " + basePath + "/liftoff_types.txt -g " + annotationGff3 + " -o " + basePath + "/annotation.gff3 -u " + basePath + "/unmapped_features.txt -dir " + basePath + "/liftoff_intermediate_files/ " + consensusPath + " " + annotationFasta;
 	std::cerr << "running liftoff with command:" << std::endl;
 	std::cerr << command << std::endl;
-	system(command.c_str());
+	int result = system(command.c_str());
+	if (result != 0)
+	{
+		std::cerr << "liftoff did not run successfully" << std::endl;
+		std::abort();
+	}
 }
 
 void AlignONTReads(std::string basePath, std::string graphAlignerPath, std::string ontReadPath, std::string graphPath, std::string outputAlnPath, size_t numThreads)
@@ -910,7 +920,12 @@ void AlignONTReads(std::string basePath, std::string graphAlignerPath, std::stri
 	graphalignerCommand = graphAlignerPath + " -g " + graphPath + " -f " + ontReadPath + " -a " + outputAlnPath + " -t " + std::to_string(numThreads) + " --seeds-mxm-length 30 --seeds-mem-count 10000 --bandwidth 15 --multimap-score-fraction 0.99 --precise-clipping 0.85 --min-alignment-score 5000 --discard-cigar --clip-ambiguous-ends 100 --overlap-incompatible-cutoff 0.15 --mem-index-no-wavelet-tree --max-trace-count 5 1> " + basePath + "/graphaligner_stdout.txt 2> " + basePath + "/graphaligner_stderr.txt";
 	std::cerr << "GraphAligner command:" << std::endl;
 	std::cerr << graphalignerCommand << std::endl;
-	system(graphalignerCommand.c_str());
+	int result = system(graphalignerCommand.c_str());
+	if (result != 0)
+	{
+		std::cerr << "GraphAligner did not run successfully" << std::endl;
+		std::abort();
+	}
 }
 
 std::string getPathSequence(const ReadPath& readPath, const GfaGraph& graph, const std::unordered_map<std::pair<std::string, std::string>, size_t>& edgeOverlaps)
