@@ -63,11 +63,11 @@ The output folder will contain several files:
 - `variants.vcf`: A list of variants supported by at least 3 reads. Variant IDs match `variants.txt`
 - `annotation.gff3`: Annotations lifted over from a previous reference. Only if using parameters `--annotation-reference-fasta` and `--annotation-gff3`
 
-The following files are only created when ultralong ONT reads are included:
+The following files are created when ultralong ONT reads are included:
 
 - `ont-alns.gaf`: Aligned paths of ultralong ONT reads to `variant-graph.gfa`.
 - `loops.fa`: A list of individual rDNA morphs found in the ultralong ONT reads.
 - `morphs.fa`: A list of rDNA morph consensuses and their abundances.
 - `morphs.gaf`: The paths of the rDNA morph consensuses in `variant-graph.gfa`.
-- `morphgraph.gfa`: A graph describing how the morphs connect to each others.
+- `morphgraph.gfa`: A graph describing how the morph consensuses connect to each others.
 - `readpaths-morphgraph.gaf`: Paths of the ONT reads in `morphgraph.gfa`. Only shows reads which are assigned to complete morphs.
