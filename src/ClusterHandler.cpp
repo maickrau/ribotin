@@ -107,14 +107,6 @@ std::pair<std::string, std::string> canon(const std::string& left, const std::st
 	return std::make_pair(left, right);
 }
 
-class MorphConsensus
-{
-public:
-	std::vector<std::string> path;
-	std::string sequence;
-	size_t coverage;
-};
-
 class OntLoop
 {
 public:
@@ -122,12 +114,24 @@ public:
 	std::string readName;
 	size_t approxStart;
 	size_t approxEnd;
+	size_t originalReadLength;
+};
+
+class MorphConsensus
+{
+public:
+	std::vector<std::string> path;
+	std::string sequence;
+	std::string name;
+	std::vector<OntLoop> ontLoops;
+	size_t coverage;
 };
 
 class ReadPath
 {
 public:
 	std::string readName;
+	size_t readLength;
 	size_t readStart;
 	size_t readEnd;
 	std::vector<std::string> path;
@@ -1031,6 +1035,7 @@ std::vector<ReadPath> extractCorrectedONTPaths(std::string gafFile, const Path& 
 		auto parts = split(line, '\t');
 		ReadPath readPath;
 		readPath.readName = parts[0];
+		readPath.readLength = std::stoull(parts[1]);
 		readPath.readStart = std::stoi(parts[2]);
 		readPath.readEnd = std::stoi(parts[3]);
 		readPath.pathStartClip = std::stoull(parts[7]);
@@ -1389,6 +1394,7 @@ std::vector<OntLoop> extractLoopSequences(const std::vector<ReadPath>& corrected
 			if (getPathLength(looppath, graph.nodeSeqs, graph.edges) >= minLength)
 			{
 				result.emplace_back();
+				result.back().originalReadLength = read.readLength;
 				result.back().path = looppath;
 				result.back().readName = read.readName;
 				result.back().approxStart = approxReadStartPoses[lastBreak] + pathStartClip.at(read.path[lastBreak]);
@@ -1898,6 +1904,8 @@ std::vector<MorphConsensus> getMorphConsensuses(const std::vector<std::vector<On
 		result.back().path = getConsensusPath(clusters[i], graph);
 		result.back().sequence = getConsensusSequence(result.back().path, graph, pathStartClip, pathEndClip);
 		result.back().coverage = clusters[i].size();
+		result.back().ontLoops = clusters[i];
+		result.back().name = "morphconsensus" + std::to_string(i) + "_coverage" + std::to_string(result.back().coverage);
 	}
 	return result;
 }
@@ -1907,7 +1915,7 @@ void writeMorphConsensuses(std::string outFile, const std::vector<MorphConsensus
 	std::ofstream file { outFile };
 	for (size_t i = 0; i < morphConsensuses.size(); i++)
 	{
-		file << ">morphconsensus" << i << "_coverage" << morphConsensuses[i].coverage << std::endl;
+		file << ">" << morphConsensuses[i].name << std::endl;
 		file << morphConsensuses[i].sequence << std::endl;
 	}
 }
@@ -1970,13 +1978,123 @@ void writeMorphPaths(const std::string& outputFile, const std::vector<MorphConse
 	std::ofstream file { outputFile };
 	for (size_t i = 0; i < morphConsensuses.size(); i++)
 	{
-		file << "morphconsensus" << i << "_coverage" << morphConsensuses[i].coverage << "\t" << morphConsensuses[i].sequence.size() << "\t" << 0 << "\t" << morphConsensuses[i].sequence.size() << "\t+\t";
+		file << morphConsensuses[i].name << "\t" << morphConsensuses[i].sequence.size() << "\t" << 0 << "\t" << morphConsensuses[i].sequence.size() << "\t+\t";
 		for (auto node : morphConsensuses[i].path)
 		{
 			file << node;
 		}
 		size_t size = getSequence(morphConsensuses[i].path, graph.nodeSeqs, graph.edges).size();
 		file << "\t" << size << "\t" << pathStartClip.at(morphConsensuses[i].path[0]) << "\t" << (size - pathEndClip.at(morphConsensuses[i].path.back())) << "\t" << morphConsensuses[i].sequence.size() << "\t" << morphConsensuses[i].sequence.size() << "\t60" << std::endl;
+	}
+}
+
+void writeMorphGraphAndReadPaths(const std::string& graphFile, const std::string& pathsFile, const std::vector<MorphConsensus>& morphConsensuses)
+{
+	std::unordered_map<std::string, size_t> originalReadLength;
+	std::unordered_map<std::string, std::vector<std::tuple<size_t, size_t, size_t>>> readFwMatches;
+	std::unordered_map<std::string, std::vector<std::tuple<size_t, size_t, size_t>>> readBwMatches;
+	for (size_t i = 0; i < morphConsensuses.size(); i++)
+	{
+		for (const auto& loop : morphConsensuses[i].ontLoops)
+		{
+			originalReadLength[loop.readName] = loop.originalReadLength;
+			if (loop.approxEnd < loop.approxStart)
+			{
+				readBwMatches[loop.readName].emplace_back(loop.approxStart, loop.approxEnd, i);
+			}
+			else
+			{
+				readFwMatches[loop.readName].emplace_back(loop.approxStart, loop.approxEnd, i);
+			}
+		}
+	}
+	std::vector<ReadPath> readPaths;
+	for (auto& pair : readFwMatches)
+	{
+		assert(pair.second.size() >= 1);
+		std::sort(pair.second.begin(), pair.second.end(), [](auto left, auto right){ return std::get<0>(left) < std::get<0>(right); });
+		size_t lastMatch = 0;
+		for (size_t i = 0; i < pair.second.size(); i++)
+		{
+			if (i == 0 || std::get<0>(pair.second[i]) + 1000 < std::get<1>(pair.second[i-1]) || std::get<0>(pair.second[i]) > std::get<1>(pair.second[i-1]) + 1000)
+			{
+				readPaths.emplace_back();
+				readPaths.back().readName = pair.first;
+				readPaths.back().pathStartClip = 0;
+				readPaths.back().pathEndClip = 0;
+				readPaths.back().reverse = false;
+				readPaths.back().readStart = std::get<0>(pair.second[i]);
+				readPaths.back().readEnd = std::get<1>(pair.second[i]);
+				readPaths.back().path.emplace_back(">" + morphConsensuses[std::get<2>(pair.second[i])].name);
+			}
+			else
+			{
+				readPaths.back().readEnd = std::get<1>(pair.second[i]);
+				readPaths.back().path.emplace_back(">" + morphConsensuses[std::get<2>(pair.second[i])].name);
+			}
+		}
+	}
+	std::vector<size_t> pathLength;
+	for (auto& pair : readBwMatches)
+	{
+		assert(pair.second.size() >= 1);
+		std::sort(pair.second.begin(), pair.second.end(), [](auto left, auto right){ return std::get<0>(left) < std::get<0>(right); });
+		size_t lastMatch = 0;
+		for (size_t i = 0; i < pair.second.size(); i++)
+		{
+			if (i == 0 || std::get<1>(pair.second[i]) + 1000 < std::get<0>(pair.second[i-1]) || std::get<1>(pair.second[i]) > std::get<0>(pair.second[i-1]) + 1000)
+			{
+				readPaths.emplace_back();
+				pathLength.emplace_back(0);
+				readPaths.back().readLength = originalReadLength.at(pair.first);
+				readPaths.back().readName = pair.first;
+				readPaths.back().pathStartClip = 0;
+				readPaths.back().pathEndClip = 0;
+				readPaths.back().reverse = false;
+				readPaths.back().readStart = std::get<1>(pair.second[i]);
+				readPaths.back().readEnd = std::get<0>(pair.second[i]);
+				readPaths.back().path.emplace_back("<" + morphConsensuses[std::get<2>(pair.second[i])].name);
+				pathLength.back() = morphConsensuses[std::get<2>(pair.second[i])].sequence.size();
+			}
+			else
+			{
+				readPaths.back().readEnd = std::get<0>(pair.second[i]);
+				readPaths.back().path.emplace_back("<" + morphConsensuses[std::get<2>(pair.second[i])].name);
+				pathLength.back() += morphConsensuses[std::get<2>(pair.second[i])].sequence.size();
+			}
+		}
+	}
+	std::map<std::pair<std::string, std::string>, size_t> edgeCoverage;
+	for (const auto& path : readPaths)
+	{
+		for (size_t i = 1; i < path.path.size(); i++)
+		{
+			auto key = canon(path.path[i-1], path.path[i]);
+			edgeCoverage[key] += 1;
+		}
+	}
+	{
+		std::ofstream file { graphFile };
+		for (size_t i = 0; i < morphConsensuses.size(); i++)
+		{
+			file << "S\t" << morphConsensuses[i].name << "\t*\tLN:i:" << morphConsensuses[i].sequence.size() << "\tll:f:" << morphConsensuses[i].coverage << "\tFC:i:" << (morphConsensuses[i].coverage * morphConsensuses[i].sequence.size()) << std::endl;
+		}
+		for (auto pair : edgeCoverage)
+		{
+			file << "L\t" << pair.first.first.substr(1) << "\t" << (pair.first.first[0] == '>' ? "+" : "-") << "\t" << pair.first.second.substr(1) << "\t" << (pair.first.second[0] == '>' ? "+" : "-") << "\t0M\tec:i:" << pair.second << std::endl;
+		}
+	}
+	{
+		std::ofstream file { pathsFile };
+		for (size_t i = 0; i < readPaths.size(); i++)
+		{
+			file << readPaths[i].readName << "\t" << readPaths[i].readLength << " \t" << readPaths[i].readStart << "\t" << readPaths[i].readEnd << "\t+\t";
+			for (auto node : readPaths[i].path)
+			{
+				file << node;
+			}
+			file << "\t" << pathLength[i] << "\t" << 0 << "\t" << pathLength[i] << "\t" << pathLength[i] << "\t" << pathLength[i] << "\t" << 60 << std::endl;
+		}
 	}
 }
 
@@ -2036,4 +2154,6 @@ void DoClusterONTAnalysis(const ClusterParams& params)
 	writeMorphConsensuses(params.basePath + "/morphs.fa", morphConsensuses);
 	std::cerr << "write morph paths" << std::endl;
 	writeMorphPaths(params.basePath + "/morphs.gaf", morphConsensuses, variantGraph, pathStartClip, pathEndClip);
+	std::cerr << "write morph graph and read paths" << std::endl;
+	writeMorphGraphAndReadPaths(params.basePath + "/morphgraph.gfa", params.basePath + "/readpaths-morphgraph.gaf", morphConsensuses);
 }
