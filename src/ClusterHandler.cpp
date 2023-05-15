@@ -466,15 +466,21 @@ std::vector<ReadPath> loadReadPaths(const std::string& filename)
 		std::string line;
 		getline(file, line);
 		if (!file.good()) break;
-		std::stringstream sstr { line };
+		auto parts = split(line, '\t');
 		ReadPath here;
-		std::string dummy;
-		std::string pathstr;
-		size_t pathLength, pathStart, pathEnd;
-		sstr >> here.readName >> dummy >> here.readStart >> here.readEnd >> dummy >> pathstr >> pathLength >> pathStart >> pathEnd;
+		std::string readname = parts[0];
+		size_t readstart = std::stoull(parts[2]);
+		size_t readend = std::stoull(parts[3]);
+		std::string pathstr = parts[5];
+		size_t pathLength = std::stoull(parts[6]);
+		size_t pathStart = std::stoull(parts[6]);
+		size_t pathEnd = std::stoull(parts[6]);
 		here.pathStartClip = pathStart;
 		here.pathEndClip = pathLength - pathEnd;
 		here.path = parsePath(pathstr);
+		assert(here.path.size() >= 1);
+		assert(here.path[0].size() >= 2);
+		assert(here.path[0][0] == '>' || here.path[0][0] == '<');
 		result.emplace_back(here);
 	}
 	return result;
@@ -567,16 +573,19 @@ std::vector<Variant> getVariants(const GfaGraph& graph, const Path& heavyPath, c
 	for (const auto& path : readPaths)
 	{
 		size_t lastStart = std::numeric_limits<size_t>::max();
+		bool lastMatchesReferenceOrientation = true;
 		for (size_t i = 0; i < path.path.size(); i++)
 		{
 			if (partOfHeavyPath.count(path.path[i].substr(1)) == 0) continue;
-			if (lastStart != std::numeric_limits<size_t>::max())
+			bool thisMatchesReferenceOrientation = (path.path[i][0] == '>') == nodeOrientation.at(path.path[i].substr(1));
+			if (lastStart != std::numeric_limits<size_t>::max() && (lastMatchesReferenceOrientation == thisMatchesReferenceOrientation))
 			{
 				std::vector<std::string> part { path.path.begin() + lastStart, path.path.begin() + i + 1 };
 				part = canon(part);
 				bubbleCoverages[part] += 1;
 			}
 			lastStart = i;
+			lastMatchesReferenceOrientation = thisMatchesReferenceOrientation;
 		}
 	}
 	std::vector<Variant> result;
