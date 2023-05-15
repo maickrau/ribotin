@@ -381,7 +381,13 @@ Path getHeavyPath(const GfaGraph& graph)
 		{
 			break;
 		}
+		if (visited.count(reverse(pre.first)) == 1)
+		{
+			std::cerr << "The consensus sequence has a palindrome. Unable to build consensus." << std::endl;
+			std::abort();
+		}
 		assert(visited.count(pre.first) == 0);
+		visited.insert(pre.first);
 		result.nodes.emplace_back(pre.first);
 	}
 	std::reverse(result.nodes.begin(), result.nodes.end());
