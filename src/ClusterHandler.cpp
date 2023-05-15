@@ -570,6 +570,7 @@ std::vector<Variant> getVariants(const GfaGraph& graph, const Path& heavyPath, c
 		nodeOrientation[node.substr(1)] = node[0] == '>';
 	}
 	std::map<std::vector<std::string>, size_t> bubbleCoverages;
+	bool hasPalindromicVariants = false;
 	for (const auto& path : readPaths)
 	{
 		size_t lastStart = std::numeric_limits<size_t>::max();
@@ -578,15 +579,27 @@ std::vector<Variant> getVariants(const GfaGraph& graph, const Path& heavyPath, c
 		{
 			if (partOfHeavyPath.count(path.path[i].substr(1)) == 0) continue;
 			bool thisMatchesReferenceOrientation = (path.path[i][0] == '>') == nodeOrientation.at(path.path[i].substr(1));
-			if (lastStart != std::numeric_limits<size_t>::max() && (lastMatchesReferenceOrientation == thisMatchesReferenceOrientation))
+			if (lastStart != std::numeric_limits<size_t>::max())
 			{
-				std::vector<std::string> part { path.path.begin() + lastStart, path.path.begin() + i + 1 };
-				part = canon(part);
-				bubbleCoverages[part] += 1;
+				if (lastMatchesReferenceOrientation == thisMatchesReferenceOrientation)
+				{
+					std::vector<std::string> part { path.path.begin() + lastStart, path.path.begin() + i + 1 };
+					part = canon(part);
+					bubbleCoverages[part] += 1;
+				}
+				else
+				{
+					hasPalindromicVariants = true;
+				}
 			}
 			lastStart = i;
 			lastMatchesReferenceOrientation = thisMatchesReferenceOrientation;
 		}
+	}
+	if (hasPalindromicVariants)
+	{
+		std::cerr << "Note: the genome has palindromic variants." << std::endl;
+		std::cerr << "Palindromic variants are ignored and missing from output." << std::endl;
 	}
 	std::vector<Variant> result;
 	for (const auto& pair : bubbleCoverages)
