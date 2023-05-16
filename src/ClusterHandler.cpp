@@ -103,33 +103,29 @@ namespace std
 	};
 }
 
+std::vector<char> getComplement()
+{
+	std::vector<char> result;
+	result.resize(256, 0);
+	result['a'] = 'T';
+	result['A'] = 'T';
+	result['c'] = 'G';
+	result['C'] = 'G';
+	result['g'] = 'C';
+	result['G'] = 'C';
+	result['t'] = 'A';
+	result['T'] = 'A';
+	return result;
+}
+
+std::vector<char> complement = getComplement();
+
 std::string revcomp(std::string seq)
 {
 	std::reverse(seq.begin(), seq.end());
 	for (size_t i = 0; i < seq.size(); i++)
 	{
-		switch(seq[i])
-		{
-			case 'a':
-			case 'A':
-				seq[i] = 'T';
-				break;
-			case 'c':
-			case 'C':
-				seq[i] = 'G';
-				break;
-			case 'g':
-			case 'G':
-				seq[i] = 'C';
-				break;
-			case 't':
-			case 'T':
-				seq[i] = 'A';
-				break;
-			default:
-				assert(false);
-				break;
-		}
+		seq[i] = complement[seq[i]];
 	}
 	return seq;
 }
