@@ -283,10 +283,12 @@ public:
 					size_t id = nodeNameToId.size();
 					nodeNameToId[node] = id;
 					nodeSeqs.emplace_back();
+					revCompNodeSeqs.emplace_back();
 					nodeCoverages.emplace_back(0);
 					nodeNames.push_back(node);
 				}
 				nodeSeqs[nodeNameToId[node]] = seq;
+				revCompNodeSeqs[nodeNameToId[node]] = revcomp(seq);
 				nodeCoverages[nodeNameToId[node]] = std::stof(coveragetag.substr(5));
 			}
 			else if (test == "L")
@@ -301,6 +303,7 @@ public:
 					size_t id = nodeNameToId.size();
 					nodeNameToId[fromnodename] = id;
 					nodeSeqs.emplace_back();
+					revCompNodeSeqs.emplace_back();
 					nodeCoverages.emplace_back(0);
 					nodeNames.push_back(fromnodename);
 				}
@@ -309,6 +312,7 @@ public:
 					size_t id = nodeNameToId.size();
 					nodeNameToId[tonodename] = id;
 					nodeSeqs.emplace_back();
+					revCompNodeSeqs.emplace_back();
 					nodeCoverages.emplace_back(0);
 					nodeNames.push_back(tonodename);
 				}
@@ -345,6 +349,7 @@ public:
 	std::vector<std::string> nodeNames;
 	std::vector<size_t> nodeCoverages;
 	std::vector<std::string> nodeSeqs;
+	std::vector<std::string> revCompNodeSeqs;
 	std::unordered_map<Node, std::set<std::tuple<Node, size_t, size_t>>> edges;
 };
 
@@ -381,15 +386,19 @@ public:
 	}
 };
 
-std::string getSequence(const std::vector<Node>& nodes, const std::vector<std::string>& nodeSeqs, const std::unordered_map<Node, std::set<std::tuple<Node, size_t, size_t>>>& edges)
+std::string getSequence(const std::vector<Node>& nodes, const std::vector<std::string>& nodeSeqs, const std::vector<std::string>& revCompNodeSeqs, const std::unordered_map<Node, std::set<std::tuple<Node, size_t, size_t>>>& edges)
 {
 	std::string result;
 	for (size_t i = 0; i < nodes.size(); i++)
 	{
-		std::string add = nodeSeqs.at(nodes[i].id());
-		if (!nodes[i].forward())
+		std::string add;
+		if (nodes[i].forward())
 		{
-			add = revcomp(add);
+			add = nodeSeqs.at(nodes[i].id());
+		}
+		else
+		{
+			add = revCompNodeSeqs.at(nodes[i].id());
 		}
 		if (i > 0)
 		{
@@ -1008,8 +1017,8 @@ void nameVariants(std::vector<Variant>& variants, const GfaGraph& graph, const P
 		{
 			variants[variant].referenceEndPos = pathLength + endPos - heavyPath.leftClip;
 		}
-		std::string referenceSeq = getSequence(variants[variant].referencePath, graph.nodeSeqs, graph.edges);
-		std::string variantSeq = getSequence(variants[variant].path, graph.nodeSeqs, graph.edges);
+		std::string referenceSeq = getSequence(variants[variant].referencePath, graph.nodeSeqs, graph.revCompNodeSeqs, graph.edges);
+		std::string variantSeq = getSequence(variants[variant].path, graph.nodeSeqs, graph.revCompNodeSeqs, graph.edges);
 		assert(variants[variant].referenceEndPos < variants[variant].referenceStartPos || referenceSeq.size() == variants[variant].referenceEndPos - variants[variant].referenceStartPos);
 		assert(variants[variant].referenceEndPos > variants[variant].referenceStartPos || referenceSeq.size() == pathLength + variants[variant].referenceEndPos - variants[variant].referenceStartPos);
 		size_t leftClip = 0;
@@ -1624,8 +1633,8 @@ size_t getEditDistancePossiblyMemoized(const std::vector<Node>& left, const std:
 		{
 			assert(startClip + endClip < left.size());
 			assert(startClip + endClip < right.size());
-			auto leftSubseq = getSequence(std::vector<Node> { left.begin() + startClip, left.end() - endClip }, graph.nodeSeqs, graph.edges);
-			auto rightSubseq = getSequence(std::vector<Node> { right.begin() + startClip, right.end() - endClip }, graph.nodeSeqs, graph.edges);
+			auto leftSubseq = getSequence(std::vector<Node> { left.begin() + startClip, left.end() - endClip }, graph.nodeSeqs, graph.revCompNodeSeqs, graph.edges);
+			auto rightSubseq = getSequence(std::vector<Node> { right.begin() + startClip, right.end() - endClip }, graph.nodeSeqs, graph.revCompNodeSeqs, graph.edges);
 			if (leftStartClipBp != 0 || leftEndClipBp != 0) leftSubseq = leftSubseq.substr(leftStartClipBp, left.size() - leftStartClipBp - leftEndClipBp);
 			if (rightStartClipBp != 0 || rightEndClipBp != 0) rightSubseq = rightSubseq.substr(rightStartClipBp, right.size() - rightStartClipBp - rightEndClipBp);
 			add = getEditDistanceWfa(leftSubseq, rightSubseq, maxEdits);
@@ -1633,8 +1642,8 @@ size_t getEditDistancePossiblyMemoized(const std::vector<Node>& left, const std:
 		}
 		else
 		{
-			auto leftSubseq = getSequence(left, graph.nodeSeqs, graph.edges);
-			auto rightSubseq = getSequence(right, graph.nodeSeqs, graph.edges);
+			auto leftSubseq = getSequence(left, graph.nodeSeqs, graph.revCompNodeSeqs, graph.edges);
+			auto rightSubseq = getSequence(right, graph.nodeSeqs, graph.revCompNodeSeqs, graph.edges);
 			if (leftStartClipBp != 0 || leftEndClipBp != 0) leftSubseq = leftSubseq.substr(leftStartClipBp, left.size() - leftStartClipBp - leftEndClipBp);
 			if (rightStartClipBp != 0 || rightEndClipBp != 0) rightSubseq = rightSubseq.substr(rightStartClipBp, right.size() - rightStartClipBp - rightEndClipBp);
 			add = getEditDistanceWfa(leftSubseq, rightSubseq, maxEdits);
@@ -1963,6 +1972,7 @@ std::vector<std::vector<OntLoop>> clusterLoopSequences(const std::vector<OntLoop
 		}
 	}
 	std::unordered_map<std::pair<std::vector<Node>, std::vector<Node>>, size_t> memoizedEditDistances;
+
 	size_t sumAligned = 0;
 	size_t needsAligning = countNeedsAligning(loopLengths, maxEdits);
 	for (size_t i = 0; i < loops.size(); i++)
@@ -2055,7 +2065,7 @@ std::vector<Node> getConsensusPath(const std::vector<OntLoop>& rawPaths, const G
 
 std::string getConsensusSequence(const std::vector<Node>& consensusPath, const GfaGraph& graph, const std::unordered_map<Node, size_t>& pathStartClip, const std::unordered_map<Node, size_t>& pathEndClip)
 {
-	std::string consensusSeq = getSequence(consensusPath, graph.nodeSeqs, graph.edges);
+	std::string consensusSeq = getSequence(consensusPath, graph.nodeSeqs, graph.revCompNodeSeqs, graph.edges);
 	consensusSeq = consensusSeq.substr(pathStartClip.at(consensusPath[0]), consensusSeq.size() - pathStartClip.at(consensusPath[0]) - pathEndClip.at(consensusPath.back()));
 	return consensusSeq;
 }
@@ -2149,7 +2159,7 @@ void writeMorphPaths(const std::string& outputFile, const std::vector<MorphConse
 		{
 			file << (node.forward() ? ">" : "<") << graph.nodeNames.at(node.id());
 		}
-		size_t size = getSequence(morphConsensuses[i].path, graph.nodeSeqs, graph.edges).size();
+		size_t size = getSequence(morphConsensuses[i].path, graph.nodeSeqs, graph.revCompNodeSeqs, graph.edges).size();
 		file << "\t" << size << "\t" << pathStartClip.at(morphConsensuses[i].path[0]) << "\t" << (size - pathEndClip.at(morphConsensuses[i].path.back())) << "\t" << morphConsensuses[i].sequence.size() << "\t" << morphConsensuses[i].sequence.size() << "\t60" << std::endl;
 	}
 }
@@ -2299,7 +2309,7 @@ void DoClusterONTAnalysis(const ClusterParams& params)
 		for (size_t i = 0; i < loopSequences.size(); i++)
 		{
 			file << ">loop_" << i << "_read_" << loopSequences[i].readName << "_start_" << loopSequences[i].approxStart << "_end_" << loopSequences[i].approxEnd << std::endl;
-			std::string loopSeq = getSequence(loopSequences[i].path, graph.nodeSeqs, graph.edges);
+			std::string loopSeq = getSequence(loopSequences[i].path, graph.nodeSeqs, graph.revCompNodeSeqs, graph.edges);
 			size_t leftClipBp = pathStartClip.at(loopSequences[i].path[0]);
 			size_t rightClipBp = pathEndClip.at(loopSequences[i].path.back());
 			loopSeq = loopSeq.substr(leftClipBp, loopSeq.size() - leftClipBp - rightClipBp);
