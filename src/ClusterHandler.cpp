@@ -1528,11 +1528,14 @@ std::vector<std::pair<size_t, size_t>> getNodeMatches(const std::vector<std::str
 	bool allIncreasing = true;
 	for (size_t i = leftStart; i < leftEnd; i++)
 	{
-		if (nodeCountIndex[leftIndex].count(left[i]) == 0) continue;
-		if (nodeCountIndex[leftIndex].at(left[i]) != 1) continue;
-		if (nodeCountIndex[rightIndex].count(left[i]) == 0) continue;
-		if (nodeCountIndex[rightIndex].at(left[i]) != 1) continue;
-		if (nodePosIndex[rightIndex].at(left[i]) < rightStart || nodePosIndex[rightIndex].at(left[i]) >= rightEnd) continue;
+		auto found = nodeCountIndex[rightIndex].find(left[i]);
+		if (found == nodeCountIndex[rightIndex].end()) continue;
+		if (found->second != 1) continue;
+		found = nodeCountIndex[leftIndex].find(left[i]);
+		if (found == nodeCountIndex[leftIndex].end()) continue;
+		if (found->second != 1) continue;
+		size_t rightPos = nodePosIndex[rightIndex].at(left[i]);
+		if (rightPos < rightStart || rightPos >= rightEnd) continue;
 		unfilteredMatches.emplace_back(i, nodePosIndex[rightIndex].at(left[i]));
 		if (unfilteredMatches.size() >= 2 && unfilteredMatches.back().second <= unfilteredMatches[unfilteredMatches.size()-2].second) allIncreasing = false;
 	}
