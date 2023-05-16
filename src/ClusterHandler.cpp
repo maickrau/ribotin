@@ -1628,18 +1628,18 @@ size_t getEditDistance(const std::vector<std::string>& left, const std::vector<s
 		if (nodeMatches[i].first == nodeMatches[i-1].first+1 && nodeMatches[i].second == nodeMatches[i-1].second+1) continue;
 		std::vector<std::string> leftPath { left.begin() + nodeMatches[i-1].first, left.begin()+nodeMatches[i].first+1 };
 		std::vector<std::string> rightPath { right.begin() + nodeMatches[i-1].second, right.begin()+nodeMatches[i].second+1 };
-		add = getEditDistancePossiblyMemoized(leftPath, rightPath, 0, 0, 0, 0, graph, maxEdits, memoizedEditDistances);
+		add = getEditDistancePossiblyMemoized(leftPath, rightPath, 0, 0, 0, 0, graph, maxEdits-result, memoizedEditDistances);
 		result += add;
 		if (result >= maxEdits) return maxEdits+1;
 	}
 	std::vector<std::string> leftPath { left.begin(), left.begin()+nodeMatches[0].first+1 };
 	std::vector<std::string> rightPath { right.begin(), right.begin()+nodeMatches[0].second+1 };
-	add = getEditDistancePossiblyMemoized(leftPath, rightPath, pathStartClip.at(leftPath[0]), pathStartClip.at(rightPath[0]), 0, 0, graph, maxEdits, memoizedEditDistances);
+	add = getEditDistancePossiblyMemoized(leftPath, rightPath, pathStartClip.at(leftPath[0]), pathStartClip.at(rightPath[0]), 0, 0, graph, maxEdits-result, memoizedEditDistances);
 	result += add;
 	if (result >= maxEdits) return maxEdits+1;
 	leftPath = std::vector<std::string> { left.begin()+nodeMatches.back().first, left.end() };
 	rightPath = std::vector<std::string> { right.begin()+nodeMatches.back().second, right.end() };
-	add = getEditDistancePossiblyMemoized(leftPath, rightPath, 0, 0, pathEndClip.at(leftPath.back()), pathEndClip.at(rightPath.back()), graph, maxEdits, memoizedEditDistances);
+	add = getEditDistancePossiblyMemoized(leftPath, rightPath, 0, 0, pathEndClip.at(leftPath.back()), pathEndClip.at(rightPath.back()), graph, maxEdits-result, memoizedEditDistances);
 	result += add;
 	if (result >= maxEdits) return maxEdits+1;
 	return result;
