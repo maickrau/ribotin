@@ -1584,7 +1584,7 @@ std::vector<std::pair<size_t, size_t>> getNodeMatches(const std::vector<std::str
 	return result;
 }
 
-size_t getEditDistance(const std::vector<std::string>& left, const std::vector<std::string>& right, const GfaGraph& graph, const std::unordered_map<std::string, size_t>& pathStartClip, const std::unordered_map<std::string, size_t>& pathEndClip, const size_t maxEdits, const std::unordered_set<std::string>& coreNodes, std::map<std::pair<std::vector<std::string>, std::vector<std::string>>, size_t>& memoizedEditDistances)
+size_t getEditDistance(const std::vector<std::string>& left, const std::vector<std::string>& right, const GfaGraph& graph, const std::unordered_map<std::string, size_t>& pathStartClip, const std::unordered_map<std::string, size_t>& pathEndClip, const size_t maxEdits, const std::unordered_set<std::string>& coreNodes, std::unordered_map<std::string, std::map<std::pair<std::vector<std::string>, std::vector<std::string>>, size_t>>& memoizedEditDistancesWithStart, std::map<std::pair<std::vector<std::string>, std::vector<std::string>>, size_t>& memoizedEditDistancesWithoutStart)
 {
 	std::vector<size_t> leftCoreMatchPositions;
 	for (size_t i = 0; i < left.size(); i++)
@@ -1628,18 +1628,18 @@ size_t getEditDistance(const std::vector<std::string>& left, const std::vector<s
 		if (nodeMatches[i].first == nodeMatches[i-1].first+1 && nodeMatches[i].second == nodeMatches[i-1].second+1) continue;
 		std::vector<std::string> leftPath { left.begin() + nodeMatches[i-1].first, left.begin()+nodeMatches[i].first+1 };
 		std::vector<std::string> rightPath { right.begin() + nodeMatches[i-1].second, right.begin()+nodeMatches[i].second+1 };
-		add = getEditDistancePossiblyMemoized(leftPath, rightPath, 0, 0, 0, 0, graph, maxEdits-result, memoizedEditDistances);
+		add = getEditDistancePossiblyMemoized(leftPath, rightPath, 0, 0, 0, 0, graph, maxEdits-result, memoizedEditDistancesWithStart[left[nodeMatches[i-1].first]]);
 		result += add;
 		if (result >= maxEdits) return maxEdits+1;
 	}
 	std::vector<std::string> leftPath { left.begin(), left.begin()+nodeMatches[0].first+1 };
 	std::vector<std::string> rightPath { right.begin(), right.begin()+nodeMatches[0].second+1 };
-	add = getEditDistancePossiblyMemoized(leftPath, rightPath, pathStartClip.at(leftPath[0]), pathStartClip.at(rightPath[0]), 0, 0, graph, maxEdits-result, memoizedEditDistances);
+	add = getEditDistancePossiblyMemoized(leftPath, rightPath, pathStartClip.at(leftPath[0]), pathStartClip.at(rightPath[0]), 0, 0, graph, maxEdits-result, memoizedEditDistancesWithoutStart);
 	result += add;
 	if (result >= maxEdits) return maxEdits+1;
 	leftPath = std::vector<std::string> { left.begin()+nodeMatches.back().first, left.end() };
 	rightPath = std::vector<std::string> { right.begin()+nodeMatches.back().second, right.end() };
-	add = getEditDistancePossiblyMemoized(leftPath, rightPath, 0, 0, pathEndClip.at(leftPath.back()), pathEndClip.at(rightPath.back()), graph, maxEdits-result, memoizedEditDistances);
+	add = getEditDistancePossiblyMemoized(leftPath, rightPath, 0, 0, pathEndClip.at(leftPath.back()), pathEndClip.at(rightPath.back()), graph, maxEdits-result, memoizedEditDistancesWithoutStart);
 	result += add;
 	if (result >= maxEdits) return maxEdits+1;
 	return result;
@@ -1824,7 +1824,8 @@ std::vector<std::vector<OntLoop>> clusterLoopSequences(const std::vector<OntLoop
 	{
 		loopLengths.emplace_back(getPathLength(loops[i].path, graph.nodeSeqs, graph.edges));
 	}
-	std::map<std::pair<std::vector<std::string>, std::vector<std::string>>, size_t> memoizedEditDistances;
+	std::unordered_map<std::string, std::map<std::pair<std::vector<std::string>, std::vector<std::string>>, size_t>> memoizedEditDistancesWithStart;
+	std::map<std::pair<std::vector<std::string>, std::vector<std::string>>, size_t> memoizedEditDistancesWithoutStart;
 	size_t sumAligned = 0;
 	size_t needsAligning = countNeedsAligning(loopLengths, maxEdits);
 	for (size_t i = 0; i < loops.size(); i++)
@@ -1838,7 +1839,7 @@ std::vector<std::vector<OntLoop>> clusterLoopSequences(const std::vector<OntLoop
 			if (loopLengths[j]+maxEdits < loopLengths[i]) break;
 			while (parent[j] != parent[parent[j]]) parent[j] = parent[parent[j]];
 			if (parent[i] == parent[j]) continue;
-			size_t edits = getEditDistance(loops[i].path, loops[j].path, graph, pathStartClip, pathEndClip, maxEdits, coreNodes, memoizedEditDistances);
+			size_t edits = getEditDistance(loops[i].path, loops[j].path, graph, pathStartClip, pathEndClip, maxEdits, coreNodes, memoizedEditDistancesWithStart, memoizedEditDistancesWithoutStart);
 			if (edits > maxEdits) continue;
 			parent[j] = parent[i];
 		}
