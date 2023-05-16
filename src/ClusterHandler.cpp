@@ -12,6 +12,7 @@
 #include <vector>
 #include <algorithm>
 #include <sstream>
+#include <phmap.h>
 #include "fastqloader.h"
 #include "ClusterHandler.h"
 #include "RibotinUtils.h"
@@ -350,7 +351,7 @@ public:
 	std::vector<size_t> nodeCoverages;
 	std::vector<std::string> nodeSeqs;
 	std::vector<std::string> revCompNodeSeqs;
-	std::unordered_map<Node, std::set<std::tuple<Node, size_t, size_t>>> edges;
+	std::unordered_map<Node, phmap::flat_hash_set<std::tuple<Node, size_t, size_t>>> edges;
 };
 
 class Path
@@ -386,7 +387,7 @@ public:
 	}
 };
 
-std::string getSequence(const std::vector<Node>& nodes, const std::vector<std::string>& nodeSeqs, const std::vector<std::string>& revCompNodeSeqs, const std::unordered_map<Node, std::set<std::tuple<Node, size_t, size_t>>>& edges)
+std::string getSequence(const std::vector<Node>& nodes, const std::vector<std::string>& nodeSeqs, const std::vector<std::string>& revCompNodeSeqs, const std::unordered_map<Node, phmap::flat_hash_set<std::tuple<Node, size_t, size_t>>>& edges)
 {
 	std::string result;
 	for (size_t i = 0; i < nodes.size(); i++)
@@ -417,7 +418,7 @@ std::string getSequence(const std::vector<Node>& nodes, const std::vector<std::s
 	return result;
 }
 
-size_t getOverlap(const Node& from, const Node& to, const std::unordered_map<Node, std::set<std::tuple<Node, size_t, size_t>>>& edges)
+size_t getOverlap(const Node& from, const Node& to, const std::unordered_map<Node, phmap::flat_hash_set<std::tuple<Node, size_t, size_t>>>& edges)
 {
 	size_t overlap = std::numeric_limits<size_t>::max();
 	for (auto edge : edges.at(from))
@@ -430,7 +431,7 @@ size_t getOverlap(const Node& from, const Node& to, const std::unordered_map<Nod
 	return overlap;
 }
 
-size_t getPathLength(const std::vector<Node>& nodes, const std::vector<std::string>& nodeSeqs, const std::unordered_map<Node, std::set<std::tuple<Node, size_t, size_t>>>& edges)
+size_t getPathLength(const std::vector<Node>& nodes, const std::vector<std::string>& nodeSeqs, const std::unordered_map<Node, phmap::flat_hash_set<std::tuple<Node, size_t, size_t>>>& edges)
 {
 	size_t result = 0;
 	for (size_t i = 0; i < nodes.size(); i++)
@@ -1657,7 +1658,7 @@ size_t getEditDistancePossiblyMemoized(const std::vector<Node>& left, const std:
 	return add;
 }
 
-std::vector<std::pair<size_t, size_t>> getNodeMatches(const std::vector<Node>& left, size_t leftIndex, size_t leftStart, size_t leftEnd, const std::vector<Node>& right, size_t rightIndex, size_t rightStart, size_t rightEnd, const std::vector<std::unordered_map<Node, size_t>>& nodeCountIndex, const std::vector<std::unordered_map<Node, size_t>>& nodePosIndex)
+std::vector<std::pair<size_t, size_t>> getNodeMatches(const std::vector<Node>& left, size_t leftIndex, size_t leftStart, size_t leftEnd, const std::vector<Node>& right, size_t rightIndex, size_t rightStart, size_t rightEnd, const std::vector<phmap::flat_hash_map<Node, size_t>>& nodeCountIndex, const std::vector<phmap::flat_hash_map<Node, size_t>>& nodePosIndex)
 {
 	std::vector<std::pair<size_t, size_t>> unfilteredMatches;
 	if (leftEnd == leftStart) return unfilteredMatches;
@@ -1719,7 +1720,7 @@ std::vector<std::pair<size_t, size_t>> getNodeMatches(const std::vector<Node>& l
 	return result;
 }
 
-size_t getEditDistance(const std::vector<Node>& left, const size_t leftIndex, const std::vector<Node>& right, const size_t rightIndex, const GfaGraph& graph, const std::unordered_map<Node, size_t>& pathStartClip, const std::unordered_map<Node, size_t>& pathEndClip, const size_t maxEdits, const std::unordered_set<size_t>& coreNodes, const std::vector<std::unordered_map<Node, size_t>>& nodeCountIndex, const std::vector<std::unordered_map<Node, size_t>>& nodePosIndex, std::unordered_map<std::pair<std::vector<Node>, std::vector<Node>>, size_t>& memoizedEditDistances)
+size_t getEditDistance(const std::vector<Node>& left, const size_t leftIndex, const std::vector<Node>& right, const size_t rightIndex, const GfaGraph& graph, const std::unordered_map<Node, size_t>& pathStartClip, const std::unordered_map<Node, size_t>& pathEndClip, const size_t maxEdits, const std::unordered_set<size_t>& coreNodes, const std::vector<phmap::flat_hash_map<Node, size_t>>& nodeCountIndex, const std::vector<phmap::flat_hash_map<Node, size_t>>& nodePosIndex, std::unordered_map<std::pair<std::vector<Node>, std::vector<Node>>, size_t>& memoizedEditDistances)
 {
 	std::vector<size_t> leftCoreMatchPositions;
 	for (size_t i = 0; i < left.size(); i++)
@@ -1959,8 +1960,8 @@ std::vector<std::vector<OntLoop>> clusterLoopSequences(const std::vector<OntLoop
 	{
 		loopLengths.emplace_back(getPathLength(loops[i].path, graph.nodeSeqs, graph.edges));
 	}
-	std::vector<std::unordered_map<Node, size_t>> nodeCountIndex;
-	std::vector<std::unordered_map<Node, size_t>> nodePosIndex;
+	std::vector<phmap::flat_hash_map<Node, size_t>> nodeCountIndex;
+	std::vector<phmap::flat_hash_map<Node, size_t>> nodePosIndex;
 	nodeCountIndex.resize(loops.size());
 	nodePosIndex.resize(loops.size());
 	for (size_t i = 0; i < loops.size(); i++)
@@ -1972,7 +1973,6 @@ std::vector<std::vector<OntLoop>> clusterLoopSequences(const std::vector<OntLoop
 		}
 	}
 	std::unordered_map<std::pair<std::vector<Node>, std::vector<Node>>, size_t> memoizedEditDistances;
-
 	size_t sumAligned = 0;
 	size_t needsAligning = countNeedsAligning(loopLengths, maxEdits);
 	for (size_t i = 0; i < loops.size(); i++)
