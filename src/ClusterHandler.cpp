@@ -1516,7 +1516,7 @@ size_t getEditDistancePossiblyMemoized(const std::vector<std::string>& left, con
 	return add;
 }
 
-std::vector<std::pair<size_t, size_t>> getNodeMatches(const std::vector<std::string>& left, size_t leftStart, size_t leftEnd, const std::vector<std::string>& right, size_t rightStart, size_t rightEnd)
+std::vector<std::pair<size_t, size_t>> getNodeMatches(const std::vector<std::string>& left, size_t leftIndex, size_t leftStart, size_t leftEnd, const std::vector<std::string>& right, size_t rightIndex, size_t rightStart, size_t rightEnd, const std::vector<std::unordered_map<std::string, size_t>>& nodeCountIndex, const std::vector<std::unordered_map<std::string, size_t>>& nodePosIndex)
 {
 	std::vector<std::pair<size_t, size_t>> unfilteredMatches;
 	if (leftEnd == leftStart) return unfilteredMatches;
@@ -1525,23 +1525,15 @@ std::vector<std::pair<size_t, size_t>> getNodeMatches(const std::vector<std::str
 	assert(rightEnd > rightStart);
 	assert(leftEnd <= left.size());
 	assert(rightEnd <= right.size());
-	std::unordered_map<std::string, size_t> leftCoverage;
-	std::unordered_map<std::string, size_t> rightCoverage;
-	std::unordered_map<std::string, size_t> rightPos;
-	for (size_t i = leftStart; i < leftEnd; i++)
-	{
-		leftCoverage[left[i]] += 1;
-	}
-	for (size_t i = rightStart; i < rightEnd; i++)
-	{
-		rightCoverage[right[i]] += 1;
-		rightPos[right[i]] = i;
-	}
 	bool allIncreasing = true;
 	for (size_t i = leftStart; i < leftEnd; i++)
 	{
-		if (leftCoverage[left[i]] != 1 || rightCoverage[left[i]] != 1) continue;
-		unfilteredMatches.emplace_back(i, rightPos.at(left[i]));
+		if (nodeCountIndex[leftIndex].count(left[i]) == 0) continue;
+		if (nodeCountIndex[leftIndex].at(left[i]) != 1) continue;
+		if (nodeCountIndex[rightIndex].count(left[i]) == 0) continue;
+		if (nodeCountIndex[rightIndex].at(left[i]) != 1) continue;
+		if (nodePosIndex[rightIndex].at(left[i]) < rightStart || nodePosIndex[rightIndex].at(left[i]) >= rightEnd) continue;
+		unfilteredMatches.emplace_back(i, nodePosIndex[rightIndex].at(left[i]));
 		if (unfilteredMatches.size() >= 2 && unfilteredMatches.back().second <= unfilteredMatches[unfilteredMatches.size()-2].second) allIncreasing = false;
 	}
 	if (unfilteredMatches.size() == 0) return unfilteredMatches;
@@ -1584,7 +1576,7 @@ std::vector<std::pair<size_t, size_t>> getNodeMatches(const std::vector<std::str
 	return result;
 }
 
-size_t getEditDistance(const std::vector<std::string>& left, const std::vector<std::string>& right, const GfaGraph& graph, const std::unordered_map<std::string, size_t>& pathStartClip, const std::unordered_map<std::string, size_t>& pathEndClip, const size_t maxEdits, const std::unordered_set<std::string>& coreNodes, std::unordered_map<std::string, std::map<std::pair<std::vector<std::string>, std::vector<std::string>>, size_t>>& memoizedEditDistancesWithStart, std::map<std::pair<std::vector<std::string>, std::vector<std::string>>, size_t>& memoizedEditDistancesWithoutStart)
+size_t getEditDistance(const std::vector<std::string>& left, const size_t leftIndex, const std::vector<std::string>& right, const size_t rightIndex, const GfaGraph& graph, const std::unordered_map<std::string, size_t>& pathStartClip, const std::unordered_map<std::string, size_t>& pathEndClip, const size_t maxEdits, const std::unordered_set<std::string>& coreNodes, const std::vector<std::unordered_map<std::string, size_t>>& nodeCountIndex, const std::vector<std::unordered_map<std::string, size_t>>& nodePosIndex, std::unordered_map<std::string, std::map<std::pair<std::vector<std::string>, std::vector<std::string>>, size_t>>& memoizedEditDistancesWithStart, std::map<std::pair<std::vector<std::string>, std::vector<std::string>>, size_t>& memoizedEditDistancesWithoutStart)
 {
 	std::vector<size_t> leftCoreMatchPositions;
 	for (size_t i = 0; i < left.size(); i++)
@@ -1609,13 +1601,13 @@ size_t getEditDistance(const std::vector<std::string>& left, const std::vector<s
 	size_t lastRightStart = 0;
 	for (size_t i = 0; i < leftCoreMatchPositions.size(); i++)
 	{
-		auto addMatches = getNodeMatches(left, lastLeftStart, leftCoreMatchPositions[i], right, lastRightStart, rightCoreMatchPositions[i]);
+		auto addMatches = getNodeMatches(left, leftIndex, lastLeftStart, leftCoreMatchPositions[i], right, rightIndex, lastRightStart, rightCoreMatchPositions[i], nodeCountIndex, nodePosIndex);
 		nodeMatches.insert(nodeMatches.end(), addMatches.begin(), addMatches.end());
 		nodeMatches.emplace_back(leftCoreMatchPositions[i], rightCoreMatchPositions[i]);
 		lastLeftStart = leftCoreMatchPositions[i]+1;
 		lastRightStart = rightCoreMatchPositions[i]+1;
 	}
-	auto addMatches = getNodeMatches(left, lastLeftStart, left.size(), right, lastRightStart, right.size());
+	auto addMatches = getNodeMatches(left, leftIndex, lastLeftStart, left.size(), right, rightIndex, lastRightStart, right.size(), nodeCountIndex, nodePosIndex);
 	nodeMatches.insert(nodeMatches.end(), addMatches.begin(), addMatches.end());
 	assert(nodeMatches.size() >= coreNodes.size());
 	assert(nodeMatches.size() >= 1);
@@ -1824,6 +1816,18 @@ std::vector<std::vector<OntLoop>> clusterLoopSequences(const std::vector<OntLoop
 	{
 		loopLengths.emplace_back(getPathLength(loops[i].path, graph.nodeSeqs, graph.edges));
 	}
+	std::vector<std::unordered_map<std::string, size_t>> nodeCountIndex;
+	std::vector<std::unordered_map<std::string, size_t>> nodePosIndex;
+	nodeCountIndex.resize(loops.size());
+	nodePosIndex.resize(loops.size());
+	for (size_t i = 0; i < loops.size(); i++)
+	{
+		for (size_t j = 0; j < loops[i].path.size(); j++)
+		{
+			nodeCountIndex[i][loops[i].path[j]] += 1;
+			nodePosIndex[i][loops[i].path[j]] = j;
+		}
+	}
 	std::unordered_map<std::string, std::map<std::pair<std::vector<std::string>, std::vector<std::string>>, size_t>> memoizedEditDistancesWithStart;
 	std::map<std::pair<std::vector<std::string>, std::vector<std::string>>, size_t> memoizedEditDistancesWithoutStart;
 	size_t sumAligned = 0;
@@ -1839,7 +1843,7 @@ std::vector<std::vector<OntLoop>> clusterLoopSequences(const std::vector<OntLoop
 			if (loopLengths[j]+maxEdits < loopLengths[i]) break;
 			while (parent[j] != parent[parent[j]]) parent[j] = parent[parent[j]];
 			if (parent[i] == parent[j]) continue;
-			size_t edits = getEditDistance(loops[i].path, loops[j].path, graph, pathStartClip, pathEndClip, maxEdits, coreNodes, memoizedEditDistancesWithStart, memoizedEditDistancesWithoutStart);
+			size_t edits = getEditDistance(loops[i].path, i, loops[j].path, j, graph, pathStartClip, pathEndClip, maxEdits, coreNodes, nodeCountIndex, nodePosIndex, memoizedEditDistancesWithStart, memoizedEditDistancesWithoutStart);
 			if (edits > maxEdits) continue;
 			parent[j] = parent[i];
 		}
