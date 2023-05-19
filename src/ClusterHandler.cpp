@@ -2220,7 +2220,7 @@ void orderLoopsByLength(std::vector<OntLoop>& loops, const GfaGraph& graph)
 void HandleCluster(const ClusterParams& params)
 {
 	std::cerr << "running MBG" << std::endl;
-	// runMBG(params.basePath, params.hifiReadPath, params.MBGPath, params.k);
+	runMBG(params.basePath, params.hifiReadPath, params.MBGPath, params.k);
 	std::cerr << "reading graph" << std::endl;
 	GfaGraph graph;
 	graph.loadFromFile(params.basePath + "/graph.gfa");
