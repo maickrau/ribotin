@@ -2008,56 +2008,159 @@ std::vector<std::vector<OntLoop>> clusterLoopSequences(const std::vector<OntLoop
 	return result;
 }
 
+std::unordered_set<size_t> getMajorityNodes(const std::vector<OntLoop>& paths)
+{
+	std::unordered_map<size_t, size_t> nodeCoverage;
+	std::unordered_set<size_t> notCore;
+	std::unordered_set<size_t> firstNodes;
+	std::unordered_set<size_t> lastNodes;
+	for (const auto& path : paths)
+	{
+		firstNodes.insert(path.path[0].id());
+		lastNodes.insert(path.path.back().id());
+		std::unordered_map<size_t, size_t> coverageHere;
+		for (auto node : path.path)
+		{
+			coverageHere[node.id()] += 1;
+		}
+		for (auto pair : coverageHere)
+		{
+			if (pair.second != 1) notCore.insert(pair.first);
+			nodeCoverage[pair.first] += 1;
+		}
+	}
+	std::unordered_set<size_t> result;
+	for (auto pair : nodeCoverage)
+	{
+		if (notCore.count(pair.first) == 1) continue;
+		if (firstNodes.count(pair.first) == 1 && lastNodes.count(pair.first) == 1) continue;
+		if (pair.second > paths.size()/2) result.insert(pair.first);
+	}
+	return result;
+}
+
+std::vector<size_t> getMajorityPath(const std::unordered_set<size_t>& coreNodes, const std::vector<OntLoop>& rawPaths)
+{
+	std::unordered_map<size_t, size_t> firstCount;
+	std::unordered_map<size_t, size_t> coverage;
+	std::unordered_map<size_t, std::unordered_map<size_t, size_t>> edges;
+	for (const auto& path : rawPaths)
+	{
+		size_t lastCore = std::numeric_limits<size_t>::max();
+		for (auto node : path.path)
+		{
+			if (coreNodes.count(node.id()) == 0) continue;
+			coverage[node.id()] += 1;
+			if (lastCore == std::numeric_limits<size_t>::max())
+			{
+				firstCount[node.id()] += 1;
+			}
+			else
+			{
+				edges[lastCore][node.id()] += 1;
+			}
+			lastCore = node.id();
+		}
+	}
+	std::vector<size_t> result;
+	size_t startNode = std::numeric_limits<size_t>::max();
+	for (auto pair : firstCount)
+	{
+		if (startNode == std::numeric_limits<size_t>::max() || pair.second > firstCount.at(startNode))
+		{
+			startNode = pair.first;
+		}
+	}
+	result.emplace_back(startNode);
+	size_t pos = startNode;
+	while (true)
+	{
+		if (edges.count(pos) == 0) break;
+		size_t maxNode = std::numeric_limits<size_t>::max();
+		for (auto pair : edges.at(pos))
+		{
+			if (maxNode == std::numeric_limits<size_t>::max() || pair.second > edges.at(pos).at(maxNode))
+			{
+				maxNode = pair.first;
+			}
+		}
+		assert(maxNode != std::numeric_limits<size_t>::max());
+		pos = maxNode;
+		result.emplace_back(pos);
+	}
+	return result;
+}
+
 std::vector<Node> getConsensusPath(const std::vector<OntLoop>& rawPaths, const GfaGraph& graph)
 {
 	assert(rawPaths.size() >= 1);
 	auto coreNodes = getCoreNodes(rawPaths);
+	if (coreNodes.size() == 0)
+	{
+		coreNodes = getMajorityNodes(rawPaths);
+	}
 	assert(coreNodes.size() >= 1);
-	std::vector<std::map<std::vector<Node>, size_t>> alleleCounts;
-	alleleCounts.resize(coreNodes.size()+1);
+	std::unordered_map<std::vector<Node>, size_t> alleleCounts;
 	for (const auto& read : rawPaths)
 	{
 		const auto& path = read.path;
 		size_t lastCore = 0;
-		size_t coreIndex = 0;
 		for (size_t i = 0; i < path.size(); i++)
 		{
 			if (coreNodes.count(path[i].id()) == 0) continue;
 			std::vector<Node> subpath { path.begin() + lastCore, path.begin() + i + 1 };
 			assert(subpath.size() >= 2 || (i == 0 && subpath.size() == 1));
-			alleleCounts[coreIndex][subpath] += 1;
+			alleleCounts[subpath] += 1;
 			lastCore = i;
-			coreIndex += 1;
 		}
-		assert(coreIndex == alleleCounts.size()-1);
+		// assert(coreIndex == alleleCounts.size()-1);
 		std::vector<Node> subpath { path.begin() + lastCore, path.end()};
 		assert(subpath.size() >= 2 || (lastCore == path.size()-1 && subpath.size() == 1));
-		alleleCounts[coreIndex][subpath] += 1;
+		alleleCounts[subpath] += 1;
+	}
+	auto corePath = getMajorityPath(coreNodes, rawPaths);
+	std::unordered_map<size_t, size_t> coreNodePositionInPath;
+	for (size_t i = 0; i < corePath.size(); i++)
+	{
+		coreNodePositionInPath[corePath[i]] = i;
+	}
+	std::vector<std::pair<std::vector<Node>, size_t>> bestAlleles;
+	bestAlleles.resize(corePath.size()+1, std::make_pair(std::vector<Node>{}, 0));
+	for (auto pair : alleleCounts)
+	{
+		size_t index = std::numeric_limits<size_t>::max();
+		if ((coreNodePositionInPath.count(pair.first[0].id()) == 0 || pair.first.size() == 1) && coreNodePositionInPath.count(pair.first.back().id()) == 1 && coreNodePositionInPath.at(pair.first.back().id()) == 0)
+		{
+			index = 0;
+		}
+		else if (pair.first.size() >= 2 && coreNodePositionInPath.count(pair.first[0].id()) == 1 && coreNodePositionInPath.count(pair.first.back().id()) == 1 && coreNodePositionInPath.at(pair.first.back().id()) == coreNodePositionInPath.at(pair.first[0].id())+1)
+		{
+			index = coreNodePositionInPath.at(pair.first.back().id());
+		}
+		else if (coreNodePositionInPath.count(pair.first[0].id()) == 1 && (coreNodePositionInPath.count(pair.first.back().id()) == 0 || pair.first.size() == 1) && coreNodePositionInPath.at(pair.first[0].id()) == corePath.size()-1)
+		{
+			index = corePath.size();
+		}
+		if (index == std::numeric_limits<size_t>::max()) continue;
+		if (pair.second > bestAlleles[index].second)
+		{
+			bestAlleles[index] = pair;
+		}
 	}
 	std::vector<Node> consensusPath;
-	for (size_t i = 0; i < alleleCounts.size(); i++)
+	for (size_t i = 0; i < bestAlleles.size(); i++)
 	{
-		size_t maxCount = 0;
-		for (const auto& pair : alleleCounts[i])
+		assert(bestAlleles[i].second >= 1);
+		assert(bestAlleles[i].first.size() >= 1);
+		if (i == 0)
 		{
-			maxCount = std::max(maxCount, pair.second);
+			consensusPath.insert(consensusPath.end(), bestAlleles[i].first.begin(), bestAlleles[i].first.end());
 		}
-		for (const auto& pair : alleleCounts[i])
+		else
 		{
-			if (pair.second != maxCount) continue;
-			assert(pair.first.size() >= 1);
-			if (i == 0)
-			{
-				assert(consensusPath.size() == 0);
-				consensusPath.insert(consensusPath.end(), pair.first.begin(), pair.first.end());
-			}
-			else
-			{
-				assert(consensusPath.size() >= 1);
-				assert(consensusPath.back() == pair.first[0]);
-				consensusPath.insert(consensusPath.end(), pair.first.begin()+1, pair.first.end());
-			}
-			break;
+			assert(consensusPath.size() >= 1);
+			assert(consensusPath.back() == bestAlleles[i].first[0]);
+			consensusPath.insert(consensusPath.end(), bestAlleles[i].first.begin()+1, bestAlleles[i].first.end());
 		}
 	}
 	return consensusPath;
