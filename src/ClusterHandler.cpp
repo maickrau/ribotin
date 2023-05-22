@@ -569,7 +569,7 @@ void writePathGaf(const Path& path, const GfaGraph& graph, std::string outputFil
 void runMBG(std::string basePath, std::string readPath, std::string MBGPath, size_t k)
 {
 	std::string mbgCommand;
-	mbgCommand = MBGPath + " -o " + basePath + "/graph.gfa -i " + readPath + " -k " + std::to_string(k) + " -w " + std::to_string(k-30) + " -a 2 -u 3 -r 15000 -R 4000 --error-masking=msat --output-sequence-paths " + basePath + "/paths.gaf --only-local-resolve 1> " + basePath + "/mbg_stdout.txt 2> " + basePath + "/mbg_stderr.txt";
+	mbgCommand = MBGPath + " -o " + basePath + "/graph.gfa -i " + readPath + " -k " + std::to_string(k) + " -w " + std::to_string(k-30) + " -a 2 -u 3 -r 5000 -R 4000 --error-masking=msat --output-sequence-paths " + basePath + "/paths.gaf --only-local-resolve 1> " + basePath + "/mbg_stdout.txt 2> " + basePath + "/mbg_stderr.txt";
 	std::cerr << "MBG command:" << std::endl;
 	std::cerr << mbgCommand << std::endl;
 	int result = system(mbgCommand.c_str());
@@ -1018,10 +1018,12 @@ void nameVariants(std::vector<Variant>& variants, const GfaGraph& graph, const P
 		{
 			variants[variant].referenceEndPos = pathLength + endPos - heavyPath.leftClip;
 		}
+		assert(variants[variant].referenceStartPos < pathLength);
+		variants[variant].referenceEndPos = variants[variant].referenceEndPos % pathLength;
 		std::string referenceSeq = getSequence(variants[variant].referencePath, graph.nodeSeqs, graph.revCompNodeSeqs, graph.edges);
 		std::string variantSeq = getSequence(variants[variant].path, graph.nodeSeqs, graph.revCompNodeSeqs, graph.edges);
 		assert(variants[variant].referenceEndPos < variants[variant].referenceStartPos || referenceSeq.size() == variants[variant].referenceEndPos - variants[variant].referenceStartPos);
-		assert(variants[variant].referenceEndPos > variants[variant].referenceStartPos || referenceSeq.size() == pathLength + variants[variant].referenceEndPos - variants[variant].referenceStartPos);
+		assert(variants[variant].referenceEndPos > variants[variant].referenceStartPos || referenceSeq.size() % pathLength == pathLength + variants[variant].referenceEndPos - variants[variant].referenceStartPos);
 		size_t leftClip = 0;
 		size_t rightClip = 0;
 		if (graph.nodeSeqs.at(variants[variant].referencePath[0].id()).size()+graph.nodeSeqs.at(variants[variant].referencePath.back().id()).size()+2 >= referenceSeq.size())
