@@ -16,6 +16,7 @@
 #include "fastqloader.h"
 #include "ClusterHandler.h"
 #include "RibotinUtils.h"
+#include "WfaHelper.h"
 
 const size_t minPhaseCoverage = 10;
 
@@ -2175,15 +2176,209 @@ std::string getConsensusSequence(const std::vector<Node>& consensusPath, const G
 	return consensusSeq;
 }
 
+std::vector<std::tuple<size_t, size_t, std::string>> getEdits(const std::string& refSequence, const std::string& querySequence, size_t maxEdits)
+{
+	// reference is horizontal, first bp left, last bp right (one bp one column)
+	// query is vertical, first bp top, last bp bottom (one bp one row)
+	// edits moves diagonally down-right
+	// j moves horizontally, plus right minus left
+	// insertion is extra sequence on query (vertical backtrace)
+	// deletion is missing sequence on query (horizontal backtrace)
+	// wfa matrix pair coord first is edits (row), second is j (column)
+	// wfa matrix is triangular, missing parts are implied: edit 0 j 0 is above edit 1 j 1 and up-right from edit 1 j 0
+	// real matrix pair coord first is ref pos (column), second is query pos (row)
+	if (refSequence == querySequence) return std::vector<std::tuple<size_t, size_t, std::string>>{};
+	const std::pair<size_t, size_t> uninitialized { std::numeric_limits<size_t>::max(), std::numeric_limits<size_t>::max() };
+	const size_t mismatchCost = 2;
+	const size_t gapOpenCost = 2; // only open cost, and 1bp indel costs gapOpenCost+gapExtendCost
+	const size_t gapExtendCost = 1;
+	// match cost 0
+	// gap close cost 0
+	Wfa::WfaMatrix matchMatrix;
+	Wfa::WfaMatrix insertionMatrix;
+	Wfa::WfaMatrix deletionMatrix;
+	matchMatrix.resize(1);
+	insertionMatrix.resize(1);
+	deletionMatrix.resize(1);
+	insertionMatrix[0].resize(1, uninitialized);
+	deletionMatrix[0].resize(1, uninitialized);
+	matchMatrix[0].resize(1);
+	matchMatrix[0][0].first = 0;
+	matchMatrix[0][0].second = 0;
+	while (matchMatrix[0][0].second < refSequence.size() && matchMatrix[0][0].second < querySequence.size() && refSequence[matchMatrix[0][0].second] == querySequence[matchMatrix[0][0].second]) matchMatrix[0][0].second += 1;
+	size_t edits = 0;
+	std::pair<size_t, size_t> backtraceWfaPosition = uninitialized;
+	size_t slicesWithNumber = 1;
+	size_t mostOffset = 0;
+	for (edits = 1; edits < maxEdits; edits++)
+	{
+		matchMatrix.emplace_back();
+		insertionMatrix.emplace_back();
+		deletionMatrix.emplace_back();
+		matchMatrix.back().resize(2*edits+1, uninitialized);
+		insertionMatrix.back().resize(2*edits+1, uninitialized);
+		deletionMatrix.back().resize(2*edits+1, uninitialized);
+		bool hasNumber = false;
+		for (size_t j = 0; j < 2*edits+1; j++)
+		{
+			//mismatch
+			Wfa::updateMatrix(std::make_pair(edits, j), mismatchCost, 1, 1, matchMatrix, matchMatrix, refSequence.size(), querySequence.size());
+			// gap open
+			Wfa::updateMatrix(std::make_pair(edits, j), gapOpenCost, 0, 0, matchMatrix, insertionMatrix, refSequence.size(), querySequence.size());
+			Wfa::updateMatrix(std::make_pair(edits, j), gapOpenCost, 0, 0, matchMatrix, deletionMatrix, refSequence.size(), querySequence.size());
+			// gap extend
+			Wfa::updateMatrix(std::make_pair(edits, j), gapExtendCost, 1, 0, insertionMatrix, insertionMatrix, refSequence.size(), querySequence.size());
+			Wfa::updateMatrix(std::make_pair(edits, j), gapExtendCost, 0, 1, deletionMatrix, deletionMatrix, refSequence.size(), querySequence.size());
+			insertionMatrix[edits][j].second = insertionMatrix[edits][j].first;
+			deletionMatrix[edits][j].second = deletionMatrix[edits][j].first;
+			// gap close
+			Wfa::updateMatrix(std::make_pair(edits, j), 0, 0, 0, insertionMatrix, matchMatrix, refSequence.size(), querySequence.size());
+			Wfa::updateMatrix(std::make_pair(edits, j), 0, 0, 0, deletionMatrix, matchMatrix, refSequence.size(), querySequence.size());
+			//matches
+			matchMatrix[edits][j].second = matchMatrix[edits][j].first;
+			size_t offset = 0;
+			if (matchMatrix[edits][j] == uninitialized) continue;
+			std::pair<size_t, size_t> realPos = Wfa::getRealMatrixPosition(std::make_pair(edits, j), matchMatrix[edits][j].first);
+			assert(realPos.first <= refSequence.size() && realPos.second <= querySequence.size());
+			while (realPos.first+offset < refSequence.size() && realPos.second+offset < querySequence.size() && refSequence[realPos.first+offset] == querySequence[realPos.second+offset]) offset += 1;
+			matchMatrix[edits][j].second += offset;
+			if (realPos.first+offset == refSequence.size() && realPos.second+offset == querySequence.size())
+			{
+				backtraceWfaPosition.first = edits;
+				backtraceWfaPosition.second = j;
+				break;
+			}
+		}
+		if (backtraceWfaPosition != uninitialized) break;
+	}
+	if (backtraceWfaPosition == uninitialized) return std::vector<std::tuple<size_t, size_t, std::string>> {};
+	assert(backtraceWfaPosition != uninitialized);
+	std::vector<std::tuple<size_t, size_t, std::string>> result;
+	// 0 match 1 insertion 2 deletion
+	size_t currentMatrix = 0;
+	std::pair<size_t, size_t> lastMatchRealPosition = uninitialized;
+	while (backtraceWfaPosition.first != 0)
+	{
+		switch(currentMatrix)
+		{
+			case 0:
+			{
+				assert(backtraceWfaPosition.first < matchMatrix.size());
+				assert(backtraceWfaPosition.second < matchMatrix[backtraceWfaPosition.first].size());
+				assert(matchMatrix[backtraceWfaPosition.first][backtraceWfaPosition.second] != uninitialized);
+				std::pair<size_t, size_t> newMatchRealPosition = Wfa::getRealMatrixPosition(backtraceWfaPosition, matchMatrix[backtraceWfaPosition.first][backtraceWfaPosition.second].second);
+				if (lastMatchRealPosition != uninitialized)
+				{
+					assert(newMatchRealPosition.first <= lastMatchRealPosition.first);
+					assert(newMatchRealPosition.second <= lastMatchRealPosition.second);
+					result.emplace_back(newMatchRealPosition.first, lastMatchRealPosition.first, querySequence.substr(newMatchRealPosition.second, lastMatchRealPosition.second - newMatchRealPosition.second));
+				}
+				lastMatchRealPosition = Wfa::getRealMatrixPosition(backtraceWfaPosition, matchMatrix[backtraceWfaPosition.first][backtraceWfaPosition.second].first);
+				if (Wfa::canBacktrace(backtraceWfaPosition, mismatchCost, 1, 1, matchMatrix, matchMatrix, refSequence.size(), querySequence.size()))
+				{
+					backtraceWfaPosition = Wfa::getBacktracePosition(backtraceWfaPosition, mismatchCost, 1, 1, matchMatrix, matchMatrix);
+					break;
+				}
+				if (Wfa::canBacktrace(backtraceWfaPosition, 0, 0, 0, insertionMatrix, matchMatrix, refSequence.size(), querySequence.size()))
+				{
+					backtraceWfaPosition = Wfa::getBacktracePosition(backtraceWfaPosition, 0, 0, 0, matchMatrix, insertionMatrix);
+					currentMatrix = 1;
+					break;
+				}
+				else
+				{
+					assert(Wfa::canBacktrace(backtraceWfaPosition, 0, 0, 0, deletionMatrix, matchMatrix, refSequence.size(), querySequence.size()));
+					backtraceWfaPosition = Wfa::getBacktracePosition(backtraceWfaPosition, 0, 0, 0, matchMatrix, deletionMatrix);
+					currentMatrix = 2;
+					break;
+				}
+			}
+			case 1:
+			{
+				assert(backtraceWfaPosition.first < insertionMatrix.size());
+				assert(backtraceWfaPosition.second < insertionMatrix[backtraceWfaPosition.first].size());
+				assert(insertionMatrix[backtraceWfaPosition.first][backtraceWfaPosition.second] != uninitialized);
+				if (Wfa::canBacktrace(backtraceWfaPosition, gapExtendCost, 1, 0, insertionMatrix, insertionMatrix, refSequence.size(), querySequence.size()))
+				{
+					backtraceWfaPosition = Wfa::getBacktracePosition(backtraceWfaPosition, gapExtendCost, 1, 0, insertionMatrix, insertionMatrix);
+					break;
+				}
+				else
+				{
+					assert(Wfa::canBacktrace(backtraceWfaPosition, gapOpenCost, 0, 0, matchMatrix, insertionMatrix, refSequence.size(), querySequence.size()));
+					backtraceWfaPosition = Wfa::getBacktracePosition(backtraceWfaPosition, gapOpenCost, 0, 0, insertionMatrix, matchMatrix);
+					currentMatrix = 0;
+					break;
+				}
+			}
+			case 2:
+			{
+				assert(backtraceWfaPosition.first < deletionMatrix.size());
+				assert(backtraceWfaPosition.second < deletionMatrix[backtraceWfaPosition.first].size());
+				assert(deletionMatrix[backtraceWfaPosition.first][backtraceWfaPosition.second] != uninitialized);
+				if (Wfa::canBacktrace(backtraceWfaPosition, gapExtendCost, 0, 1, deletionMatrix, deletionMatrix, refSequence.size(), querySequence.size()))
+				{
+					backtraceWfaPosition = Wfa::getBacktracePosition(backtraceWfaPosition, gapExtendCost, 0, 1, deletionMatrix, deletionMatrix);
+					break;
+				}
+				else
+				{
+					assert(Wfa::canBacktrace(backtraceWfaPosition, gapOpenCost, 0, 0, matchMatrix, deletionMatrix, refSequence.size(), querySequence.size()));
+					backtraceWfaPosition = Wfa::getBacktracePosition(backtraceWfaPosition, gapOpenCost, 0, 0, deletionMatrix, matchMatrix);
+					currentMatrix = 0;
+					break;
+				}
+			}
+		}
+	}
+	return result;
+}
+
+std::string getPolishedSequence(const std::string& rawSequence, const std::vector<OntLoop>& rawPaths, const GfaGraph& graph, const std::unordered_map<Node, size_t>& pathStartClip, const std::unordered_map<Node, size_t>& pathEndClip)
+{
+	std::map<std::tuple<size_t, size_t, std::string>, size_t> editCounts;
+	for (const auto& path : rawPaths)
+	{
+		auto sequence = getSequence(path.path, graph.nodeSeqs, graph.revCompNodeSeqs, graph.edges);
+		sequence = sequence.substr(pathStartClip.at(path.path[0]), sequence.size() - pathStartClip.at(path.path[0]) - pathEndClip.at(path.path.back()));
+		auto edits = getEdits(rawSequence, sequence, 2000);
+		for (const auto& edit : edits)
+		{
+			assert(std::get<1>(edit) >= std::get<0>(edit));
+			assert(std::get<1>(edit) < rawSequence.size());
+			editCounts[edit] += 1;
+		}
+	}
+	std::vector<std::tuple<size_t, size_t, std::string>> pickedEdits;
+	for (const auto& pair : editCounts)
+	{
+		if (!(pair.second > rawPaths.size() * 0.6)) continue; // roundabout comparison to make sure rounding issues are handled more conservatively
+		pickedEdits.emplace_back(pair.first);
+	}
+	std::sort(pickedEdits.begin(), pickedEdits.end(), [](auto& left, auto& right) { return std::get<0>(left) < std::get<0>(right); });
+	std::string result;
+	size_t lastMatch = 0;
+	for (size_t i = 0; i < pickedEdits.size(); i++)
+	{
+		assert(i == 0 || std::get<0>(pickedEdits[i]) >= std::get<1>(pickedEdits[i-1]));
+		assert(std::get<0>(pickedEdits[i]) >= lastMatch);
+		result += rawSequence.substr(lastMatch, std::get<0>(pickedEdits[i]) - lastMatch);
+		result += std::get<2>(pickedEdits[i]);
+		lastMatch = std::get<1>(pickedEdits[i]);
+	}
+	result += rawSequence.substr(lastMatch);
+	return result;
+}
+
 std::vector<MorphConsensus> getMorphConsensuses(const std::vector<std::vector<OntLoop>>& clusters, const GfaGraph& graph, const std::unordered_map<Node, size_t>& pathStartClip, const std::unordered_map<Node, size_t>& pathEndClip)
 {
 	std::vector<MorphConsensus> result;
 	for (size_t i = 0; i < clusters.size(); i++)
 	{
 		result.emplace_back();
-		// todo handle cases where plurality path is not consensus
 		result.back().path = getConsensusPath(clusters[i], graph);
 		result.back().sequence = getConsensusSequence(result.back().path, graph, pathStartClip, pathEndClip);
+		// result.back().sequence = getPolishedSequence(result.back().sequence, clusters[i], graph, pathStartClip, pathEndClip);
 		result.back().coverage = clusters[i].size();
 		result.back().ontLoops = clusters[i];
 		result.back().name = "morphconsensus" + std::to_string(i) + "_coverage" + std::to_string(result.back().coverage);
