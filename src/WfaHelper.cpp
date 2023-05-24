@@ -1,4 +1,5 @@
 #include <cstdint>
+#include <cstddef>
 #include <limits>
 #include <cassert>
 #include "WfaHelper.h"
