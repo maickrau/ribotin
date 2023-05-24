@@ -1564,7 +1564,7 @@ std::vector<OntLoop> extractLoopSequences(const std::vector<ReadPath>& corrected
 				continue;
 			}
 			std::vector<Node> looppath { read.path.begin()+lastBreak, read.path.begin()+i+1 };
-			if (getPathLength(looppath, graph.nodeSeqs, graph.edges) >= minLength)
+			if (getPathLength(looppath, graph.nodeSeqs, graph.edges) - pathStartClip.at(read.path[lastBreak]) - pathEndClip.at(read.path[i]) >= minLength)
 			{
 				result.emplace_back();
 				result.back().originalReadLength = read.readLength;
