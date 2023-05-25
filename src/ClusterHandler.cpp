@@ -634,7 +634,6 @@ std::vector<Node> getReferenceAllele(const Path& heavyPath, const Node startNode
 	}
 	assert(startIndex < heavyPath.nodes.size());
 	assert(endIndex < heavyPath.nodes.size());
-	assert(startIndex != endIndex);
 	std::vector<Node> result;
 	if (endIndex > startIndex)
 	{
