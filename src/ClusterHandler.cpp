@@ -1063,7 +1063,9 @@ void nameVariants(std::vector<Variant>& variants, const GfaGraph& graph, const P
 			variants[variant].referenceEndPos = pathLength + variants[variant].referenceEndPos - rightClip;
 		}
 	}
-	std::sort(variants.begin(), variants.end(), [](const Variant& left, const Variant& right) { return left.referenceStartPos < right.referenceStartPos; });
+	std::stable_sort(variants.begin(), variants.end(), [](const Variant& left, const Variant& right) { return left.coverage > right.coverage; });
+	std::stable_sort(variants.begin(), variants.end(), [](const Variant& left, const Variant& right) { return left.referenceEndPos < right.referenceEndPos; });
+	std::stable_sort(variants.begin(), variants.end(), [](const Variant& left, const Variant& right) { return left.referenceStartPos < right.referenceStartPos; });
 	for (size_t variant = 0; variant < variants.size(); variant++)
 	{
 		variants[variant].name = "var" + std::to_string(variant) + "_" + std::to_string(variants[variant].referenceStartPos) + "_" + std::to_string(variants[variant].referenceEndPos);
