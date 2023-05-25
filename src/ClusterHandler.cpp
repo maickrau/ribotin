@@ -1757,6 +1757,10 @@ size_t getEditDistance(const std::vector<Node>& left, const size_t leftIndex, co
 	auto addMatches = getNodeMatches(left, leftIndex, lastLeftStart, left.size(), right, rightIndex, lastRightStart, right.size(), nodeCountIndex, nodePosIndex);
 	nodeMatches.insert(nodeMatches.end(), addMatches.begin(), addMatches.end());
 	assert(nodeMatches.size() >= coreNodes.size());
+	if (nodeMatches.size() == 0)
+	{
+		return getEditDistancePossiblyMemoized(left, right, pathStartClip.at(left[0]), pathStartClip.at(right[0]), 0, 0, graph, maxEdits, memoizedEditDistances);
+	}
 	assert(nodeMatches.size() >= 1);
 	size_t result = 0;
 	size_t add = 0;
