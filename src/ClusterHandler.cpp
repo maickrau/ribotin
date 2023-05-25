@@ -2626,7 +2626,8 @@ void DoClusterONTAnalysis(const ClusterParams& params)
 	}
 	std::cerr << "cluster morphs" << std::endl;
 	orderLoopsByLength(loopSequences, graph);
-	auto unphasedClusters = clusterLoopSequences(loopSequences, graph, pathStartClip, pathEndClip, coreNodes, 300);
+	std::cerr << "max clustering edit distance " << params.maxClusterDifference << std::endl;
+	auto unphasedClusters = clusterLoopSequences(loopSequences, graph, pathStartClip, pathEndClip, coreNodes, params.maxClusterDifference);
 	std::cerr << unphasedClusters.size() << " morph clusters" << std::endl;
 	std::cerr << "phase morph clusters" << std::endl;
 	auto clusters = phaseClusters(unphasedClusters);

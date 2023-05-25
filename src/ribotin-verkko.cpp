@@ -228,6 +228,7 @@ int main(int argc, char** argv)
 		("k", "k-mer size", cxxopts::value<size_t>()->default_value("101"))
 		("annotation-reference-fasta", "Lift over the annotations from given reference fasta+gff3 (requires liftoff)", cxxopts::value<std::string>())
 		("annotation-gff3", "Lift over the annotations from given reference fasta+gff3 (requires liftoff)", cxxopts::value<std::string>())
+		("morph-cluster-maxedit", "Maximum edit distance between two morphs to assign them into the same cluster", cxxopts::value<size_t>()->default_value("300"))
 		("t", "Number of threads (default 1)", cxxopts::value<size_t>()->default_value("1"))
 	;
 	std::string MBGPath;
@@ -342,6 +343,7 @@ int main(int argc, char** argv)
 	std::string annotationGff3;
 	std::string ulTmpFolder = params["ul-tmp-folder"].as<std::string>();
 	size_t numThreads = params["t"].as<size_t>();
+	size_t maxClusterDifference = params["morph-cluster-maxedit"].as<size_t>();
 	if (params.count("orient-by-reference") == 1) orientReferencePath = params["orient-by-reference"].as<std::string>();
 	if (params.count("annotation-reference-fasta") == 1) annotationFasta = params["annotation-reference-fasta"].as<std::string>();
 	if (params.count("annotation-gff3") == 1) annotationGff3 = params["annotation-gff3"].as<std::string>();
@@ -387,6 +389,7 @@ int main(int argc, char** argv)
 			continue;
 		}
 		ClusterParams clusterParams;
+		clusterParams.maxClusterDifference = maxClusterDifference;
 		clusterParams.basePath = outputPrefix + std::to_string(i);
 		clusterParams.hifiReadPath = outputPrefix + std::to_string(i) + "/hifi_reads.fa";
 		if (doUL)
@@ -429,6 +432,7 @@ int main(int argc, char** argv)
 			}
 			std::cerr << "running cluster " << i << std::endl;
 			ClusterParams clusterParams;
+			clusterParams.maxClusterDifference = maxClusterDifference;
 			clusterParams.basePath = outputPrefix + std::to_string(i);
 			clusterParams.hifiReadPath = outputPrefix + std::to_string(i) + "/hifi_reads.fa";
 			if (doUL)

@@ -24,6 +24,7 @@ int main(int argc, char** argv)
 		("k", "k-mer size", cxxopts::value<size_t>()->default_value("101"))
 		("annotation-reference-fasta", "Lift over the annotations from given reference fasta+gff3 (requires liftoff)", cxxopts::value<std::string>())
 		("annotation-gff3", "Lift over the annotations from given reference fasta+gff3 (requires liftoff)", cxxopts::value<std::string>())
+		("morph-cluster-maxedit", "Maximum edit distance between two morphs to assign them into the same cluster", cxxopts::value<size_t>()->default_value("300"))
 		("t", "Number of threads (default 1)", cxxopts::value<size_t>()->default_value("1"))
 	;
 	std::string MBGPath;
@@ -132,6 +133,7 @@ int main(int argc, char** argv)
 	clusterParams.k = params["k"].as<size_t>();
 	clusterParams.numThreads = 1;
 	clusterParams.numThreads = params["t"].as<size_t>();
+	clusterParams.maxClusterDifference = params["morph-cluster-maxedit"].as<size_t>();
 	if (params.count("orient-by-reference") == 1) clusterParams.orientReferencePath = params["orient-by-reference"].as<std::string>();
 	if (params.count("annotation-reference-fasta") == 1) clusterParams.annotationFasta = params["annotation-reference-fasta"].as<std::string>();
 	if (params.count("annotation-gff3") == 1) clusterParams.annotationGff3 = params["annotation-gff3"].as<std::string>();

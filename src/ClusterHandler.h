@@ -17,6 +17,7 @@ public:
 	std::string annotationFasta;
 	std::string annotationGff3;
 	size_t numThreads;
+	size_t maxClusterDifference;
 };
 
 void HandleCluster(const ClusterParams& params);
