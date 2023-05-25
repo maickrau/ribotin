@@ -570,7 +570,7 @@ void writePathGaf(const Path& path, const GfaGraph& graph, std::string outputFil
 void runMBG(std::string basePath, std::string readPath, std::string MBGPath, size_t k)
 {
 	std::string mbgCommand;
-	mbgCommand = MBGPath + " -o " + basePath + "/graph.gfa -i " + readPath + " -k " + std::to_string(k) + " -w " + std::to_string(k-30) + " -a 2 -u 3 -r 5000 -R 4000 --error-masking=msat --output-sequence-paths " + basePath + "/paths.gaf --only-local-resolve 1> " + basePath + "/mbg_stdout.txt 2> " + basePath + "/mbg_stderr.txt";
+	mbgCommand = MBGPath + " -o " + basePath + "/graph.gfa -i " + readPath + " -k " + std::to_string(k) + " -w " + std::to_string(k-30) + " -a 2 -u 3 -r 1000 -R 4000 --error-masking=msat --output-sequence-paths " + basePath + "/paths.gaf --only-local-resolve 1> " + basePath + "/mbg_stdout.txt 2> " + basePath + "/mbg_stderr.txt";
 	std::cerr << "MBG command:" << std::endl;
 	std::cerr << mbgCommand << std::endl;
 	int result = system(mbgCommand.c_str());
@@ -1023,7 +1023,7 @@ void nameVariants(std::vector<Variant>& variants, const GfaGraph& graph, const P
 		variants[variant].referenceEndPos = variants[variant].referenceEndPos % pathLength;
 		std::string referenceSeq = getSequence(variants[variant].referencePath, graph.nodeSeqs, graph.revCompNodeSeqs, graph.edges);
 		std::string variantSeq = getSequence(variants[variant].path, graph.nodeSeqs, graph.revCompNodeSeqs, graph.edges);
-		assert(variants[variant].referenceEndPos < variants[variant].referenceStartPos || referenceSeq.size() == variants[variant].referenceEndPos - variants[variant].referenceStartPos);
+		assert(variants[variant].referenceEndPos < variants[variant].referenceStartPos || referenceSeq.size() % pathLength == variants[variant].referenceEndPos - variants[variant].referenceStartPos);
 		assert(variants[variant].referenceEndPos > variants[variant].referenceStartPos || referenceSeq.size() % pathLength == pathLength + variants[variant].referenceEndPos - variants[variant].referenceStartPos);
 		size_t leftClip = 0;
 		size_t rightClip = 0;
@@ -2427,6 +2427,7 @@ void HandleCluster(const ClusterParams& params)
 	graph.loadFromFile(params.basePath + "/graph.gfa");
 	std::cerr << "getting consensus" << std::endl;
 	Path heavyPath = getHeavyPath(graph);
+	std::cerr << "consensus length " << heavyPath.getSequence(graph.nodeSeqs).size() << "bp" << std::endl;
 	if (params.orientReferencePath.size() > 0)
 	{
 		std::cerr << "orienting consensus" << std::endl;
@@ -2440,6 +2441,7 @@ void HandleCluster(const ClusterParams& params)
 	std::cerr << "getting variants" << std::endl;
 	std::vector<Variant> variants = getVariants(graph, heavyPath, readPaths, 3);
 	nameVariants(variants, graph, heavyPath);
+	std::cerr << variants.size() << " variants" << std::endl;
 	std::cerr << "writing variants" << std::endl;
 	writeVariants(heavyPath, graph, variants, params.basePath + "/variants.txt");
 	std::cerr << "writing variant graph" << std::endl;
