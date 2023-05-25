@@ -5,6 +5,13 @@
 #include "ReadExtractor.h"
 #include "fastqloader.h"
 
+std::string nameWithoutTags(const std::string& rawname)
+{
+	auto spacepos = rawname.find(' ');
+	if (spacepos == std::string::npos) return rawname;
+	return rawname.substr(0, spacepos);
+}
+
 void splitReads(std::vector<std::string> readFiles, const std::vector<std::vector<std::string>>& readsPerCluster, const std::vector<std::string>& outputFileNames)
 {
 	assert(readsPerCluster.size() == outputFileNames.size());
@@ -13,7 +20,7 @@ void splitReads(std::vector<std::string> readFiles, const std::vector<std::vecto
 	{
 		for (const auto& read : readsPerCluster[i])
 		{
-			readBelongsToCluster[read].insert(i);
+			readBelongsToCluster[nameWithoutTags(read)].insert(i);
 		}
 	}
 	std::vector<std::ofstream> outfiles;
@@ -27,8 +34,8 @@ void splitReads(std::vector<std::string> readFiles, const std::vector<std::vecto
 		std::cerr << "extracting reads from " << file << std::endl;
 		FastQ::streamFastqFromFile(std::string{ file }, false, [&readBelongsToCluster, &outfiles](FastQ& fastq)
 		{
-			if (readBelongsToCluster.count(fastq.seq_id) == 0) return;
-			for (auto cluster : readBelongsToCluster.at(fastq.seq_id))
+			if (readBelongsToCluster.count(nameWithoutTags(fastq.seq_id)) == 0) return;
+			for (auto cluster : readBelongsToCluster.at(nameWithoutTags(fastq.seq_id)))
 			{
 				assert(cluster < outfiles.size());
 				outfiles[cluster] << ">" << fastq.seq_id << std::endl;
