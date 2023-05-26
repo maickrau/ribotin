@@ -1622,7 +1622,7 @@ size_t getEditDistancePossiblyMemoized(const std::vector<Node>& left, const std:
 	if (left == right) return 0;
 	auto key = canon(left, right);
 	size_t add;
-	if (memoizedEditDistances.count(key) == 0)
+	if (memoizedEditDistances.count(key) == 0 || (leftStartClipBp != 0 || rightStartClipBp != 0 || leftEndClipBp != 0 || rightEndClipBp != 0))
 	{
 		size_t startClip = 0;
 		size_t endClip = 0;
@@ -1643,7 +1643,7 @@ size_t getEditDistancePossiblyMemoized(const std::vector<Node>& left, const std:
 			if (leftStartClipBp != 0 || leftEndClipBp != 0) leftSubseq = leftSubseq.substr(leftStartClipBp, left.size() - leftStartClipBp - leftEndClipBp);
 			if (rightStartClipBp != 0 || rightEndClipBp != 0) rightSubseq = rightSubseq.substr(rightStartClipBp, right.size() - rightStartClipBp - rightEndClipBp);
 			add = getEditDistanceWfa(leftSubseq, rightSubseq, maxEdits);
-			memoizedEditDistances[key] = add;
+			if (leftStartClipBp == 0 && rightStartClipBp == 0 && leftEndClipBp == 0 && rightEndClipBp == 0) memoizedEditDistances[key] = add;
 		}
 		else
 		{
@@ -1652,7 +1652,7 @@ size_t getEditDistancePossiblyMemoized(const std::vector<Node>& left, const std:
 			if (leftStartClipBp != 0 || leftEndClipBp != 0) leftSubseq = leftSubseq.substr(leftStartClipBp, left.size() - leftStartClipBp - leftEndClipBp);
 			if (rightStartClipBp != 0 || rightEndClipBp != 0) rightSubseq = rightSubseq.substr(rightStartClipBp, right.size() - rightStartClipBp - rightEndClipBp);
 			add = getEditDistanceWfa(leftSubseq, rightSubseq, maxEdits);
-			memoizedEditDistances[key] = add;
+			if (leftStartClipBp == 0 && rightStartClipBp == 0 && leftEndClipBp == 0 && rightEndClipBp == 0) memoizedEditDistances[key] = add;
 		}
 	}
 	else
@@ -1760,7 +1760,7 @@ size_t getEditDistance(const std::vector<Node>& left, const size_t leftIndex, co
 	assert(nodeMatches.size() >= coreNodes.size());
 	if (nodeMatches.size() == 0)
 	{
-		return getEditDistancePossiblyMemoized(left, right, pathStartClip.at(left[0]), pathStartClip.at(right[0]), 0, 0, graph, maxEdits, memoizedEditDistances);
+		return getEditDistancePossiblyMemoized(left, right, pathStartClip.at(left[0]), pathStartClip.at(right[0]), pathEndClip.at(left.back()), pathEndClip.at(right.back()), graph, maxEdits, memoizedEditDistances);
 	}
 	assert(nodeMatches.size() >= 1);
 	size_t result = 0;
