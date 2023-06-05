@@ -1565,7 +1565,9 @@ std::vector<OntLoop> extractLoopSequences(const std::vector<ReadPath>& corrected
 				continue;
 			}
 			std::vector<Node> looppath { read.path.begin()+lastBreak, read.path.begin()+i+1 };
-			if (getPathLength(looppath, graph.nodeSeqs, graph.edges) - pathStartClip.at(read.path[lastBreak]) - pathEndClip.at(read.path[i]) >= minLength)
+			size_t len = getPathLength(looppath, graph.nodeSeqs, graph.edges);
+			size_t clip = pathStartClip.at(read.path[lastBreak]) + pathEndClip.at(read.path[i]);
+			if (len > clip && len - clip >= minLength)
 			{
 				result.emplace_back();
 				result.back().originalReadLength = read.readLength;
@@ -1966,7 +1968,10 @@ std::vector<std::vector<OntLoop>> clusterLoopSequences(const std::vector<OntLoop
 	loopLengths.reserve(loops.size());
 	for (size_t i = 0; i < loops.size(); i++)
 	{
-		loopLengths.emplace_back(getPathLength(loops[i].path, graph.nodeSeqs, graph.edges));
+		size_t len = getPathLength(loops[i].path, graph.nodeSeqs, graph.edges);
+		len -= pathStartClip.at(loops[i].path[0]);
+		len -= pathEndClip.at(loops[i].path.back());
+		loopLengths.emplace_back(len);
 	}
 	std::vector<phmap::flat_hash_map<Node, size_t>> nodeCountIndex;
 	std::vector<phmap::flat_hash_map<Node, size_t>> nodePosIndex;
@@ -2401,13 +2406,17 @@ void writeMorphConsensuses(std::string outFile, const std::vector<MorphConsensus
 	}
 }
 
-void orderLoopsByLength(std::vector<OntLoop>& loops, const GfaGraph& graph)
+void orderLoopsByLength(std::vector<OntLoop>& loops, const GfaGraph& graph, const std::unordered_map<Node, size_t>& pathStartClip, const std::unordered_map<Node, size_t>& pathEndClip)
 {
 	std::vector<std::pair<size_t, size_t>> indexAndLength;
 	indexAndLength.reserve(loops.size());
 	for (size_t i = 0; i < loops.size(); i++)
 	{
-		indexAndLength.emplace_back(i, getPathLength(loops[i].path, graph.nodeSeqs, graph.edges));
+		size_t len = getPathLength(loops[i].path, graph.nodeSeqs, graph.edges);
+		size_t leftclip = pathStartClip.at(loops[i].path[0]);
+		size_t rightclip = pathEndClip.at(loops[i].path.back());
+		assert(len > leftclip+rightclip);
+		indexAndLength.emplace_back(i, len-leftclip-rightclip);
 	}
 	std::sort(indexAndLength.begin(), indexAndLength.end(), [](auto left, auto right) { return left.second < right.second; });
 	std::vector<OntLoop> result;
@@ -2624,7 +2633,7 @@ void DoClusterONTAnalysis(const ClusterParams& params)
 		}
 	}
 	std::cerr << "cluster morphs" << std::endl;
-	orderLoopsByLength(loopSequences, graph);
+	orderLoopsByLength(loopSequences, graph, pathStartClip, pathEndClip);
 	std::cerr << "max clustering edit distance " << params.maxClusterDifference << std::endl;
 	auto unphasedClusters = clusterLoopSequences(loopSequences, graph, pathStartClip, pathEndClip, coreNodes, params.maxClusterDifference);
 	std::cerr << unphasedClusters.size() << " morph clusters" << std::endl;
