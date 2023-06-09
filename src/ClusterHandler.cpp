@@ -2141,23 +2141,29 @@ std::vector<Node> getConsensusPath(const std::vector<OntLoop>& rawPaths, const G
 	bestAlleles.resize(corePath.size()+1, std::make_pair(std::vector<Node>{}, 0));
 	for (auto pair : alleleCounts)
 	{
-		size_t index = std::numeric_limits<size_t>::max();
 		if ((coreNodePositionInPath.count(pair.first[0].id()) == 0 || pair.first.size() == 1) && coreNodePositionInPath.count(pair.first.back().id()) == 1 && coreNodePositionInPath.at(pair.first.back().id()) == 0)
 		{
-			index = 0;
+			size_t index = 0;
+			if (pair.second > bestAlleles[index].second)
+			{
+				bestAlleles[index] = pair;
+			}
 		}
-		else if (pair.first.size() >= 2 && coreNodePositionInPath.count(pair.first[0].id()) == 1 && coreNodePositionInPath.count(pair.first.back().id()) == 1 && coreNodePositionInPath.at(pair.first.back().id()) == coreNodePositionInPath.at(pair.first[0].id())+1)
+		if (pair.first.size() >= 2 && coreNodePositionInPath.count(pair.first[0].id()) == 1 && coreNodePositionInPath.count(pair.first.back().id()) == 1 && coreNodePositionInPath.at(pair.first.back().id()) == coreNodePositionInPath.at(pair.first[0].id())+1)
 		{
-			index = coreNodePositionInPath.at(pair.first.back().id());
+			size_t index = coreNodePositionInPath.at(pair.first.back().id());
+			if (pair.second > bestAlleles[index].second)
+			{
+				bestAlleles[index] = pair;
+			}
 		}
-		else if (coreNodePositionInPath.count(pair.first[0].id()) == 1 && (coreNodePositionInPath.count(pair.first.back().id()) == 0 || pair.first.size() == 1) && coreNodePositionInPath.at(pair.first[0].id()) == corePath.size()-1)
+		if (coreNodePositionInPath.count(pair.first[0].id()) == 1 && (coreNodePositionInPath.count(pair.first.back().id()) == 0 || pair.first.size() == 1) && coreNodePositionInPath.at(pair.first[0].id()) == corePath.size()-1)
 		{
-			index = corePath.size();
-		}
-		if (index == std::numeric_limits<size_t>::max()) continue;
-		if (pair.second > bestAlleles[index].second)
-		{
-			bestAlleles[index] = pair;
+			size_t index = corePath.size();
+			if (pair.second > bestAlleles[index].second)
+			{
+				bestAlleles[index] = pair;
+			}
 		}
 	}
 	std::vector<Node> consensusPath;
