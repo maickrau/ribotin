@@ -2114,57 +2114,46 @@ std::vector<Node> getConsensusPath(const std::vector<OntLoop>& rawPaths, const G
 	}
 	assert(coreNodes.size() >= 1);
 	std::unordered_map<std::vector<Node>, size_t> alleleCounts;
+	Node fakeStart { graph.numNodes()+1, true };
+	Node fakeEnd { graph.numNodes()+2, true };
 	for (const auto& read : rawPaths)
 	{
 		const auto& path = read.path;
-		size_t lastCore = 0;
+		size_t lastCore = std::numeric_limits<size_t>::max();
 		for (size_t i = 0; i < path.size(); i++)
 		{
+			assert(path[i].id() != fakeStart.id());
+			assert(path[i].id() != fakeEnd.id());
 			if (coreNodes.count(path[i].id()) == 0) continue;
-			std::vector<Node> subpath { path.begin() + lastCore, path.begin() + i + 1 };
+			std::vector<Node> subpath { path.begin() + (lastCore == std::numeric_limits<size_t>::max() ? 0 : lastCore), path.begin() + i + 1 };
 			assert(subpath.size() >= 2 || (i == 0 && subpath.size() == 1));
+			if (lastCore == std::numeric_limits<size_t>::max()) subpath.insert(subpath.begin(), fakeStart);
 			alleleCounts[subpath] += 1;
 			lastCore = i;
 		}
-		// assert(coreIndex == alleleCounts.size()-1);
-		std::vector<Node> subpath { path.begin() + lastCore, path.end()};
+		std::vector<Node> subpath { path.begin() + (lastCore == std::numeric_limits<size_t>::max() ? 0 : lastCore), path.end()};
 		assert(subpath.size() >= 2 || (lastCore == path.size()-1 && subpath.size() == 1));
+		if (lastCore == std::numeric_limits<size_t>::max()) subpath.insert(subpath.begin(), fakeStart);
+		subpath.insert(subpath.end(), fakeEnd);
 		alleleCounts[subpath] += 1;
 	}
 	auto corePath = getMajorityPath(coreNodes, rawPaths);
 	std::unordered_map<size_t, size_t> coreNodePositionInPath;
 	for (size_t i = 0; i < corePath.size(); i++)
 	{
-		coreNodePositionInPath[corePath[i]] = i;
+		coreNodePositionInPath[corePath[i]] = i+1;
 	}
+	coreNodePositionInPath[fakeStart.id()] = 0;
+	coreNodePositionInPath[fakeEnd.id()] = corePath.size()+1;
 	std::vector<std::pair<std::vector<Node>, size_t>> bestAlleles;
 	bestAlleles.resize(corePath.size()+1, std::make_pair(std::vector<Node>{}, 0));
 	for (auto pair : alleleCounts)
 	{
-		if ((coreNodePositionInPath.count(pair.first[0].id()) == 0 || pair.first.size() == 1) && coreNodePositionInPath.count(pair.first.back().id()) == 1 && coreNodePositionInPath.at(pair.first.back().id()) == 0)
-		{
-			size_t index = 0;
-			if (pair.second > bestAlleles[index].second)
-			{
-				bestAlleles[index] = pair;
-			}
-		}
-		if (pair.first.size() >= 2 && coreNodePositionInPath.count(pair.first[0].id()) == 1 && coreNodePositionInPath.count(pair.first.back().id()) == 1 && coreNodePositionInPath.at(pair.first.back().id()) == coreNodePositionInPath.at(pair.first[0].id())+1)
-		{
-			size_t index = coreNodePositionInPath.at(pair.first.back().id());
-			if (pair.second > bestAlleles[index].second)
-			{
-				bestAlleles[index] = pair;
-			}
-		}
-		if (coreNodePositionInPath.count(pair.first[0].id()) == 1 && (coreNodePositionInPath.count(pair.first.back().id()) == 0 || pair.first.size() == 1) && coreNodePositionInPath.at(pair.first[0].id()) == corePath.size()-1)
-		{
-			size_t index = corePath.size();
-			if (pair.second > bestAlleles[index].second)
-			{
-				bestAlleles[index] = pair;
-			}
-		}
+		if (coreNodePositionInPath.count(pair.first[0].id()) == 0) continue;
+		if (coreNodePositionInPath.count(pair.first.back().id()) == 0) continue;
+		if (coreNodePositionInPath.at(pair.first.back().id()) != coreNodePositionInPath.at(pair.first[0].id()) + 1) continue;
+		size_t index = coreNodePositionInPath.at(pair.first[0].id());
+		if (pair.second > bestAlleles[index].second) bestAlleles[index] = pair;
 	}
 	std::vector<Node> consensusPath;
 	for (size_t i = 0; i < bestAlleles.size(); i++)
@@ -2182,6 +2171,12 @@ std::vector<Node> getConsensusPath(const std::vector<OntLoop>& rawPaths, const G
 			consensusPath.insert(consensusPath.end(), bestAlleles[i].first.begin()+1, bestAlleles[i].first.end());
 		}
 	}
+	assert(consensusPath.size() >= 3);
+	assert(consensusPath[0] == fakeStart);
+	assert(consensusPath.back() == fakeEnd);
+	consensusPath.erase(consensusPath.begin());
+	consensusPath.erase(consensusPath.begin()+consensusPath.size()-1);
+	assert(consensusPath.size() >= 1);
 	return consensusPath;
 }
 
