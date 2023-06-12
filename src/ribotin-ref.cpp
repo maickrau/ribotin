@@ -6,6 +6,29 @@
 #include <cxxopts.hpp>
 #include "KmerMatcher.h"
 #include "ClusterHandler.h"
+#include "RibotinUtils.h"
+
+void getKmers(std::string outputPrefix)
+{
+	std::ofstream file { outputPrefix + "/kmers.fa" };
+	FastQ::streamFastqFromFile(outputPrefix + "/consensus.fa", false, [&file](FastQ& fastq)
+	{
+		file << ">consensus" << std::endl;
+		file << fastq.sequence << std::endl;
+	});
+	std::ifstream variantgraph { outputPrefix + "/variant-graph.gfa" };
+	while (variantgraph.good())
+	{
+		std::string line;
+		getline(variantgraph, line);
+		if (line.size() < 5 || line[0] != 'S') continue;
+		std::stringstream sstr { line };
+		std::string dummy, node, sequence;
+		sstr >> dummy >> node >> sequence;
+		file << ">node" << node << std::endl;
+		file << sequence;
+	}
+}
 
 int main(int argc, char** argv)
 {
@@ -149,20 +172,26 @@ int main(int argc, char** argv)
 			readsfile << seq.sequence << std::endl;
 		});
 	}
+	std::cerr << "running" << std::endl;
+	clusterParams.hifiReadPath = clusterParams.basePath + "/hifi_reads.fa";
+	HandleCluster(clusterParams);
 	if (ontReadPaths.size() > 0)
 	{
 		std::cerr << "extracting ultralong ONT reads" << std::endl;
 		std::ofstream readsfile { clusterParams.basePath + "/ont_reads.fa" };
-		iterateMatchingReads(refPath, ontReadPaths, 21, 20000, [&readsfile](const FastQ& seq)
+		getKmers(clusterParams.basePath);
+		std::vector<std::string> kmerFiles;
+		kmerFiles.push_back(refPath);
+		kmerFiles.push_back(clusterParams.basePath + "/kmers.fa");
+		size_t consensusLength = getSequenceLength(clusterParams.basePath + "/consensus.fa");
+		std::cerr << "consensus length " << consensusLength << ", using " << consensusLength/2 << " as minimum ONT match length" << std::endl;
+		iterateMatchingReads(kmerFiles, ontReadPaths, 21, consensusLength/2, [&readsfile](const FastQ& seq)
 		{
 			readsfile << ">" << seq.seq_id << std::endl;
 			readsfile << seq.sequence << std::endl;
 		});
 		clusterParams.ontReadPath = clusterParams.basePath + "/ont_reads.fa";
 	}
-	std::cerr << "running" << std::endl;
-	clusterParams.hifiReadPath = clusterParams.basePath + "/hifi_reads.fa";
-	HandleCluster(clusterParams);
 	if (ontReadPaths.size() > 0)
 	{
 		std::cerr << "start ultralong ONT analysis" << std::endl;

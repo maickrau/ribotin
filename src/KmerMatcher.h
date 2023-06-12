@@ -141,4 +141,26 @@ void iterateMatchingReads(std::string refFile, const std::vector<std::string>& r
 	}
 }
 
+template <typename F>
+void iterateMatchingReads(std::vector<std::string> refFiles, const std::vector<std::string>& readFiles, size_t k, size_t minMatch, F callback)
+{
+	KmerMatcher matcher { k };
+	for (auto file : refFiles)
+	{
+		FastQ::streamFastqFromFile(file, false, [&matcher](FastQ& fastq)
+		{
+			matcher.addReferenceKmers(fastq.sequence);
+		});
+	}
+	for (const auto& file : readFiles)
+	{
+		FastQ::streamFastqFromFile(file, false, [minMatch, &matcher, callback](FastQ& fastq)
+		{
+			size_t matchLength = matcher.getMatchLength(fastq.sequence);
+			if (matchLength < minMatch) return;
+			callback(fastq);
+		});
+	}
+}
+
 #endif

@@ -209,6 +209,18 @@ void splitAlignmentsPerCluster(std::string outputPrefix, size_t numClusters, std
 	}
 }
 
+size_t medianConsensusLength(const std::string& outputPrefix, size_t numClusters)
+{
+	std::vector<size_t> lengths;
+	for (size_t i = 0; i < numClusters; i++)
+	{
+		size_t consensusLength = getSequenceLength(outputPrefix + std::to_string(i) + "/consensus.fa");
+		lengths.push_back(consensusLength);
+	}
+	std::sort(lengths.begin(), lengths.end());
+	return lengths[lengths.size()/2];
+}
+
 int main(int argc, char** argv)
 {
 	std::cerr << "ribotin-verkko version " << VERSION << std::endl;
@@ -413,7 +425,9 @@ int main(int argc, char** argv)
 		std::cerr << "extracting ultralong ONT reads" << std::endl;
 		auto fileNames = getRawReadFilenames(verkkoBasePath + "/verkko.yml", "ONT_READS");
 		std::ofstream readsfile { ulTmpFolder + "/ont_reads.fa" };
-		iterateMatchingReads(ulTmpFolder + "/rdna_kmers.fa", fileNames, 21, 20000, [&readsfile](const FastQ& seq)
+		size_t consensusLength = medianConsensusLength(outputPrefix, numClusters);
+		std::cerr << "median consensus length " << consensusLength << ", using " << consensusLength/2 << " as minimum ONT match length" << std::endl;
+		iterateMatchingReads(ulTmpFolder + "/rdna_kmers.fa", fileNames, 21, consensusLength/2, [&readsfile](const FastQ& seq)
 		{
 			readsfile << ">" << seq.seq_id << std::endl;
 			readsfile << seq.sequence << std::endl;
