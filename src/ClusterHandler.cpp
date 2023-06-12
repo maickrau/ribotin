@@ -2001,7 +2001,7 @@ std::vector<std::vector<OntLoop>> clusterLoopSequences(const std::vector<OntLoop
 			if (parent[i] == parent[j]) continue;
 			size_t edits = getEditDistance(loops[i].path, i, loops[j].path, j, graph, pathStartClip, pathEndClip, maxEdits, coreNodes, nodeCountIndex, nodePosIndex, memoizedEditDistances);
 			if (edits > maxEdits) continue;
-			parent[j] = parent[i];
+			parent[parent[j]] = parent[i];
 		}
 	}
 	std::vector<size_t> parentToCluster;
