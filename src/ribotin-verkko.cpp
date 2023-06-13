@@ -242,6 +242,7 @@ int main(int argc, char** argv)
 		("annotation-gff3", "Lift over the annotations from given reference fasta+gff3 (requires liftoff)", cxxopts::value<std::string>())
 		("morph-cluster-maxedit", "Maximum edit distance between two morphs to assign them into the same cluster", cxxopts::value<size_t>()->default_value("300"))
 		("t", "Number of threads", cxxopts::value<size_t>()->default_value("1"))
+		("approx-morphsize", "Approximate length of one morph", cxxopts::value<size_t>()->default_value("45000"))
 	;
 	std::string MBGPath;
 	std::string GraphAlignerPath;
@@ -356,6 +357,7 @@ int main(int argc, char** argv)
 	std::string ulTmpFolder = params["ul-tmp-folder"].as<std::string>();
 	size_t numThreads = params["t"].as<size_t>();
 	size_t maxClusterDifference = params["morph-cluster-maxedit"].as<size_t>();
+	size_t maxResolveLength = params["approx-morphsize"].as<size_t>()/5;
 	if (params.count("orient-by-reference") == 1) orientReferencePath = params["orient-by-reference"].as<std::string>();
 	if (params.count("annotation-reference-fasta") == 1) annotationFasta = params["annotation-reference-fasta"].as<std::string>();
 	if (params.count("annotation-gff3") == 1) annotationGff3 = params["annotation-gff3"].as<std::string>();
@@ -414,6 +416,7 @@ int main(int argc, char** argv)
 		clusterParams.orientReferencePath = orientReferencePath;
 		clusterParams.annotationFasta = annotationFasta;
 		clusterParams.annotationGff3 = annotationGff3;
+		clusterParams.maxResolveLength = maxResolveLength;
 		std::cerr << "running cluster " << i << " in folder " << outputPrefix + std::to_string(i) << std::endl;
 		HandleCluster(clusterParams);
 	}
