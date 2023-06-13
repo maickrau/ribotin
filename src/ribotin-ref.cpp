@@ -48,7 +48,7 @@ int main(int argc, char** argv)
 		("annotation-reference-fasta", "Lift over the annotations from given reference fasta+gff3 (requires liftoff)", cxxopts::value<std::string>())
 		("annotation-gff3", "Lift over the annotations from given reference fasta+gff3 (requires liftoff)", cxxopts::value<std::string>())
 		("morph-cluster-maxedit", "Maximum edit distance between two morphs to assign them into the same cluster", cxxopts::value<size_t>()->default_value("300"))
-		("t", "Number of threads (default 1)", cxxopts::value<size_t>()->default_value("1"))
+		("t", "Number of threads", cxxopts::value<size_t>()->default_value("1"))
 	;
 	std::string MBGPath;
 	std::string GraphAlignerPath;
