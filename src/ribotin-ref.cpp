@@ -150,7 +150,7 @@ int main(int argc, char** argv)
 	std::string refPath = params["r"].as<std::string>();
 	std::vector<std::string> hifiReadPaths = params["i"].as<std::vector<std::string>>();
 	std::vector<std::string> ontReadPaths;
-	if (params.count("nano") == 1) ontReadPaths = params["nano"].as<std::vector<std::string>>();
+	if (params.count("nano") >= 1) ontReadPaths = params["nano"].as<std::vector<std::string>>();
 	ClusterParams clusterParams;
 	clusterParams.MBGPath = MBGPath;
 	clusterParams.basePath = params["o"].as<std::string>();
