@@ -20,6 +20,8 @@ VERSION := Branch $(shell git rev-parse --abbrev-ref HEAD) commit $(shell git re
 $(shell mkdir -p bin)
 $(shell mkdir -p obj)
 
+all: $(BINDIR)/seqpicker $(BINDIR)/ribotin-verkko $(BINDIR)/ribotin-ref
+
 $(BINDIR)/seqpicker: $(OBJ) $(ODIR)/seqpicker.o
 	$(GPP) -o $@ $^ $(LINKFLAGS)
 
@@ -40,8 +42,6 @@ $(ODIR)/ribotin-ref.o: $(SRCDIR)/ribotin-ref.cpp $(DEPS) $(OBJ)
 
 $(ODIR)/%.o: $(SRCDIR)/%.cpp $(DEPS)
 	$(GPP) -c -o $@ $< $(CPPFLAGS)
-
-all: $(BINDIR)/seqpicker $(BINDIR)/ribotin-verkko $(BINDIR)/ribotin-ref
 
 clean:
 	rm -f $(ODIR)/*
