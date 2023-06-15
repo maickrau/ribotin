@@ -23,7 +23,7 @@ bool getRukkiEnabled(std::string configfile)
 			return hasTrue;
 		}
 	}
-	assert(false);
+	// assume missing value is false
 	return false;
 }
 
