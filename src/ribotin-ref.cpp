@@ -50,9 +50,13 @@ int main(int argc, char** argv)
 		("morph-cluster-maxedit", "Maximum edit distance between two morphs to assign them into the same cluster", cxxopts::value<size_t>()->default_value("200"))
 		("t", "Number of threads", cxxopts::value<size_t>()->default_value("1"))
 		("approx-morphsize", "Approximate length of one morph", cxxopts::value<size_t>()->default_value("45000"))
+		("minimap2", "minimap2 path", cxxopts::value<std::string>())
+		("racon", "racon path", cxxopts::value<std::string>())
 	;
 	std::string MBGPath;
 	std::string GraphAlignerPath;
+	std::string minimapPath;
+	std::string raconPath;
 	auto params = options.parse(argc, argv);
 	if (params.count("v") == 1)
 	{
@@ -103,6 +107,36 @@ int main(int argc, char** argv)
 			GraphAlignerPath = "GraphAligner";
 		}
 	}
+	if (params.count("minimap2") == 0 && params.count("nano") >= 1)
+	{
+		std::cerr << "checking for minimap2" << std::endl;
+		int foundMinimap2 = system("which minimap2");
+		if (foundMinimap2 != 0)
+		{
+			std::cerr << "minimap2 not found" << std::endl;
+			std::cerr << "--minimap2 is required when using ultralong ONT reads" << std::endl;
+			paramError = true;
+		}
+		else
+		{
+			minimapPath = "minimap2";
+		}
+	}
+	if (params.count("racon") == 0 && params.count("nano") >= 1)
+	{
+		std::cerr << "checking for racon" << std::endl;
+		int foundRacon = system("which racon");
+		if (foundRacon != 0)
+		{
+			std::cerr << "racon not found" << std::endl;
+			std::cerr << "--racon is required when using ultralong ONT reads" << std::endl;
+			paramError = true;
+		}
+		else
+		{
+			raconPath = "racon";
+		}
+	}
 	if (params.count("i") == 0)
 	{
 		std::cerr << "Input reads (-i) are required" << std::endl;
@@ -136,8 +170,8 @@ int main(int argc, char** argv)
 	if (params.count("annotation-gff3") == 1 || params.count("annotation-reference-fasta") == 1)
 	{
 		std::cerr << "checking for liftoff" << std::endl;
-		int foundMinimap2 = system("which liftoff");
-		if (foundMinimap2 != 0)
+		int foundLiftoff = system("which liftoff");
+		if (foundLiftoff != 0)
 		{
 			std::cerr << "liftoff not found" << std::endl;
 			paramError = true;
@@ -163,6 +197,8 @@ int main(int argc, char** argv)
 	if (params.count("annotation-reference-fasta") == 1) clusterParams.annotationFasta = params["annotation-reference-fasta"].as<std::string>();
 	if (params.count("annotation-gff3") == 1) clusterParams.annotationGff3 = params["annotation-gff3"].as<std::string>();
 	clusterParams.GraphAlignerPath = GraphAlignerPath;
+	clusterParams.minimapPath = minimapPath;
+	clusterParams.raconPath = raconPath;
 	std::cerr << "output folder: " << clusterParams.basePath << std::endl;
 	std::filesystem::create_directories(clusterParams.basePath);
 	std::cerr << "extracting HiFi/duplex reads" << std::endl;

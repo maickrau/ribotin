@@ -2594,6 +2594,89 @@ void writeMorphGraphAndReadPaths(const std::string& graphFile, const std::string
 	}
 }
 
+void polishMorphConsensuses(std::string basePath, std::string ontReadPath, size_t numThreads, std::vector<MorphConsensus>& morphConsensuses, const std::vector<std::vector<OntLoop>>& clusters, std::string minimapPath, std::string raconPath)
+{
+	const size_t extendAmount = 300;
+	const size_t minCoverage = 10;
+	phmap::flat_hash_map<std::string, std::vector<std::tuple<size_t, size_t, size_t>>> relevantPartsPerRead;
+	std::vector<std::ofstream> partFiles;
+	for (size_t i = 0; i < clusters.size(); i++)
+	{
+		if (clusters[i].size() < minCoverage) break;
+		for (const auto& read : clusters[i])
+		{
+			size_t morphNum = i;
+			size_t start = std::min(read.approxStart, read.approxEnd);
+			size_t end = std::max(read.approxStart, read.approxEnd);
+			if (start < extendAmount)
+			{
+				start = 0;
+			}
+			else
+			{
+				start -= extendAmount;
+			}
+			end += extendAmount;
+			if (end > read.originalReadLength) end = read.originalReadLength;
+			relevantPartsPerRead[read.readName].emplace_back(morphNum, start, end);
+		}
+		partFiles.emplace_back(basePath + "/tmp_polish_parts_" + std::to_string(i) + ".fa");
+	}
+	size_t n = 0;
+	FastQ::streamFastqFromFile(ontReadPath, false, [&relevantPartsPerRead, &partFiles, &n](FastQ& fastq)
+	{
+		if (relevantPartsPerRead.count(fastq.seq_id) == 0) return;
+		for (auto t : relevantPartsPerRead.at(fastq.seq_id))
+		{
+			partFiles[std::get<0>(t)] << ">part_" << n << "_" << fastq.seq_id << "_" << std::get<0>(t) << "_" << std::get<1>(t) << "_" << std::get<2>(t) << std::endl;
+			partFiles[std::get<0>(t)] << fastq.sequence.substr(std::get<1>(t), std::get<2>(t) - std::get<1>(t)) << std::endl;
+			n += 1;
+		}
+	});
+	partFiles.clear();
+	std::string rawFileName = basePath + "/tmp_raw_seq.fa";
+	std::string polishedFileName = basePath + "/tmp_polished_seq.fa";
+	for (size_t i = 0; i < clusters.size(); i++)
+	{
+		if (clusters[i].size() < minCoverage) break;
+		{
+			std::ofstream reffile { rawFileName };
+			reffile << ">" << morphConsensuses[i].name << std::endl;
+			reffile << morphConsensuses[i].sequence << std::endl;
+		}
+		std::string alnsFile = basePath + "/tmp_polish.paf";
+		std::string readsFile = basePath + "/tmp_polish_parts_" + std::to_string(i) + ".fa";
+		std::string minimapCommand = minimapPath + " -t " + std::to_string(numThreads) + " -cx map-ont " + rawFileName + " " + readsFile + " > " + alnsFile;
+		std::cerr << "running minimap2 with command:" << std::endl;
+		std::cerr << minimapCommand << std::endl;
+		int result = system(minimapCommand.c_str());
+		if (result != 0)
+		{
+			std::cerr << "minimap2 did not run successfully" << std::endl;
+			std::abort();
+		}
+		std::string raconCommand = raconPath + " -t " + std::to_string(numThreads) + " " + readsFile + " " + alnsFile + " " + rawFileName + " > " + polishedFileName;
+		std::cerr << "running racon with command:" << std::endl;
+		std::cerr << raconCommand << std::endl;
+		result = system(raconCommand.c_str());
+		if (result != 0)
+		{
+			std::cerr << "racon did not run successfully" << std::endl;
+			std::abort();
+		}
+		size_t seqCount = 0;
+		FastQ::streamFastqFromFile(polishedFileName, false, [&morphConsensuses, i, &seqCount](FastQ& fastq)
+		{
+			size_t firstSpace = fastq.seq_id.find(' ');
+			assert(firstSpace != std::string::npos);
+			assert(fastq.seq_id.substr(0, firstSpace) == morphConsensuses[i].name);
+			morphConsensuses[i].sequence = fastq.sequence;
+			seqCount += 1;
+		});
+		assert(seqCount == 1);
+	}
+}
+
 void DoClusterONTAnalysis(const ClusterParams& params)
 {
 	std::cerr << "reading graph" << std::endl;
@@ -2644,6 +2727,8 @@ void DoClusterONTAnalysis(const ClusterParams& params)
 	std::sort(clusters.begin(), clusters.end(), [](const auto& left, const auto& right) { return left.size() > right.size(); });
 	std::cerr << "getting morph consensuses" << std::endl;
 	auto morphConsensuses = getMorphConsensuses(clusters, graph, pathStartClip, pathEndClip);
+	std::cerr << "polish morph consensuses" << std::endl;
+	polishMorphConsensuses(params.basePath, params.ontReadPath, params.numThreads, morphConsensuses, clusters, params.minimapPath, params.raconPath);
 	std::cerr << "write morph consensuses" << std::endl;
 	writeMorphConsensuses(params.basePath + "/morphs.fa", morphConsensuses);
 	std::cerr << "write morph paths" << std::endl;
