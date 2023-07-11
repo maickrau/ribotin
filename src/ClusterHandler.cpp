@@ -388,6 +388,67 @@ public:
 	}
 };
 
+class PathSequenceView
+{
+public:
+	PathSequenceView(const std::vector<Node>& nodes, const std::vector<std::string>& nodeSeqs, const std::vector<std::string>& revCompNodeSeqs, const std::unordered_map<Node, phmap::flat_hash_set<std::tuple<Node, size_t, size_t>>>& edges, size_t leftClip, size_t rightClip)
+	{
+		size_t realPos = 0;
+		for (size_t i = 0; i < nodes.size(); i++)
+		{
+			if (nodes[i].forward())
+			{
+				nodePointers.emplace_back(&(nodeSeqs[nodes[i].id()]));
+			}
+			else
+			{
+				nodePointers.emplace_back(&(revCompNodeSeqs[nodes[i].id()]));
+			}
+			size_t overlap = 0;
+			if (i > 0)
+			{
+				overlap = std::numeric_limits<size_t>::max();
+				for (auto edge : edges.at(nodes[i-1]))
+				{
+					if (std::get<0>(edge) != nodes[i]) continue;
+					assert(overlap == std::numeric_limits<size_t>::max());
+					overlap = std::get<1>(edge);
+				}
+				assert(overlap != std::numeric_limits<size_t>::max());
+			}
+			assert(overlap < nodePointers.back()->size());
+			nodeStartOverlap.push_back(overlap);
+			nodeStartPoses.push_back(realPos);
+			realPos += nodePointers.back()->size() - overlap;
+		}
+		this->leftClip = leftClip;
+		this->rightClip = rightClip;
+	}
+	char operator[](size_t index) const
+	{
+		if (leftClip > 0) index += leftClip;
+		size_t nodeIndex = 0;
+		while (nodeIndex+1 < nodeStartPoses.size() && nodeStartPoses[nodeIndex+1] <= index) nodeIndex += 1;
+		size_t nodeOffset = index - nodeStartPoses[nodeIndex] + nodeStartOverlap[nodeIndex];
+		return (*(nodePointers[nodeIndex]))[nodeOffset];
+	}
+	size_t size() const
+	{
+		return nodeStartPoses.back() + nodePointers.back()->size() - nodeStartOverlap.back() - leftClip - rightClip;
+	}
+private:
+	std::vector<const std::string*> nodePointers;
+	std::vector<size_t> nodeStartPoses;
+	std::vector<size_t> nodeStartOverlap;
+	size_t leftClip;
+	size_t rightClip;
+};
+
+PathSequenceView getSequenceView(const std::vector<Node>& nodes, const std::vector<std::string>& nodeSeqs, const std::vector<std::string>& revCompNodeSeqs, const std::unordered_map<Node, phmap::flat_hash_set<std::tuple<Node, size_t, size_t>>>& edges, size_t leftClip, size_t rightClip)
+{
+	return PathSequenceView(nodes, nodeSeqs, revCompNodeSeqs, edges, leftClip, rightClip);
+}
+
 std::string getSequence(const std::vector<Node>& nodes, const std::vector<std::string>& nodeSeqs, const std::vector<std::string>& revCompNodeSeqs, const std::unordered_map<Node, phmap::flat_hash_set<std::tuple<Node, size_t, size_t>>>& edges)
 {
 	std::string result;
@@ -1587,7 +1648,7 @@ std::vector<OntLoop> extractLoopSequences(const std::vector<ReadPath>& corrected
 	return result;
 }
 
-size_t getEditDistanceWfa(const std::string& left, const std::string& right, const size_t maxEdits)
+size_t getEditDistanceWfa(const PathSequenceView& left, const PathSequenceView& right, const size_t maxEdits)
 {
 	if (left.size() > right.size()+maxEdits) return maxEdits+1;
 	if (right.size() > left.size()+maxEdits) return maxEdits+1;
@@ -1640,19 +1701,15 @@ size_t getEditDistancePossiblyMemoized(const std::vector<Node>& left, const std:
 		{
 			assert(startClip + endClip < left.size());
 			assert(startClip + endClip < right.size());
-			auto leftSubseq = getSequence(std::vector<Node> { left.begin() + startClip, left.end() - endClip }, graph.nodeSeqs, graph.revCompNodeSeqs, graph.edges);
-			auto rightSubseq = getSequence(std::vector<Node> { right.begin() + startClip, right.end() - endClip }, graph.nodeSeqs, graph.revCompNodeSeqs, graph.edges);
-			if (leftStartClipBp != 0 || leftEndClipBp != 0) leftSubseq = leftSubseq.substr(leftStartClipBp, left.size() - leftStartClipBp - leftEndClipBp);
-			if (rightStartClipBp != 0 || rightEndClipBp != 0) rightSubseq = rightSubseq.substr(rightStartClipBp, right.size() - rightStartClipBp - rightEndClipBp);
+			auto leftSubseq = getSequenceView(std::vector<Node> { left.begin() + startClip, left.end() - endClip }, graph.nodeSeqs, graph.revCompNodeSeqs, graph.edges, leftStartClipBp, leftEndClipBp);
+			auto rightSubseq = getSequenceView(std::vector<Node> { right.begin() + startClip, right.end() - endClip }, graph.nodeSeqs, graph.revCompNodeSeqs, graph.edges, rightStartClipBp, rightEndClipBp);
 			add = getEditDistanceWfa(leftSubseq, rightSubseq, maxEdits);
 			if (leftStartClipBp == 0 && rightStartClipBp == 0 && leftEndClipBp == 0 && rightEndClipBp == 0) memoizedEditDistances[key] = add;
 		}
 		else
 		{
-			auto leftSubseq = getSequence(left, graph.nodeSeqs, graph.revCompNodeSeqs, graph.edges);
-			auto rightSubseq = getSequence(right, graph.nodeSeqs, graph.revCompNodeSeqs, graph.edges);
-			if (leftStartClipBp != 0 || leftEndClipBp != 0) leftSubseq = leftSubseq.substr(leftStartClipBp, left.size() - leftStartClipBp - leftEndClipBp);
-			if (rightStartClipBp != 0 || rightEndClipBp != 0) rightSubseq = rightSubseq.substr(rightStartClipBp, right.size() - rightStartClipBp - rightEndClipBp);
+			auto leftSubseq = getSequenceView(left, graph.nodeSeqs, graph.revCompNodeSeqs, graph.edges, leftStartClipBp, leftEndClipBp);
+			auto rightSubseq = getSequenceView(right, graph.nodeSeqs, graph.revCompNodeSeqs, graph.edges, rightStartClipBp, rightEndClipBp);
 			add = getEditDistanceWfa(leftSubseq, rightSubseq, maxEdits);
 			if (leftStartClipBp == 0 && rightStartClipBp == 0 && leftEndClipBp == 0 && rightEndClipBp == 0) memoizedEditDistances[key] = add;
 		}
