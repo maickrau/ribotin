@@ -17,6 +17,7 @@
 #include "ClusterHandler.h"
 #include "RibotinUtils.h"
 #include "WfaHelper.h"
+#include "TwobitString.h"
 
 const size_t minPhaseCoverage = 10;
 
@@ -342,6 +343,11 @@ public:
 				edges[reverse(tonode)].emplace(reverse(fromnode), overlap, coverage);
 			}
 		}
+		for (size_t i = 0; i < nodeSeqs.size(); i++)
+		{
+			nodeSeqsTwobit.emplace_back(nodeSeqs[i]);
+			revCompNodeSeqsTwobit.emplace_back(revCompNodeSeqs[i]);
+		}
 	}
 	size_t numNodes() const
 	{
@@ -352,6 +358,8 @@ public:
 	std::vector<size_t> nodeCoverages;
 	std::vector<std::string> nodeSeqs;
 	std::vector<std::string> revCompNodeSeqs;
+	std::vector<TwobitString> nodeSeqsTwobit;
+	std::vector<TwobitString> revCompNodeSeqsTwobit;
 	std::unordered_map<Node, phmap::flat_hash_set<std::tuple<Node, size_t, size_t>>> edges;
 };
 
@@ -391,7 +399,7 @@ public:
 class PathSequenceView
 {
 public:
-	PathSequenceView(const std::vector<Node>& nodes, const std::vector<std::string>& nodeSeqs, const std::vector<std::string>& revCompNodeSeqs, const std::unordered_map<Node, phmap::flat_hash_set<std::tuple<Node, size_t, size_t>>>& edges, size_t leftClip, size_t rightClip)
+	PathSequenceView(const std::vector<Node>& nodes, const std::vector<TwobitString>& nodeSeqs, const std::vector<TwobitString>& revCompNodeSeqs, const std::unordered_map<Node, phmap::flat_hash_set<std::tuple<Node, size_t, size_t>>>& edges, size_t leftClip, size_t rightClip)
 	{
 		size_t realPos = 0;
 		for (size_t i = 0; i < nodes.size(); i++)
@@ -430,21 +438,83 @@ public:
 		size_t nodeIndex = 0;
 		while (nodeIndex+1 < nodeStartPoses.size() && nodeStartPoses[nodeIndex+1] <= index) nodeIndex += 1;
 		size_t nodeOffset = index - nodeStartPoses[nodeIndex] + nodeStartOverlap[nodeIndex];
-		return (*(nodePointers[nodeIndex]))[nodeOffset];
+		return (*(nodePointers[nodeIndex])).getChar(nodeOffset);
 	}
 	size_t size() const
 	{
 		return nodeStartPoses.back() + nodePointers.back()->size() - nodeStartOverlap.back() - leftClip - rightClip;
 	}
 private:
-	std::vector<const std::string*> nodePointers;
+	std::vector<const TwobitString*> nodePointers;
 	std::vector<size_t> nodeStartPoses;
 	std::vector<size_t> nodeStartOverlap;
 	size_t leftClip;
 	size_t rightClip;
+	friend size_t getMatchLength(const PathSequenceView& left, const PathSequenceView& right, const size_t leftStart, const size_t rightStart);
 };
 
-PathSequenceView getSequenceView(const std::vector<Node>& nodes, const std::vector<std::string>& nodeSeqs, const std::vector<std::string>& revCompNodeSeqs, const std::unordered_map<Node, phmap::flat_hash_set<std::tuple<Node, size_t, size_t>>>& edges, size_t leftClip, size_t rightClip)
+__attribute__((always_inline)) size_t getBitvectorMatchLength(uint64_t leftFirst, uint64_t leftSecond, uint64_t rightFirst, uint64_t rightSecond)
+{
+	uint64_t mismatch = (leftFirst ^ rightFirst) | (leftSecond ^ rightSecond);
+	uint64_t prefixZerosPlusOneOne = (mismatch-1) ^ mismatch;
+	uint64_t prefixMatchPlusOne = popcount(prefixZerosPlusOneOne);
+	assert(prefixMatchPlusOne >= 1);
+	return prefixMatchPlusOne-1;
+}
+
+__attribute__((always_inline)) size_t getMatchLength(const TwobitString& left, const TwobitString& right, const size_t leftStart, const size_t rightStart)
+{
+	size_t result = 0;
+	while (true)
+	{
+		auto leftBits = left.getBitvectorsPossiblyTruncated(leftStart+result);
+		auto rightBits = right.getBitvectorsPossiblyTruncated(rightStart+result);
+		auto matchHere = getBitvectorMatchLength(leftBits.first, leftBits.second, rightBits.first, rightBits.second);
+		size_t maxMatch = std::min(64 - ((leftStart+result) % 64), 64 - ((rightStart+result) % 64));
+		matchHere = std::min(matchHere, maxMatch);
+		if (matchHere == 0) return result;
+		result += matchHere;
+		if (leftStart+result >= left.size() || rightStart+result >= right.size())
+		{
+			result = std::min(result, left.size()-leftStart);
+			result = std::min(result, right.size()-rightStart);
+			return result;
+		}
+	}
+}
+
+size_t getMatchLength(const PathSequenceView& left, const PathSequenceView& right, const size_t leftStart, const size_t rightStart)
+{
+	size_t result = 0;
+	size_t leftIndex = leftStart + left.leftClip;
+	size_t rightIndex = rightStart + right.leftClip;
+	size_t leftSize = left.size();
+	size_t rightSize = right.size();
+	assert(leftIndex < leftSize + left.leftClip);
+	assert(rightIndex < rightSize + right.leftClip);
+	size_t leftStartNode = 0;
+	size_t rightStartNode = 0;
+	while (true)
+	{
+		while (leftStartNode+1 < left.nodeStartPoses.size() && left.nodeStartPoses[leftStartNode+1] <= leftIndex) leftStartNode += 1;
+		while (rightStartNode+1 < right.nodeStartPoses.size() && right.nodeStartPoses[rightStartNode+1] <= rightIndex) rightStartNode += 1;
+		size_t leftOffset = leftIndex - left.nodeStartPoses[leftStartNode] + left.nodeStartOverlap[leftStartNode];
+		size_t rightOffset = rightIndex - right.nodeStartPoses[rightStartNode] + right.nodeStartOverlap[rightStartNode];
+		auto matchHere = getMatchLength(*left.nodePointers[leftStartNode], *right.nodePointers[rightStartNode], leftOffset, rightOffset);
+		if (matchHere == 0) return result;
+		result += matchHere;
+		if (result >= leftSize - leftStart || result >= rightSize - rightStart)
+		{
+			result = std::min(result, leftSize - leftStart);
+			result = std::min(result, rightSize - rightStart);
+			return result;
+		}
+		leftIndex += matchHere;
+		rightIndex += matchHere;
+	}
+}
+
+PathSequenceView getSequenceView(const std::vector<Node>& nodes, const std::vector<TwobitString>& nodeSeqs, const std::vector<TwobitString>& revCompNodeSeqs, const std::unordered_map<Node, phmap::flat_hash_set<std::tuple<Node, size_t, size_t>>>& edges, size_t leftClip, size_t rightClip)
 {
 	return PathSequenceView(nodes, nodeSeqs, revCompNodeSeqs, edges, leftClip, rightClip);
 }
@@ -1657,7 +1727,7 @@ size_t getEditDistanceWfa(const PathSequenceView& left, const PathSequenceView& 
 	offsets.resize(1, 0);
 	const size_t leftSize = left.size();
 	const size_t rightSize = right.size();
-	while (offsets[0] < leftSize && offsets[0] < rightSize && left[offsets[0]] == right[offsets[0]]) offsets[0] += 1;
+	offsets[0] = getMatchLength(left, right, 0, 0);
 	if (offsets[0] == leftSize) return rightSize - leftSize;
 	if (offsets[0] == rightSize) return leftSize - rightSize;
 	size_t zeroPos = 1;
@@ -1673,7 +1743,7 @@ size_t getEditDistanceWfa(const PathSequenceView& left, const PathSequenceView& 
 			assert(nextOffsets[i] + i >= zeroPos);
 			nextOffsets[i] = std::min(nextOffsets[i], rightSize - i + zeroPos);
 			nextOffsets[i] = std::min(nextOffsets[i], leftSize);
-			while (nextOffsets[i] < leftSize && nextOffsets[i]+i-zeroPos < rightSize && left[nextOffsets[i]] == right[nextOffsets[i]+i-zeroPos]) nextOffsets[i] += 1;
+			nextOffsets[i] += getMatchLength(left, right, nextOffsets[i], nextOffsets[i]+i-zeroPos);
 			if (nextOffsets[i] == leftSize && nextOffsets[i]+i-zeroPos == rightSize) return score;
 		}
 		std::swap(offsets, nextOffsets);
@@ -1703,15 +1773,15 @@ size_t getEditDistancePossiblyMemoized(const std::vector<Node>& left, const std:
 		{
 			assert(startClip + endClip < left.size());
 			assert(startClip + endClip < right.size());
-			auto leftSubseq = getSequenceView(std::vector<Node> { left.begin() + startClip, left.end() - endClip }, graph.nodeSeqs, graph.revCompNodeSeqs, graph.edges, leftStartClipBp, leftEndClipBp);
-			auto rightSubseq = getSequenceView(std::vector<Node> { right.begin() + startClip, right.end() - endClip }, graph.nodeSeqs, graph.revCompNodeSeqs, graph.edges, rightStartClipBp, rightEndClipBp);
+			auto leftSubseq = getSequenceView(std::vector<Node> { left.begin() + startClip, left.end() - endClip }, graph.nodeSeqsTwobit, graph.revCompNodeSeqsTwobit, graph.edges, leftStartClipBp, leftEndClipBp);
+			auto rightSubseq = getSequenceView(std::vector<Node> { right.begin() + startClip, right.end() - endClip }, graph.nodeSeqsTwobit, graph.revCompNodeSeqsTwobit, graph.edges, rightStartClipBp, rightEndClipBp);
 			add = getEditDistanceWfa(leftSubseq, rightSubseq, maxEdits);
 			if (leftStartClipBp == 0 && rightStartClipBp == 0 && leftEndClipBp == 0 && rightEndClipBp == 0) memoizedEditDistances[key] = add;
 		}
 		else
 		{
-			auto leftSubseq = getSequenceView(left, graph.nodeSeqs, graph.revCompNodeSeqs, graph.edges, leftStartClipBp, leftEndClipBp);
-			auto rightSubseq = getSequenceView(right, graph.nodeSeqs, graph.revCompNodeSeqs, graph.edges, rightStartClipBp, rightEndClipBp);
+			auto leftSubseq = getSequenceView(left, graph.nodeSeqsTwobit, graph.revCompNodeSeqsTwobit, graph.edges, leftStartClipBp, leftEndClipBp);
+			auto rightSubseq = getSequenceView(right, graph.nodeSeqsTwobit, graph.revCompNodeSeqsTwobit, graph.edges, rightStartClipBp, rightEndClipBp);
 			add = getEditDistanceWfa(leftSubseq, rightSubseq, maxEdits);
 			if (leftStartClipBp == 0 && rightStartClipBp == 0 && leftEndClipBp == 0 && rightEndClipBp == 0) memoizedEditDistances[key] = add;
 		}
