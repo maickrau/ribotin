@@ -1655,9 +1655,11 @@ size_t getEditDistanceWfa(const PathSequenceView& left, const PathSequenceView& 
 	std::vector<size_t> offsets;
 	std::vector<size_t> nextOffsets;
 	offsets.resize(1, 0);
-	while (offsets[0] < left.size() && offsets[0] < right.size() && left[offsets[0]] == right[offsets[0]]) offsets[0] += 1;
-	if (offsets[0] == left.size()) return right.size() - left.size();
-	if (offsets[0] == right.size()) return left.size() - right.size();
+	const size_t leftSize = left.size();
+	const size_t rightSize = right.size();
+	while (offsets[0] < leftSize && offsets[0] < rightSize && left[offsets[0]] == right[offsets[0]]) offsets[0] += 1;
+	if (offsets[0] == leftSize) return rightSize - leftSize;
+	if (offsets[0] == rightSize) return leftSize - rightSize;
 	size_t zeroPos = 1;
 	for (size_t score = 0; score < maxEdits; score++)
 	{
@@ -1669,10 +1671,10 @@ size_t getEditDistanceWfa(const PathSequenceView& left, const PathSequenceView& 
 			if (i >= 2) nextOffsets[i] = std::max(nextOffsets[i], offsets[i-2]);
 			if (i < nextOffsets.size()-2) nextOffsets[i] = std::max(nextOffsets[i], offsets[i]+1);
 			assert(nextOffsets[i] + i >= zeroPos);
-			nextOffsets[i] = std::min(nextOffsets[i], right.size() - i + zeroPos);
-			nextOffsets[i] = std::min(nextOffsets[i], left.size());
-			while (nextOffsets[i] < left.size() && nextOffsets[i]+i-zeroPos < right.size() && left[nextOffsets[i]] == right[nextOffsets[i]+i-zeroPos]) nextOffsets[i] += 1;
-			if (nextOffsets[i] == left.size() && nextOffsets[i]+i-zeroPos == right.size()) return score;
+			nextOffsets[i] = std::min(nextOffsets[i], rightSize - i + zeroPos);
+			nextOffsets[i] = std::min(nextOffsets[i], leftSize);
+			while (nextOffsets[i] < leftSize && nextOffsets[i]+i-zeroPos < rightSize && left[nextOffsets[i]] == right[nextOffsets[i]+i-zeroPos]) nextOffsets[i] += 1;
+			if (nextOffsets[i] == leftSize && nextOffsets[i]+i-zeroPos == rightSize) return score;
 		}
 		std::swap(offsets, nextOffsets);
 		zeroPos += 1;
