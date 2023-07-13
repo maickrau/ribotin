@@ -490,6 +490,8 @@ size_t getMatchLength(const PathSequenceView& left, const PathSequenceView& righ
 	size_t rightIndex = rightStart + right.leftClip;
 	size_t leftSize = left.size();
 	size_t rightSize = right.size();
+	if (leftIndex == leftSize + left.leftClip) return 0;
+	if (rightIndex == rightSize + right.leftClip) return 0;
 	assert(leftIndex < leftSize + left.leftClip);
 	assert(rightIndex < rightSize + right.leftClip);
 	size_t leftStartNode = 0;
@@ -1737,17 +1739,25 @@ size_t getEditDistanceWfa(const PathSequenceView& left, const PathSequenceView& 
 		for (size_t i = 0; i < nextOffsets.size(); i++)
 		{
 			nextOffsets[i] = 0;
+			if (zeroPos > i && zeroPos-i > leftSize) continue;
+			if (zeroPos+i >= rightSize) break;
 			if (i >= 1 && i < nextOffsets.size()-1) nextOffsets[i] = offsets[i-1]+1;
 			if (i >= 2) nextOffsets[i] = std::max(nextOffsets[i], offsets[i-2]);
 			if (i < nextOffsets.size()-2) nextOffsets[i] = std::max(nextOffsets[i], offsets[i]+1);
 			assert(nextOffsets[i] + i >= zeroPos);
+			size_t offsetone = nextOffsets[i];
 			nextOffsets[i] = std::min(nextOffsets[i], rightSize - i + zeroPos);
+			assert(nextOffsets[i]+i-zeroPos <= rightSize);
+			size_t offsettwo = nextOffsets[i];
 			nextOffsets[i] = std::min(nextOffsets[i], leftSize);
+			assert(nextOffsets[i]+i-zeroPos <= rightSize);
+			assert(nextOffsets[i] <= leftSize);
 			nextOffsets[i] += getMatchLength(left, right, nextOffsets[i], nextOffsets[i]+i-zeroPos);
 			if (nextOffsets[i] == leftSize && nextOffsets[i]+i-zeroPos == rightSize) return score;
 		}
 		std::swap(offsets, nextOffsets);
 		zeroPos += 1;
+		assert(score < leftSize+rightSize);
 	}
 	return maxEdits+1;
 }
@@ -2184,7 +2194,7 @@ std::vector<std::vector<OntLoop>> splitCluster(const std::vector<OntLoop>& loops
 			editHistogram[edits] += 1;
 		}
 	}
-	if (loops.size() >= 1000)
+	if (loops.size() >= 500)
 	{
 		std::cerr << "histogram:" << std::endl;
 		for (size_t i = 0; i < maxEdits; i++)
@@ -2222,6 +2232,7 @@ std::vector<std::vector<OntLoop>> splitCluster(const std::vector<OntLoop>& loops
 		auto potentialClusters = clusterLoopSequences(loops, graph, pathStartClip, pathEndClip, coreNodes, edits+1);
 		if (potentialClusters.size() == 1)
 		{
+			std::cerr << "did not split cluster with " << loops.size() << " reads" << std::endl;
 			result.push_back(loops);
 			return result;
 		}
