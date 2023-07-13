@@ -2160,123 +2160,56 @@ std::vector<std::vector<OntLoop>> clusterLoopSequences(const std::vector<OntLoop
 	return result;
 }
 
-std::vector<std::vector<OntLoop>> splitCluster(const std::vector<OntLoop>& loops, const GfaGraph& graph, const std::unordered_map<Node, size_t>& pathStartClip, const std::unordered_map<Node, size_t>& pathEndClip, const std::unordered_set<size_t>& coreNodes, const size_t maxEdits, const size_t editDiff, const size_t minClusterSize)
+std::vector<std::vector<OntLoop>> splitClusters(const std::vector<std::vector<OntLoop>>& clusters, const GfaGraph& graph, const std::unordered_map<Node, size_t>& pathStartClip, const std::unordered_map<Node, size_t>& pathEndClip, const std::unordered_set<size_t>& coreNodes, const size_t maxEdits)
 {
-	std::vector<std::vector<OntLoop>> result;
-	if (loops.size() < 2*minClusterSize)
-	{
-		std::cerr << "did not split small cluster with " << loops.size() << " reads" << std::endl;
-		result.emplace_back(loops);
-		return result;
-	}
-	std::cerr << "check cluster with " << loops.size() << " reads" << std::endl;
 	std::vector<size_t> editHistogram;
 	editHistogram.resize(maxEdits, 0);
-	std::vector<phmap::flat_hash_map<Node, size_t>> nodeCountIndex;
-	std::vector<phmap::flat_hash_map<Node, size_t>> nodePosIndex;
-	nodeCountIndex.resize(loops.size());
-	nodePosIndex.resize(loops.size());
-	for (size_t i = 0; i < loops.size(); i++)
-	{
-		for (size_t j = 0; j < loops[i].path.size(); j++)
-		{
-			nodeCountIndex[i][loops[i].path[j]] += 1;
-			nodePosIndex[i][loops[i].path[j]] = j;
-		}
-	}
 	std::unordered_map<std::pair<std::vector<Node>, std::vector<Node>>, size_t> memoizedEditDistances;
-	for (size_t i = 0; i < loops.size(); i++)
+	for (size_t clusteri = 0; clusteri < clusters.size(); clusteri++)
 	{
-		for (size_t j = 0; j < i; j++)
+		std::vector<phmap::flat_hash_map<Node, size_t>> nodeCountIndex;
+		std::vector<phmap::flat_hash_map<Node, size_t>> nodePosIndex;
+		nodeCountIndex.resize(clusters[clusteri].size());
+		nodePosIndex.resize(clusters[clusteri].size());
+		for (size_t i = 0; i < clusters[clusteri].size(); i++)
 		{
-			size_t edits = getEditDistance(loops[i].path, i, loops[j].path, j, graph, pathStartClip, pathEndClip, maxEdits, coreNodes, nodeCountIndex, nodePosIndex, memoizedEditDistances);
-			if (edits >= maxEdits) edits = maxEdits-1;
-			editHistogram[edits] += 1;
+			for (size_t j = 0; j < clusters[clusteri][i].path.size(); j++)
+			{
+				nodeCountIndex[i][clusters[clusteri][i].path[j]] += 1;
+				nodePosIndex[i][clusters[clusteri][i].path[j]] = j;
+			}
+		}
+		for (size_t i = 0; i < clusters[clusteri].size(); i++)
+		{
+			for (size_t j = 0; j < i; j++)
+			{
+				size_t edits = getEditDistance(clusters[clusteri][i].path, i, clusters[clusteri][j].path, j, graph, pathStartClip, pathEndClip, maxEdits, coreNodes, nodeCountIndex, nodePosIndex, memoizedEditDistances);
+				if (edits >= maxEdits) edits = maxEdits-1;
+				editHistogram[edits] += 1;
+			}
 		}
 	}
-	if (loops.size() >= 500)
+	size_t histogramPeak = 0;
+	for (size_t i = 0; i < editHistogram.size()-1; i++)
 	{
-		std::cerr << "histogram:" << std::endl;
-		for (size_t i = 0; i < maxEdits; i++)
-		{
-			if (editHistogram[i] > 0)
-			{
-				std::cerr << i << ": " << editHistogram[i] << std::endl;
-			}
-		}
+		if (editHistogram[i] >= editHistogram[histogramPeak]) histogramPeak = i;
 	}
-	for (size_t edits = 0; edits+editDiff <= maxEdits; edits++)
+	std::cerr << "edit distance peak at " << histogramPeak << std::endl;
+	size_t newEditDistance = histogramPeak*2;
+	if (newEditDistance >= maxEdits)
 	{
-		if (editHistogram[edits] == 0) continue;
-		bool hasGap = true;
-		for (size_t i = edits+1; i < edits+editDiff; i++)
-		{
-			if (editHistogram[i] != 0)
-			{
-				hasGap = false;
-				break;
-			}
-		}
-		if (!hasGap) continue;
-		bool hasBigger = false;
-		for (size_t i = edits+editDiff; i < maxEdits; i++)
-		{
-			if (editHistogram[i] != 0)
-			{
-				hasBigger = true;
-				break;
-			}
-		}
-		if (!hasBigger) break;
-		std::cerr << "try split cluster with " << loops.size() << " reads and max edit " << edits+1 << std::endl;
-		auto potentialClusters = clusterLoopSequences(loops, graph, pathStartClip, pathEndClip, coreNodes, edits+1);
-		if (potentialClusters.size() == 1)
-		{
-			std::cerr << "did not split cluster with " << loops.size() << " reads" << std::endl;
-			result.push_back(loops);
-			return result;
-		}
-		bool hasTooSmall = false;
-		for (size_t i = 0; i < potentialClusters.size(); i++)
-		{
-			if (potentialClusters[i].size() < minClusterSize)
-			{
-				hasTooSmall = true;
-				break;
-			}
-		}
-		if (hasTooSmall) continue;
-		std::cerr << "splitted cluster with " << loops.size() << " reads into " << potentialClusters.size() << " clusters, recursive split" << std::endl;
-		for (size_t i = 0; i < potentialClusters.size(); i++)
-		{
-			auto recursivelySplitted = splitCluster(potentialClusters[i], graph, pathStartClip, pathEndClip, coreNodes, edits+1, editDiff, minClusterSize);
-			while (recursivelySplitted.size() > 0)
-			{
-				result.emplace_back();
-				std::swap(result.back(), recursivelySplitted.back());
-				recursivelySplitted.pop_back();
-			}
-		}
-		std::cerr << "splitted cluster with " << loops.size() << " reads into " << result.size() << " clusters" << std::endl;
-		return result;
+		return clusters;
 	}
-	std::cerr << "did not split cluster with " << loops.size() << " reads" << std::endl;
-	assert(result.size() == 0);
-	result.emplace_back(loops);
-	return result;
-}
-
-std::vector<std::vector<OntLoop>> splitClusters(const std::vector<std::vector<OntLoop>>& loops, const GfaGraph& graph, const std::unordered_map<Node, size_t>& pathStartClip, const std::unordered_map<Node, size_t>& pathEndClip, const std::unordered_set<size_t>& coreNodes, const size_t maxEdits, const size_t editDiff, const size_t minClusterSize)
-{
+	std::cerr << "recluster with max edit distance " << newEditDistance << std::endl;
 	std::vector<std::vector<OntLoop>> result;
-	for (size_t i = 0; i < loops.size(); i++)
+	for (size_t i = 0; i < clusters.size(); i++)
 	{
-		auto splitted = splitCluster(loops[i], graph, pathStartClip, pathEndClip, coreNodes, maxEdits, editDiff, minClusterSize);
-		while (splitted.size() > 0)
+		auto partialResult = clusterLoopSequences(clusters[i], graph, pathStartClip, pathEndClip, coreNodes, newEditDistance);
+		while (partialResult.size() > 0)
 		{
 			result.emplace_back();
-			std::swap(result.back(), splitted.back());
-			splitted.pop_back();
+			std::swap(result.back(), partialResult.back());
+			partialResult.pop_back();
 		}
 	}
 	return result;
@@ -2900,7 +2833,7 @@ void DoClusterONTAnalysis(const ClusterParams& params)
 	auto unphasedClusters = clusterLoopSequences(loopSequences, graph, pathStartClip, pathEndClip, coreNodes, params.maxClusterDifference);
 	std::cerr << unphasedClusters.size() << " morph clusters" << std::endl;
 	std::cerr << "split morph clusters" << std::endl;
-	auto clusters = splitClusters(unphasedClusters, graph, pathStartClip, pathEndClip, coreNodes, params.maxClusterDifference, 5, 20);
+	auto clusters = splitClusters(unphasedClusters, graph, pathStartClip, pathEndClip, coreNodes, params.maxClusterDifference);
 	std::cerr << clusters.size() << " splitted morph clusters" << std::endl;
 	std::cerr << "phase morph clusters" << std::endl;
 	clusters = phaseClusters(clusters);
