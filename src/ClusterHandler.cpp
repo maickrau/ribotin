@@ -1769,32 +1769,10 @@ size_t getEditDistancePossiblyMemoized(const std::vector<Node>& left, const std:
 	size_t add;
 	if (memoizedEditDistances.count(key) == 0 || (leftStartClipBp != 0 || rightStartClipBp != 0 || leftEndClipBp != 0 || rightEndClipBp != 0))
 	{
-		size_t startClip = 0;
-		size_t endClip = 0;
-		if (left[0] == right[0])
-		{
-			while (startClip+1 < left.size() && startClip+1 < right.size() && left[startClip+1] == right[startClip+1]) startClip += 1;
-		}
-		if (left.back() == right.back())
-		{
-			while (startClip+endClip+1 < left.size() && startClip+endClip+1 < right.size() && left[left.size()-2-endClip] == right[right.size()-2-endClip]) endClip += 1;
-		}
-		if (startClip > 0 || endClip > 0)
-		{
-			assert(startClip + endClip < left.size());
-			assert(startClip + endClip < right.size());
-			auto leftSubseq = getSequenceView(std::vector<Node> { left.begin() + startClip, left.end() - endClip }, graph.nodeSeqsTwobit, graph.revCompNodeSeqsTwobit, graph.edges, leftStartClipBp, leftEndClipBp);
-			auto rightSubseq = getSequenceView(std::vector<Node> { right.begin() + startClip, right.end() - endClip }, graph.nodeSeqsTwobit, graph.revCompNodeSeqsTwobit, graph.edges, rightStartClipBp, rightEndClipBp);
-			add = getEditDistanceWfa(leftSubseq, rightSubseq, maxEdits);
-			if (leftStartClipBp == 0 && rightStartClipBp == 0 && leftEndClipBp == 0 && rightEndClipBp == 0) memoizedEditDistances[key] = add;
-		}
-		else
-		{
-			auto leftSubseq = getSequenceView(left, graph.nodeSeqsTwobit, graph.revCompNodeSeqsTwobit, graph.edges, leftStartClipBp, leftEndClipBp);
-			auto rightSubseq = getSequenceView(right, graph.nodeSeqsTwobit, graph.revCompNodeSeqsTwobit, graph.edges, rightStartClipBp, rightEndClipBp);
-			add = getEditDistanceWfa(leftSubseq, rightSubseq, maxEdits);
-			if (leftStartClipBp == 0 && rightStartClipBp == 0 && leftEndClipBp == 0 && rightEndClipBp == 0) memoizedEditDistances[key] = add;
-		}
+		auto leftSubseq = getSequenceView(left, graph.nodeSeqsTwobit, graph.revCompNodeSeqsTwobit, graph.edges, leftStartClipBp, leftEndClipBp);
+		auto rightSubseq = getSequenceView(right, graph.nodeSeqsTwobit, graph.revCompNodeSeqsTwobit, graph.edges, rightStartClipBp, rightEndClipBp);
+		add = getEditDistanceWfa(leftSubseq, rightSubseq, maxEdits);
+		if (leftStartClipBp == 0 && rightStartClipBp == 0 && leftEndClipBp == 0 && rightEndClipBp == 0) memoizedEditDistances[key] = add;
 	}
 	else
 	{
@@ -2160,13 +2138,97 @@ std::vector<std::vector<OntLoop>> clusterLoopSequences(const std::vector<OntLoop
 	return result;
 }
 
-std::vector<std::vector<OntLoop>> splitClusters(const std::vector<std::vector<OntLoop>>& clusters, const GfaGraph& graph, const std::unordered_map<Node, size_t>& pathStartClip, const std::unordered_map<Node, size_t>& pathEndClip, const std::unordered_set<size_t>& coreNodes, const size_t maxEdits)
+std::vector<std::vector<OntLoop>> clusterByDbscan(const std::vector<OntLoop>& cluster, const size_t epsilon, const size_t minPoints, const std::vector<std::vector<uint16_t>>& editDistanceMatrix)
+{
+	// O(n^2) is fast enough for the cluster sizes here
+	std::vector<bool> corePoint;
+	corePoint.resize(cluster.size(), false);
+	for (size_t i = 0; i < cluster.size(); i++)
+	{
+		size_t nearPoints = 0;
+		for (size_t j = 0; j < cluster.size(); j++)
+		{
+			if (i == j) continue;
+			size_t canoni = std::max(i, j);
+			size_t canonj = std::min(i, j);
+			if (editDistanceMatrix[canoni][canonj] > epsilon) continue;
+			nearPoints += 1;
+			if (nearPoints == minPoints)
+			{
+				corePoint[i] = true;
+				break;
+			}
+		}
+	}
+	std::vector<size_t> parent;
+	parent.resize(cluster.size(), 0);
+	for (size_t i = 0; i < cluster.size(); i++)
+	{
+		parent[i] = i;
+	}
+	for (size_t i = 0; i < cluster.size(); i++)
+	{
+		if (!corePoint[i]) continue;
+		for (size_t j = 0; j < cluster.size(); j++)
+		{
+			if (i == j) continue;
+			if (!corePoint[j]) continue;
+			size_t canoni = std::max(i, j);
+			size_t canonj = std::min(i, j);
+			if (editDistanceMatrix[canoni][canonj] > epsilon) continue;
+			while (parent[parent[i]] != parent[i]) parent[i] = parent[parent[i]];
+			while (parent[parent[j]] != parent[j]) parent[j] = parent[parent[j]];
+			parent[parent[j]] = parent[i];
+		}
+	}
+	std::vector<size_t> uniqueClusterForEdgePoint;
+	uniqueClusterForEdgePoint.resize(cluster.size(), std::numeric_limits<size_t>::max()-1);
+	for (size_t i = 0; i < cluster.size(); i++)
+	{
+		if (corePoint[i]) continue;
+		for (size_t j = 0; j < cluster.size(); j++)
+		{
+			if (i == j) continue;
+			if (!corePoint[j]) continue;
+			size_t canoni = std::max(i, j);
+			size_t canonj = std::min(i, j);
+			if (editDistanceMatrix[canoni][canonj] > epsilon) continue;
+			if (uniqueClusterForEdgePoint[i] == std::numeric_limits<size_t>::max()-1)
+			{
+				uniqueClusterForEdgePoint[i] = parent[j];
+				parent[i] = parent[j];
+			}
+			else if (uniqueClusterForEdgePoint[i] != parent[j])
+			{
+				uniqueClusterForEdgePoint[i] = std::numeric_limits<size_t>::max();
+			}
+		}
+	}
+	std::vector<size_t> clusterMapping;
+	std::vector<std::vector<OntLoop>> result;
+	clusterMapping.resize(cluster.size(), std::numeric_limits<size_t>::max());
+	for (size_t i = 0; i < cluster.size(); i++)
+	{
+		if (!corePoint[i] && (uniqueClusterForEdgePoint[i] == std::numeric_limits<size_t>::max() || uniqueClusterForEdgePoint[i] == std::numeric_limits<size_t>::max()-1)) continue;
+		if (clusterMapping[parent[i]] == std::numeric_limits<size_t>::max())
+		{
+			clusterMapping[parent[i]] = result.size();
+			result.emplace_back();
+		}
+		result[clusterMapping[parent[i]]].emplace_back(cluster[i]);
+	}
+	return result;
+}
+
+std::vector<std::vector<OntLoop>> splitClusters(const std::vector<std::vector<OntLoop>>& clusters, const GfaGraph& graph, const std::unordered_map<Node, size_t>& pathStartClip, const std::unordered_map<Node, size_t>& pathEndClip, const std::unordered_set<size_t>& coreNodes, const size_t maxEdits, const size_t minPoints)
 {
 	std::vector<size_t> editHistogram;
 	editHistogram.resize(maxEdits, 0);
-	std::unordered_map<std::pair<std::vector<Node>, std::vector<Node>>, size_t> memoizedEditDistances;
+	std::vector<std::vector<std::vector<uint16_t>>> editDistanceMatrices;
+	editDistanceMatrices.resize(clusters.size());
 	for (size_t clusteri = 0; clusteri < clusters.size(); clusteri++)
 	{
+		editDistanceMatrices[clusteri].resize(clusters[clusteri].size());
 		std::vector<phmap::flat_hash_map<Node, size_t>> nodeCountIndex;
 		std::vector<phmap::flat_hash_map<Node, size_t>> nodePosIndex;
 		nodeCountIndex.resize(clusters[clusteri].size());
@@ -2179,12 +2241,15 @@ std::vector<std::vector<OntLoop>> splitClusters(const std::vector<std::vector<On
 				nodePosIndex[i][clusters[clusteri][i].path[j]] = j;
 			}
 		}
+		std::unordered_map<std::pair<std::vector<Node>, std::vector<Node>>, size_t> memoizedEditDistances;
 		for (size_t i = 0; i < clusters[clusteri].size(); i++)
 		{
+			editDistanceMatrices[clusteri][i].resize(i);
 			for (size_t j = 0; j < i; j++)
 			{
 				size_t edits = getEditDistance(clusters[clusteri][i].path, i, clusters[clusteri][j].path, j, graph, pathStartClip, pathEndClip, maxEdits, coreNodes, nodeCountIndex, nodePosIndex, memoizedEditDistances);
 				if (edits >= maxEdits) edits = maxEdits-1;
+				editDistanceMatrices[clusteri][i][j] = edits;
 				editHistogram[edits] += 1;
 			}
 		}
@@ -2195,16 +2260,22 @@ std::vector<std::vector<OntLoop>> splitClusters(const std::vector<std::vector<On
 		if (editHistogram[i] >= editHistogram[histogramPeak]) histogramPeak = i;
 	}
 	std::cerr << "edit distance peak at " << histogramPeak << std::endl;
-	size_t newEditDistance = histogramPeak*2;
+	size_t newEditDistance = histogramPeak;
 	if (newEditDistance >= maxEdits)
 	{
 		return clusters;
 	}
-	std::cerr << "recluster with max edit distance " << newEditDistance << std::endl;
+	std::cerr << "recluster with max edit distance " << newEditDistance << ", min points " << minPoints << std::endl;
 	std::vector<std::vector<OntLoop>> result;
 	for (size_t i = 0; i < clusters.size(); i++)
 	{
-		auto partialResult = clusterLoopSequences(clusters[i], graph, pathStartClip, pathEndClip, coreNodes, newEditDistance);
+		auto partialResult = clusterByDbscan(clusters[i], newEditDistance, minPoints, editDistanceMatrices[i]);
+		std::cerr << "cluster " << i << " with " << clusters[i].size() << " reads reclustered to " << partialResult.size() << " clusters, sizes:";
+		for (size_t j = 0; j < partialResult.size(); j++)
+		{
+			std::cerr << " " << partialResult[j].size();
+		}
+		std::cerr << std::endl;
 		while (partialResult.size() > 0)
 		{
 			result.emplace_back();
@@ -2833,7 +2904,7 @@ void DoClusterONTAnalysis(const ClusterParams& params)
 	auto unphasedClusters = clusterLoopSequences(loopSequences, graph, pathStartClip, pathEndClip, coreNodes, params.maxClusterDifference);
 	std::cerr << unphasedClusters.size() << " morph clusters" << std::endl;
 	std::cerr << "split morph clusters" << std::endl;
-	auto clusters = splitClusters(unphasedClusters, graph, pathStartClip, pathEndClip, coreNodes, params.maxClusterDifference);
+	auto clusters = splitClusters(unphasedClusters, graph, pathStartClip, pathEndClip, coreNodes, params.maxClusterDifference, 5);
 	std::cerr << clusters.size() << " splitted morph clusters" << std::endl;
 	std::cerr << "phase morph clusters" << std::endl;
 	clusters = phaseClusters(clusters);
