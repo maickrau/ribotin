@@ -617,6 +617,60 @@ public:
 	}
 };
 
+std::vector<Node> parsePath(const std::string& pathstr, const std::unordered_map<std::string, size_t>& nodeNameToId)
+{
+	std::vector<Node> result;
+	size_t lastStart = 0;
+	for (size_t i = 1; i < pathstr.size(); i++)
+	{
+		if (pathstr[i] != '<' && pathstr[i] != '>') continue;
+		result.emplace_back(nodeNameToId.at(pathstr.substr(lastStart+1, i - lastStart-1)), pathstr[lastStart] == '>');
+		lastStart = i;
+	}
+	result.emplace_back(nodeNameToId.at(pathstr.substr(lastStart+1)), pathstr[lastStart] == '>');
+	return result;
+}
+
+Path readHeavyPath(const GfaGraph& graph, const std::string& heavyPathGafFile)
+{
+	std::ifstream file { heavyPathGafFile };
+	std::string line;
+	getline(file, line);
+	auto parts = split(line, '\t');
+	Path result;
+	size_t pathLength = std::stoull(parts[6]);
+	size_t pathStart = std::stoull(parts[7]);
+	size_t pathEnd = std::stoull(parts[8]);
+	result.leftClip = pathStart;
+	result.rightClip = pathLength - pathEnd;
+	result.nodes = parsePath(parts[5], graph.nodeNameToId);
+	for (size_t i = 0; i < result.nodes.size(); i++)
+	{
+		Node prev;
+		if (i > 0)
+		{
+			prev = result.nodes[i-1];
+		}
+		else
+		{
+			prev = result.nodes.back();
+			if (prev == result.nodes[0])
+			{
+				assert(result.nodes.size() >= 3);
+				prev = result.nodes[result.nodes.size()-2];
+			}
+		}
+		assert(graph.edges.count(prev) == 1);
+		for (auto edge : graph.edges.at(prev))
+		{
+			if (std::get<0>(edge) != result.nodes[i]) continue;
+			result.overlaps.push_back(std::get<1>(edge));
+		}
+	}
+	assert(result.getSequence(graph.nodeSeqs).size() == pathEnd - pathStart);
+	return result;
+}
+
 Path getHeavyPath(const GfaGraph& graph)
 {
 	size_t maxCoverageNode = 0;
@@ -714,20 +768,6 @@ void runMBG(std::string basePath, std::string readPath, std::string MBGPath, siz
 	}
 }
 
-std::vector<Node> parsePath(const std::string& pathstr, const std::unordered_map<std::string, size_t>& nodeNameToId)
-{
-	std::vector<Node> result;
-	size_t lastStart = 0;
-	for (size_t i = 1; i < pathstr.size(); i++)
-	{
-		if (pathstr[i] != '<' && pathstr[i] != '>') continue;
-		result.emplace_back(nodeNameToId.at(pathstr.substr(lastStart+1, i - lastStart-1)), pathstr[lastStart] == '>');
-		lastStart = i;
-	}
-	result.emplace_back(nodeNameToId.at(pathstr.substr(lastStart+1)), pathstr[lastStart] == '>');
-	return result;
-}
-
 std::vector<ReadPath> loadReadPaths(const std::string& filename, const GfaGraph& graph)
 {
 	std::vector<ReadPath> result;
@@ -744,8 +784,8 @@ std::vector<ReadPath> loadReadPaths(const std::string& filename, const GfaGraph&
 		size_t readend = std::stoull(parts[3]);
 		std::string pathstr = parts[5];
 		size_t pathLength = std::stoull(parts[6]);
-		size_t pathStart = std::stoull(parts[6]);
-		size_t pathEnd = std::stoull(parts[6]);
+		size_t pathStart = std::stoull(parts[7]);
+		size_t pathEnd = std::stoull(parts[8]);
 		here.pathStartClip = pathStart;
 		here.pathEndClip = pathLength - pathEnd;
 		here.path = parsePath(pathstr, graph.nodeNameToId);
@@ -2733,14 +2773,9 @@ void DoClusterONTAnalysis(const ClusterParams& params)
 {
 	std::cerr << "reading graph" << std::endl;
 	GfaGraph graph;
-	graph.loadFromFile(params.basePath + "/graph.gfa");
-	std::cerr << "getting consensus" << std::endl;
-	Path heavyPath = getHeavyPath(graph);
-	if (params.orientReferencePath.size() > 0)
-	{
-		std::cerr << "orienting consensus" << std::endl;
-		heavyPath = orientPath(graph, heavyPath, params.orientReferencePath, 101);
-	}
+	graph.loadFromFile(params.basePath + "/variant-graph.gfa");
+	std::cerr << "reading consensus" << std::endl;
+	Path heavyPath = readHeavyPath(graph, params.basePath + "/consensus_path.gaf");
 	std::cerr << "extract corrected ultralong paths" << std::endl;
 	size_t heavyPathLength = heavyPath.getSequence(graph.nodeSeqs).size();
 	size_t minLength = heavyPathLength * 0.5;
