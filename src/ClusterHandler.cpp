@@ -951,6 +951,115 @@ void writeVariants(const Path& heavyPath, const GfaGraph& graph, const std::vect
 	}
 }
 
+void writeAlleleGraph(const GfaGraph& fullGraph, const Path& heavyPath, const std::vector<Variant>& variants, std::string alleleGraphFileName)
+{
+	std::vector<bool> referenceNode;
+	referenceNode.resize(fullGraph.numNodes(), false);
+	for (size_t i = 0; i < heavyPath.nodes.size(); i++)
+	{
+		referenceNode[heavyPath.nodes[i].id()] = true;
+	}
+	std::ofstream out { alleleGraphFileName };
+	for (size_t i = 0; i < fullGraph.numNodes(); i++)
+	{
+		if (!referenceNode[i]) continue;
+		out << "S\t" << fullGraph.nodeNames[i] << "\t" << fullGraph.nodeSeqs[i] << "\tll:f:" << fullGraph.nodeCoverages[i] << "\tFC:f:" << (fullGraph.nodeCoverages[i] * fullGraph.nodeSeqs[i].size()) << std::endl;
+	}
+	for (size_t i = 0; i < heavyPath.nodes.size(); i++)
+	{
+		if (i == 0 && heavyPath.nodes[0] == heavyPath.nodes.back()) continue;
+		Node prev;
+		if (i == 0)
+		{
+			prev = heavyPath.nodes.back();
+		}
+		else
+		{
+			prev = heavyPath.nodes[i-1];
+		}
+		Node curr = heavyPath.nodes[i];
+		assert(fullGraph.edges.count(prev) == 1);
+		size_t overlap = std::numeric_limits<size_t>::max();
+		for (auto edge : fullGraph.edges.at(prev))
+		{
+			if (std::get<0>(edge) != curr) continue;
+			assert(overlap == std::numeric_limits<size_t>::max());
+			overlap = std::get<1>(edge);
+		}
+		assert(overlap != std::numeric_limits<size_t>::max());
+		out << "L\t" << fullGraph.nodeNames[prev.id()] << "\t" << (prev.forward() ? "+" : "-") << "\t" << fullGraph.nodeNames[curr.id()] << "\t" << (curr.forward() ? "+" : "-") << "\t" << overlap << "M" << std::endl;
+	}
+	for (size_t i = 0; i < variants.size(); i++)
+	{
+		assert(variants[i].path.size() >= 2);
+		if (variants[i].path.size() == 2)
+		{
+			Node prev = variants[i].path[0];
+			Node curr = variants[i].path[1];
+			assert(fullGraph.edges.count(prev) == 1);
+			size_t overlap = std::numeric_limits<size_t>::max();
+			for (auto edge : fullGraph.edges.at(prev))
+			{
+				if (std::get<0>(edge) != curr) continue;
+				assert(overlap == std::numeric_limits<size_t>::max());
+				overlap = std::get<1>(edge);
+			}
+			assert(overlap != std::numeric_limits<size_t>::max());
+			out << "L\t" << fullGraph.nodeNames[prev.id()] << "\t" << (prev.forward() ? "+" : "-") << "\t" << fullGraph.nodeNames[curr.id()] << "\t" << (curr.forward() ? "+" : "-") << "\t" << overlap << "M" << std::endl;
+			continue;
+		}
+		assert(referenceNode[variants[i].path[0].id()]);
+		assert(referenceNode[variants[i].path.back().id()]);
+		for (size_t j = 1; j < variants[i].path.size()-1; j++)
+		{
+			out << "S\t" << fullGraph.nodeNames[variants[i].path[j].id()] << "_" << i << "\t" << fullGraph.nodeSeqs[variants[i].path[j].id()] << "\tll:f:" << variants[i].coverage << "\tFC:f:" << (variants[i].coverage * fullGraph.nodeSeqs[variants[i].path[j].id()].size()) << std::endl;
+		}
+		{
+			Node prev = variants[i].path[0];
+			Node curr = variants[i].path[1];
+			assert(fullGraph.edges.count(prev) == 1);
+			size_t overlap = std::numeric_limits<size_t>::max();
+			for (auto edge : fullGraph.edges.at(prev))
+			{
+				if (std::get<0>(edge) != curr) continue;
+				assert(overlap == std::numeric_limits<size_t>::max());
+				overlap = std::get<1>(edge);
+			}
+			assert(overlap != std::numeric_limits<size_t>::max());
+			out << "L\t" << fullGraph.nodeNames[prev.id()] << "\t" << (prev.forward() ? "+" : "-") << "\t" << fullGraph.nodeNames[curr.id()] << "_" << i << "\t" << (curr.forward() ? "+" : "-") << "\t" << overlap << "M" << std::endl;
+		}
+		{
+			Node prev = variants[i].path[variants[i].path.size()-2];
+			Node curr = variants[i].path[variants[i].path.size()-1];
+			assert(fullGraph.edges.count(prev) == 1);
+			size_t overlap = std::numeric_limits<size_t>::max();
+			for (auto edge : fullGraph.edges.at(prev))
+			{
+				if (std::get<0>(edge) != curr) continue;
+				assert(overlap == std::numeric_limits<size_t>::max());
+				overlap = std::get<1>(edge);
+			}
+			assert(overlap != std::numeric_limits<size_t>::max());
+			out << "L\t" << fullGraph.nodeNames[prev.id()] << "_" << i << "\t" << (prev.forward() ? "+" : "-") << "\t" << fullGraph.nodeNames[curr.id()] << "\t" << (curr.forward() ? "+" : "-") << "\t" << overlap << "M" << std::endl;
+		}
+		for (size_t j = 2; j < variants[i].path.size()-1; j++)
+		{
+			Node prev = variants[i].path[j-1];
+			Node curr = variants[i].path[j];
+			assert(fullGraph.edges.count(prev) == 1);
+			size_t overlap = std::numeric_limits<size_t>::max();
+			for (auto edge : fullGraph.edges.at(prev))
+			{
+				if (std::get<0>(edge) != curr) continue;
+				assert(overlap == std::numeric_limits<size_t>::max());
+				overlap = std::get<1>(edge);
+			}
+			assert(overlap != std::numeric_limits<size_t>::max());
+			out << "L\t" << fullGraph.nodeNames[prev.id()] << "_" << i << "\t" << (prev.forward() ? "+" : "-") << "\t" << fullGraph.nodeNames[curr.id()] << "_" << i << "\t" << (curr.forward() ? "+" : "-") << "\t" << overlap << "M" << std::endl;
+		}
+	}
+}
+
 void writeVariantGraph(std::string graphFileName, const GfaGraph& fullGraph, const Path& heavyPath, const std::vector<Variant>& variants, std::string variantGraphFileName)
 {
 	std::vector<bool> allowedNodes;
@@ -2632,6 +2741,8 @@ void HandleCluster(const ClusterParams& params)
 	writeVariants(heavyPath, graph, variants, params.basePath + "/variants.txt");
 	std::cerr << "writing variant graph" << std::endl;
 	writeVariantGraph(params.basePath + "/graph.gfa", graph, heavyPath, variants, params.basePath + "/variant-graph.gfa");
+	std::cerr << "writing allele graph" << std::endl;
+	writeAlleleGraph(graph, heavyPath, variants, params.basePath + "/allele-graph.gfa");
 	std::cerr << "writing variant vcf" << std::endl;
 	writeVariantVCF(params.basePath + "/variants.vcf", heavyPath, graph, variants);
 	if (params.annotationFasta.size() > 0)
@@ -2771,9 +2882,9 @@ void writeMorphGraphAndReadPaths(const std::string& graphFile, const std::string
 
 void DoClusterONTAnalysis(const ClusterParams& params)
 {
-	std::cerr << "reading graph" << std::endl;
+	std::cerr << "reading allele graph" << std::endl;
 	GfaGraph graph;
-	graph.loadFromFile(params.basePath + "/variant-graph.gfa");
+	graph.loadFromFile(params.basePath + "/allele-graph.gfa");
 	std::cerr << "reading consensus" << std::endl;
 	Path heavyPath = readHeavyPath(graph, params.basePath + "/consensus_path.gaf");
 	std::cerr << "extract corrected ultralong paths" << std::endl;

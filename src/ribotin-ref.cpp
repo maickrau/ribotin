@@ -197,8 +197,8 @@ int main(int argc, char** argv)
 	if (ontReadPaths.size() > 0)
 	{
 		std::cerr << "start ultralong ONT analysis" << std::endl;
-		std::cerr << "aligning ultralong ONT reads to variant graph" << std::endl;
-		AlignONTReads(clusterParams.basePath, clusterParams.GraphAlignerPath, clusterParams.ontReadPath, clusterParams.basePath + "/variant-graph.gfa", clusterParams.basePath + "/ont-alns.gaf", clusterParams.numThreads);
+		std::cerr << "aligning ultralong ONT reads to allele graph" << std::endl;
+		AlignONTReads(clusterParams.basePath, clusterParams.GraphAlignerPath, clusterParams.ontReadPath, clusterParams.basePath + "/allele-graph.gfa", clusterParams.basePath + "/ont-alns.gaf", clusterParams.numThreads);
 		DoClusterONTAnalysis(clusterParams);
 	}
 }
