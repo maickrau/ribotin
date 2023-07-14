@@ -951,6 +951,26 @@ void writeVariants(const Path& heavyPath, const GfaGraph& graph, const std::vect
 	}
 }
 
+bool alleleMatchLeft(const std::vector<Variant>& variants, size_t lefti, size_t leftj, size_t righti, size_t rightj)
+{
+	if (leftj != rightj) return false;
+	for (size_t k = 0; k < leftj; k++)
+	{
+		if (variants[lefti].path[k] != variants[righti].path[k]) return false;
+	}
+	return true;
+}
+
+bool alleleMatchRight(const std::vector<Variant>& variants, size_t lefti, size_t leftj, size_t righti, size_t rightj)
+{
+	if (variants[lefti].path.size()-leftj != variants[righti].path.size()-rightj) return false;
+	for (size_t k = 0; k < variants[lefti].path.size()-leftj; k++)
+	{
+		if (variants[lefti].path[leftj+k] != variants[righti].path[rightj+k]) return false;
+	}
+	return true;
+}
+
 void writeAlleleGraph(const GfaGraph& fullGraph, const Path& heavyPath, const std::vector<Variant>& variants, std::string alleleGraphFileName)
 {
 	std::vector<bool> referenceNode;
@@ -989,6 +1009,43 @@ void writeAlleleGraph(const GfaGraph& fullGraph, const Path& heavyPath, const st
 		assert(overlap != std::numeric_limits<size_t>::max());
 		out << "L\t" << fullGraph.nodeNames[prev.id()] << "\t" << (prev.forward() ? "+" : "-") << "\t" << fullGraph.nodeNames[curr.id()] << "\t" << (curr.forward() ? "+" : "-") << "\t" << overlap << "M" << std::endl;
 	}
+	std::vector<std::vector<std::pair<size_t, size_t>>> parent;
+	parent.resize(variants.size());
+	std::vector<std::vector<std::pair<size_t, size_t>>> nodePositions;
+	nodePositions.resize(fullGraph.numNodes());
+	for (size_t i = 0; i < variants.size(); i++)
+	{
+		parent[i].resize(variants[i].path.size());
+		for (size_t j = 0; j < variants[i].path.size(); j++)
+		{
+			parent[i][j] = std::make_pair(i, j);
+			nodePositions[variants[i].path[j].id()].emplace_back(i, j);
+		}
+	}
+	for (size_t i = 0; i < nodePositions.size(); i++)
+	{
+		if (nodePositions[i].size() < 2) continue;
+		for (size_t j = 0; j < nodePositions[i].size(); j++)
+		{
+			for (size_t k = 0; k < j; k++)
+			{
+				auto leftPos = nodePositions[i][j];
+				auto rightPos = nodePositions[i][k];
+				if (alleleMatchLeft(variants, leftPos.first, leftPos.second, rightPos.first, rightPos.second) || alleleMatchRight(variants, leftPos.first, leftPos.second, rightPos.first, rightPos.second))
+				{
+					while (parent[leftPos.first][leftPos.second] != parent[parent[leftPos.first][leftPos.second].first][parent[leftPos.first][leftPos.second].second])
+					{
+						parent[leftPos.first][leftPos.second] = parent[parent[leftPos.first][leftPos.second].first][parent[leftPos.first][leftPos.second].second];
+					}
+					while (parent[rightPos.first][rightPos.second] != parent[parent[rightPos.first][rightPos.second].first][parent[rightPos.first][rightPos.second].second])
+					{
+						parent[rightPos.first][rightPos.second] = parent[parent[rightPos.first][rightPos.second].first][parent[rightPos.first][rightPos.second].second];
+					}
+					parent[rightPos.first][rightPos.second] = parent[leftPos.first][leftPos.second];
+				}
+			}
+		}
+	}
 	for (size_t i = 0; i < variants.size(); i++)
 	{
 		assert(variants[i].path.size() >= 2);
@@ -1012,11 +1069,21 @@ void writeAlleleGraph(const GfaGraph& fullGraph, const Path& heavyPath, const st
 		assert(referenceNode[variants[i].path.back().id()]);
 		for (size_t j = 1; j < variants[i].path.size()-1; j++)
 		{
-			out << "S\t" << fullGraph.nodeNames[variants[i].path[j].id()] << "_" << i << "\t" << fullGraph.nodeSeqs[variants[i].path[j].id()] << "\tll:f:" << variants[i].coverage << "\tFC:f:" << (variants[i].coverage * fullGraph.nodeSeqs[variants[i].path[j].id()].size()) << std::endl;
+			std::pair<size_t, size_t> key = parent[i][j];
+			while (parent[key.first][key.second] != key)
+			{
+				key = parent[key.first][key.second];
+			}
+			out << "S\t" << fullGraph.nodeNames[variants[i].path[j].id()] << "_" << key.first << "_" << key.second << "\t" << fullGraph.nodeSeqs[variants[i].path[j].id()] << "\tll:f:" << variants[i].coverage << "\tFC:f:" << (variants[i].coverage * fullGraph.nodeSeqs[variants[i].path[j].id()].size()) << std::endl;
 		}
 		{
 			Node prev = variants[i].path[0];
 			Node curr = variants[i].path[1];
+			std::pair<size_t, size_t> key = parent[i][1];
+			while (parent[key.first][key.second] != key)
+			{
+				key = parent[key.first][key.second];
+			}
 			assert(fullGraph.edges.count(prev) == 1);
 			size_t overlap = std::numeric_limits<size_t>::max();
 			for (auto edge : fullGraph.edges.at(prev))
@@ -1026,11 +1093,16 @@ void writeAlleleGraph(const GfaGraph& fullGraph, const Path& heavyPath, const st
 				overlap = std::get<1>(edge);
 			}
 			assert(overlap != std::numeric_limits<size_t>::max());
-			out << "L\t" << fullGraph.nodeNames[prev.id()] << "\t" << (prev.forward() ? "+" : "-") << "\t" << fullGraph.nodeNames[curr.id()] << "_" << i << "\t" << (curr.forward() ? "+" : "-") << "\t" << overlap << "M" << std::endl;
+			out << "L\t" << fullGraph.nodeNames[prev.id()] << "\t" << (prev.forward() ? "+" : "-") << "\t" << fullGraph.nodeNames[curr.id()] << "_" << key.first << "_" << key.second << "\t" << (curr.forward() ? "+" : "-") << "\t" << overlap << "M" << std::endl;
 		}
 		{
 			Node prev = variants[i].path[variants[i].path.size()-2];
 			Node curr = variants[i].path[variants[i].path.size()-1];
+			std::pair<size_t, size_t> key = parent[i][variants[i].path.size()-2];
+			while (parent[key.first][key.second] != key)
+			{
+				key = parent[key.first][key.second];
+			}
 			assert(fullGraph.edges.count(prev) == 1);
 			size_t overlap = std::numeric_limits<size_t>::max();
 			for (auto edge : fullGraph.edges.at(prev))
@@ -1040,12 +1112,22 @@ void writeAlleleGraph(const GfaGraph& fullGraph, const Path& heavyPath, const st
 				overlap = std::get<1>(edge);
 			}
 			assert(overlap != std::numeric_limits<size_t>::max());
-			out << "L\t" << fullGraph.nodeNames[prev.id()] << "_" << i << "\t" << (prev.forward() ? "+" : "-") << "\t" << fullGraph.nodeNames[curr.id()] << "\t" << (curr.forward() ? "+" : "-") << "\t" << overlap << "M" << std::endl;
+			out << "L\t" << fullGraph.nodeNames[prev.id()] << "_" << key.first << "_" << key.second << "\t" << (prev.forward() ? "+" : "-") << "\t" << fullGraph.nodeNames[curr.id()] << "\t" << (curr.forward() ? "+" : "-") << "\t" << overlap << "M" << std::endl;
 		}
 		for (size_t j = 2; j < variants[i].path.size()-1; j++)
 		{
 			Node prev = variants[i].path[j-1];
 			Node curr = variants[i].path[j];
+			std::pair<size_t, size_t> fromkey = parent[i][j-1];
+			while (parent[fromkey.first][fromkey.second] != fromkey)
+			{
+				fromkey = parent[fromkey.first][fromkey.second];
+			}
+			std::pair<size_t, size_t> tokey = parent[i][j];
+			while (parent[tokey.first][tokey.second] != tokey)
+			{
+				tokey = parent[tokey.first][tokey.second];
+			}
 			assert(fullGraph.edges.count(prev) == 1);
 			size_t overlap = std::numeric_limits<size_t>::max();
 			for (auto edge : fullGraph.edges.at(prev))
@@ -1055,7 +1137,7 @@ void writeAlleleGraph(const GfaGraph& fullGraph, const Path& heavyPath, const st
 				overlap = std::get<1>(edge);
 			}
 			assert(overlap != std::numeric_limits<size_t>::max());
-			out << "L\t" << fullGraph.nodeNames[prev.id()] << "_" << i << "\t" << (prev.forward() ? "+" : "-") << "\t" << fullGraph.nodeNames[curr.id()] << "_" << i << "\t" << (curr.forward() ? "+" : "-") << "\t" << overlap << "M" << std::endl;
+			out << "L\t" << fullGraph.nodeNames[prev.id()] << "_" << fromkey.first << "_" << fromkey.second << "\t" << (prev.forward() ? "+" : "-") << "\t" << fullGraph.nodeNames[curr.id()] << "_" << tokey.first << "_" << tokey.second << "\t" << (curr.forward() ? "+" : "-") << "\t" << overlap << "M" << std::endl;
 		}
 	}
 }
