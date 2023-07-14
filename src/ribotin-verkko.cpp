@@ -112,12 +112,12 @@ void getKmers(std::string outputPrefix, size_t numClusters, std::string outputFi
 	}
 }
 
-void mergeVariantGraphs(std::string outputPrefix, size_t numClusters, std::string outputFile)
+void mergeGraphs(std::string outputPrefix, size_t numClusters, std::string outputFile)
 {
 	std::ofstream file { outputFile };
 	for (size_t i = 0; i < numClusters; i++)
 	{
-		std::ifstream variantgraph { outputPrefix + std::to_string(i) + "/variant-graph.gfa" };
+		std::ifstream variantgraph { outputPrefix + std::to_string(i) + "/allele-graph.gfa" };
 		while (variantgraph.good())
 		{
 			std::string line;
@@ -435,10 +435,10 @@ int main(int argc, char** argv)
 			readsfile << ">" << seq.seq_id << std::endl;
 			readsfile << seq.sequence << std::endl;
 		});
-		std::cerr << "merging variant graphs" << std::endl;
-		mergeVariantGraphs(outputPrefix, numClusters, ulTmpFolder + "/merged-variant-graph.gfa");
+		std::cerr << "merging allele graphs" << std::endl;
+		mergeGraphs(outputPrefix, numClusters, ulTmpFolder + "/merged-allele-graph.gfa");
 		std::cerr << "aligning ONT reads" << std::endl;
-		AlignONTReads(ulTmpFolder, GraphAlignerPath, ulTmpFolder + "/ont_reads.fa", ulTmpFolder + "/merged-variant-graph.gfa", ulTmpFolder + "/ont-alns.gaf", numThreads);
+		AlignONTReads(ulTmpFolder, GraphAlignerPath, ulTmpFolder + "/ont_reads.fa", ulTmpFolder + "/merged-allele-graph.gfa", ulTmpFolder + "/ont-alns.gaf", numThreads);
 		std::cerr << "splitting ONTs per cluster" << std::endl;
 		splitAlignmentsPerCluster(outputPrefix, numClusters, ulTmpFolder + "/ont-alns.gaf");
 		for (size_t i = 0; i < numClusters; i++)
