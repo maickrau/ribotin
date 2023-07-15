@@ -270,6 +270,7 @@ public:
 	void loadFromFile(std::string gfaFile)
 	{
 		std::ifstream file { gfaFile };
+		std::set<std::tuple<Node, Node, size_t, size_t>> fileedges;
 		while (file.good())
 		{
 			std::string line;
@@ -339,9 +340,13 @@ public:
 				overlapstr.pop_back();
 				size_t overlap = std::stoull(overlapstr);
 				size_t coverage = std::stoull(edgecoveragetag.substr(5));
-				edges[fromnode].emplace(tonode, overlap, coverage);
-				edges[reverse(tonode)].emplace(reverse(fromnode), overlap, coverage);
+				fileedges.emplace(fromnode, tonode, overlap, coverage);
+				fileedges.emplace(reverse(tonode), reverse(fromnode), overlap, coverage);
 			}
+		}
+		for (auto t : fileedges)
+		{
+			edges[std::get<0>(t)].emplace(std::get<1>(t), std::get<2>(t), std::get<3>(t));
 		}
 		for (size_t i = 0; i < nodeSeqs.size(); i++)
 		{
@@ -1048,6 +1053,28 @@ void writeAlleleGraph(const GfaGraph& fullGraph, const Path& heavyPath, const st
 			}
 		}
 	}
+	std::map<std::pair<std::string, std::string>, size_t> edgeCoverage;
+	for (size_t i = 0; i < variants.size(); i++)
+	{
+		for (size_t j = 1; j < variants[i].path.size(); j++)
+		{
+			std::string fromname = fullGraph.nodeNames[variants[i].path[j-1].id()];
+			if (j != 1)
+			{
+				auto key = parent[i][j-1];
+				while (parent[key.first][key.second] != key) key = parent[key.first][key.second];
+				fromname += "_" + std::to_string(key.first) + "_" + std::to_string(key.second);
+			}
+			std::string toname = fullGraph.nodeNames[variants[i].path[j].id()];
+			if (j != variants[i].path.size()-1)
+			{
+				auto key = parent[i][j];
+				while (parent[key.first][key.second] != key) key = parent[key.first][key.second];
+				toname += "_" + std::to_string(key.first) + "_" + std::to_string(key.second);
+			}
+			edgeCoverage[std::make_pair(fromname, toname)] += variants[i].coverage;
+		}
+	}
 	for (size_t i = 0; i < variants.size(); i++)
 	{
 		assert(variants[i].path.size() >= 2);
@@ -1095,7 +1122,9 @@ void writeAlleleGraph(const GfaGraph& fullGraph, const Path& heavyPath, const st
 				overlap = std::get<1>(edge);
 			}
 			assert(overlap != std::numeric_limits<size_t>::max());
-			out << "L\t" << fullGraph.nodeNames[prev.id()] << "\t" << (prev.forward() ? "+" : "-") << "\t" << fullGraph.nodeNames[curr.id()] << "_" << key.first << "_" << key.second << "\t" << (curr.forward() ? "+" : "-") << "\t" << overlap << "M" << "\tec:i:" << variants[i].coverage << std::endl;
+			std::string fromname = fullGraph.nodeNames[prev.id()];
+			std::string toname = fullGraph.nodeNames[curr.id()] + "_" + std::to_string(key.first) + "_" + std::to_string(key.second);
+			out << "L\t" << fromname << "\t" << (prev.forward() ? "+" : "-") << "\t" << toname << "\t" << (curr.forward() ? "+" : "-") << "\t" << overlap << "M" << "\tec:i:" << edgeCoverage.at(std::make_pair(fromname, toname)) << std::endl;
 		}
 		{
 			Node prev = variants[i].path[variants[i].path.size()-2];
@@ -1114,7 +1143,9 @@ void writeAlleleGraph(const GfaGraph& fullGraph, const Path& heavyPath, const st
 				overlap = std::get<1>(edge);
 			}
 			assert(overlap != std::numeric_limits<size_t>::max());
-			out << "L\t" << fullGraph.nodeNames[prev.id()] << "_" << key.first << "_" << key.second << "\t" << (prev.forward() ? "+" : "-") << "\t" << fullGraph.nodeNames[curr.id()] << "\t" << (curr.forward() ? "+" : "-") << "\t" << overlap << "M" << "\tec:i:" << variants[i].coverage << std::endl;
+			std::string fromname = fullGraph.nodeNames[prev.id()] + "_" + std::to_string(key.first) + "_" + std::to_string(key.second);
+			std::string toname = fullGraph.nodeNames[curr.id()];
+			out << "L\t" << fromname << "\t" << (prev.forward() ? "+" : "-") << "\t" << toname << "\t" << (curr.forward() ? "+" : "-") << "\t" << overlap << "M" << "\tec:i:" << edgeCoverage.at(std::make_pair(fromname, toname)) << std::endl;
 		}
 		for (size_t j = 2; j < variants[i].path.size()-1; j++)
 		{
@@ -1139,7 +1170,9 @@ void writeAlleleGraph(const GfaGraph& fullGraph, const Path& heavyPath, const st
 				overlap = std::get<1>(edge);
 			}
 			assert(overlap != std::numeric_limits<size_t>::max());
-			out << "L\t" << fullGraph.nodeNames[prev.id()] << "_" << fromkey.first << "_" << fromkey.second << "\t" << (prev.forward() ? "+" : "-") << "\t" << fullGraph.nodeNames[curr.id()] << "_" << tokey.first << "_" << tokey.second << "\t" << (curr.forward() ? "+" : "-") << "\t" << overlap << "M" << "\tec:i:" << variants[i].coverage << std::endl;
+			std::string fromname = fullGraph.nodeNames[prev.id()] + "_" + std::to_string(fromkey.first) + "_" + std::to_string(fromkey.second);
+			std::string toname = fullGraph.nodeNames[curr.id()] + "_" + std::to_string(tokey.first) + "_" + std::to_string(tokey.second);
+			out << "L\t" << fromname << "\t" << (prev.forward() ? "+" : "-") << "\t" << toname << "\t" << (curr.forward() ? "+" : "-") << "\t" << overlap << "M" << "\tec:i:" << edgeCoverage.at(std::make_pair(fromname, toname)) << std::endl;
 		}
 	}
 }
