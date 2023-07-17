@@ -244,6 +244,7 @@ int main(int argc, char** argv)
 		("morph-recluster-minedit", "Minimum edit distance to recluster morphs", cxxopts::value<size_t>()->default_value("5"))
 		("t", "Number of threads", cxxopts::value<size_t>()->default_value("1"))
 		("approx-morphsize", "Approximate length of one morph", cxxopts::value<size_t>()->default_value("45000"))
+		("sample-name", "Name of the sample added to all morph names", cxxopts::value<std::string>())
 	;
 	std::string MBGPath;
 	std::string GraphAlignerPath;
@@ -356,10 +357,12 @@ int main(int argc, char** argv)
 	std::string annotationFasta;
 	std::string annotationGff3;
 	std::string ulTmpFolder = params["ul-tmp-folder"].as<std::string>();
+	std::string sampleName;
 	size_t numThreads = params["t"].as<size_t>();
 	size_t maxClusterDifference = params["morph-cluster-maxedit"].as<size_t>();
 	size_t minReclusterDistance = params["morph-recluster-minedit"].as<size_t>();
 	size_t maxResolveLength = params["approx-morphsize"].as<size_t>()/5;
+	if (params.count("sample-name") == 1) sampleName = params["sample-name"].as<std::string>();
 	if (params.count("orient-by-reference") == 1) orientReferencePath = params["orient-by-reference"].as<std::string>();
 	if (params.count("annotation-reference-fasta") == 1) annotationFasta = params["annotation-reference-fasta"].as<std::string>();
 	if (params.count("annotation-gff3") == 1) annotationGff3 = params["annotation-gff3"].as<std::string>();
@@ -407,6 +410,8 @@ int main(int argc, char** argv)
 		ClusterParams clusterParams;
 		clusterParams.maxClusterDifference = maxClusterDifference;
 		clusterParams.minReclusterDistance = minReclusterDistance;
+		clusterParams.namePrefix = "tangle" + std::to_string(i);
+		if (sampleName != "") clusterParams.namePrefix = sampleName + "_" + clusterParams.namePrefix;
 		clusterParams.basePath = outputPrefix + std::to_string(i);
 		clusterParams.hifiReadPath = outputPrefix + std::to_string(i) + "/hifi_reads.fa";
 		if (doUL)
@@ -454,6 +459,8 @@ int main(int argc, char** argv)
 			ClusterParams clusterParams;
 			clusterParams.maxClusterDifference = maxClusterDifference;
 			clusterParams.minReclusterDistance = minReclusterDistance;
+			clusterParams.namePrefix = "tangle" + std::to_string(i);
+			if (sampleName != "") clusterParams.namePrefix = sampleName + "_" + clusterParams.namePrefix;
 			clusterParams.basePath = outputPrefix + std::to_string(i);
 			clusterParams.hifiReadPath = outputPrefix + std::to_string(i) + "/hifi_reads.fa";
 			if (doUL)

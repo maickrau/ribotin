@@ -745,11 +745,13 @@ Path getHeavyPath(const GfaGraph& graph)
 	return result;
 }
 
-void writePathSequence(const Path& path, const GfaGraph& graph, std::string outputFile)
+void writePathSequence(const Path& path, const GfaGraph& graph, std::string outputFile, const std::string& namePrefix)
 {
 	std::string pathseq = path.getSequence(graph.nodeSeqs);
 	std::ofstream file { outputFile };
-	file << ">heavy_path" << std::endl;
+	file << ">";
+	if (namePrefix != "") file << namePrefix << "_";
+	file << "heavy_path" << std::endl;
 	file << pathseq;
 }
 
@@ -2913,7 +2915,7 @@ std::string getPolishedSequence(const std::string& rawSequence, const std::vecto
 	return result;
 }
 
-std::vector<MorphConsensus> getMorphConsensuses(const std::vector<std::vector<OntLoop>>& clusters, const GfaGraph& graph, const std::unordered_map<Node, size_t>& pathStartClip, const std::unordered_map<Node, size_t>& pathEndClip)
+std::vector<MorphConsensus> getMorphConsensuses(const std::vector<std::vector<OntLoop>>& clusters, const GfaGraph& graph, const std::unordered_map<Node, size_t>& pathStartClip, const std::unordered_map<Node, size_t>& pathEndClip, const std::string& namePrefix)
 {
 	std::vector<MorphConsensus> result;
 	for (size_t i = 0; i < clusters.size(); i++)
@@ -2925,6 +2927,7 @@ std::vector<MorphConsensus> getMorphConsensuses(const std::vector<std::vector<On
 		result.back().coverage = clusters[i].size();
 		result.back().ontLoops = clusters[i];
 		result.back().name = "morphconsensus" + std::to_string(i) + "_coverage" + std::to_string(result.back().coverage);
+		if (namePrefix != "") result.back().name = namePrefix + "_" + result.back().name;
 	}
 	return result;
 }
@@ -2977,7 +2980,7 @@ void HandleCluster(const ClusterParams& params)
 		heavyPath = orientPath(graph, heavyPath, params.orientReferencePath, 101);
 	}
 	std::cerr << "writing consensus" << std::endl;
-	writePathSequence(heavyPath, graph, params.basePath + "/consensus.fa");
+	writePathSequence(heavyPath, graph, params.basePath + "/consensus.fa", params.namePrefix);
 	writePathGaf(heavyPath, graph, params.basePath + "/consensus_path.gaf");
 	std::cerr << "reading read paths" << std::endl;
 	std::vector<ReadPath> readPaths = loadReadPaths(params.basePath + "/paths.gaf", graph);
@@ -3175,7 +3178,7 @@ void DoClusterONTAnalysis(const ClusterParams& params)
 	std::cerr << clusters.size() << " phased morph clusters" << std::endl;
 	std::sort(clusters.begin(), clusters.end(), [](const auto& left, const auto& right) { return left.size() > right.size(); });
 	std::cerr << "getting morph consensuses" << std::endl;
-	auto morphConsensuses = getMorphConsensuses(clusters, graph, pathStartClip, pathEndClip);
+	auto morphConsensuses = getMorphConsensuses(clusters, graph, pathStartClip, pathEndClip, params.namePrefix);
 	std::cerr << "write morph consensuses" << std::endl;
 	writeMorphConsensuses(params.basePath + "/morphs.fa", morphConsensuses);
 	std::cerr << "write morph paths" << std::endl;

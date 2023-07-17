@@ -51,6 +51,7 @@ int main(int argc, char** argv)
 		("morph-recluster-minedit", "Minimum edit distance to recluster morphs", cxxopts::value<size_t>()->default_value("5"))
 		("t", "Number of threads", cxxopts::value<size_t>()->default_value("1"))
 		("approx-morphsize", "Approximate length of one morph", cxxopts::value<size_t>()->default_value("45000"))
+		("sample-name", "Name of the sample added to all morph names", cxxopts::value<std::string>())
 	;
 	std::string MBGPath;
 	std::string GraphAlignerPath;
@@ -161,6 +162,7 @@ int main(int argc, char** argv)
 	clusterParams.maxClusterDifference = params["morph-cluster-maxedit"].as<size_t>();
 	clusterParams.minReclusterDistance = params["morph-recluster-minedit"].as<size_t>();
 	clusterParams.maxResolveLength = params["approx-morphsize"].as<size_t>()/5;
+	if (params.count("sample-name") == 1) clusterParams.namePrefix = params["sample-name"].as<std::string>();
 	if (params.count("orient-by-reference") == 1) clusterParams.orientReferencePath = params["orient-by-reference"].as<std::string>();
 	if (params.count("annotation-reference-fasta") == 1) clusterParams.annotationFasta = params["annotation-reference-fasta"].as<std::string>();
 	if (params.count("annotation-gff3") == 1) clusterParams.annotationGff3 = params["annotation-gff3"].as<std::string>();
