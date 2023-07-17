@@ -241,6 +241,7 @@ int main(int argc, char** argv)
 		("annotation-reference-fasta", "Lift over the annotations from given reference fasta+gff3 (requires liftoff)", cxxopts::value<std::string>())
 		("annotation-gff3", "Lift over the annotations from given reference fasta+gff3 (requires liftoff)", cxxopts::value<std::string>())
 		("morph-cluster-maxedit", "Maximum edit distance between two morphs to assign them into the same cluster", cxxopts::value<size_t>()->default_value("200"))
+		("morph-recluster-minedit", "Minimum edit distance to recluster morphs", cxxopts::value<size_t>()->default_value("5"))
 		("t", "Number of threads", cxxopts::value<size_t>()->default_value("1"))
 		("approx-morphsize", "Approximate length of one morph", cxxopts::value<size_t>()->default_value("45000"))
 	;
@@ -357,6 +358,7 @@ int main(int argc, char** argv)
 	std::string ulTmpFolder = params["ul-tmp-folder"].as<std::string>();
 	size_t numThreads = params["t"].as<size_t>();
 	size_t maxClusterDifference = params["morph-cluster-maxedit"].as<size_t>();
+	size_t minReclusterDistance = params["morph-recluster-minedit"].as<size_t>();
 	size_t maxResolveLength = params["approx-morphsize"].as<size_t>()/5;
 	if (params.count("orient-by-reference") == 1) orientReferencePath = params["orient-by-reference"].as<std::string>();
 	if (params.count("annotation-reference-fasta") == 1) annotationFasta = params["annotation-reference-fasta"].as<std::string>();
@@ -404,6 +406,7 @@ int main(int argc, char** argv)
 		}
 		ClusterParams clusterParams;
 		clusterParams.maxClusterDifference = maxClusterDifference;
+		clusterParams.minReclusterDistance = minReclusterDistance;
 		clusterParams.basePath = outputPrefix + std::to_string(i);
 		clusterParams.hifiReadPath = outputPrefix + std::to_string(i) + "/hifi_reads.fa";
 		if (doUL)
@@ -450,6 +453,7 @@ int main(int argc, char** argv)
 			std::cerr << "running cluster " << i << std::endl;
 			ClusterParams clusterParams;
 			clusterParams.maxClusterDifference = maxClusterDifference;
+			clusterParams.minReclusterDistance = minReclusterDistance;
 			clusterParams.basePath = outputPrefix + std::to_string(i);
 			clusterParams.hifiReadPath = outputPrefix + std::to_string(i) + "/hifi_reads.fa";
 			if (doUL)

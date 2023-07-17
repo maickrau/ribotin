@@ -48,6 +48,7 @@ int main(int argc, char** argv)
 		("annotation-reference-fasta", "Lift over the annotations from given reference fasta+gff3 (requires liftoff)", cxxopts::value<std::string>())
 		("annotation-gff3", "Lift over the annotations from given reference fasta+gff3 (requires liftoff)", cxxopts::value<std::string>())
 		("morph-cluster-maxedit", "Maximum edit distance between two morphs to assign them into the same cluster", cxxopts::value<size_t>()->default_value("200"))
+		("morph-recluster-minedit", "Minimum edit distance to recluster morphs", cxxopts::value<size_t>()->default_value("5"))
 		("t", "Number of threads", cxxopts::value<size_t>()->default_value("1"))
 		("approx-morphsize", "Approximate length of one morph", cxxopts::value<size_t>()->default_value("45000"))
 	;
@@ -158,6 +159,7 @@ int main(int argc, char** argv)
 	clusterParams.numThreads = 1;
 	clusterParams.numThreads = params["t"].as<size_t>();
 	clusterParams.maxClusterDifference = params["morph-cluster-maxedit"].as<size_t>();
+	clusterParams.minReclusterDistance = params["morph-recluster-minedit"].as<size_t>();
 	clusterParams.maxResolveLength = params["approx-morphsize"].as<size_t>()/5;
 	if (params.count("orient-by-reference") == 1) clusterParams.orientReferencePath = params["orient-by-reference"].as<std::string>();
 	if (params.count("annotation-reference-fasta") == 1) clusterParams.annotationFasta = params["annotation-reference-fasta"].as<std::string>();

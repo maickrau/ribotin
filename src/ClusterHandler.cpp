@@ -2486,7 +2486,7 @@ std::vector<std::vector<OntLoop>> clusterByDbscan(const std::vector<OntLoop>& cl
 	return result;
 }
 
-std::vector<std::vector<OntLoop>> splitClusters(const std::vector<std::vector<OntLoop>>& clusters, const GfaGraph& graph, const std::unordered_map<Node, size_t>& pathStartClip, const std::unordered_map<Node, size_t>& pathEndClip, const std::unordered_set<size_t>& coreNodes, const size_t maxEdits, const size_t minPoints)
+std::vector<std::vector<OntLoop>> splitClusters(const std::vector<std::vector<OntLoop>>& clusters, const GfaGraph& graph, const std::unordered_map<Node, size_t>& pathStartClip, const std::unordered_map<Node, size_t>& pathEndClip, const std::unordered_set<size_t>& coreNodes, const size_t maxEdits, const size_t minPoints, const size_t minEdits)
 {
 	std::vector<size_t> editHistogram;
 	editHistogram.resize(maxEdits, 0);
@@ -2531,6 +2531,7 @@ std::vector<std::vector<OntLoop>> splitClusters(const std::vector<std::vector<On
 	{
 		return clusters;
 	}
+	if (newEditDistance < minEdits) newEditDistance = minEdits;
 	std::cerr << "recluster with max edit distance " << newEditDistance << ", min points " << minPoints << std::endl;
 	std::vector<std::vector<OntLoop>> result;
 	for (size_t i = 0; i < clusters.size(); i++)
@@ -3167,7 +3168,7 @@ void DoClusterONTAnalysis(const ClusterParams& params)
 	auto unphasedClusters = clusterLoopSequences(loopSequences, graph, pathStartClip, pathEndClip, coreNodes, params.maxClusterDifference);
 	std::cerr << unphasedClusters.size() << " morph clusters" << std::endl;
 	std::cerr << "split morph clusters" << std::endl;
-	auto clusters = splitClusters(unphasedClusters, graph, pathStartClip, pathEndClip, coreNodes, params.maxClusterDifference, 5);
+	auto clusters = splitClusters(unphasedClusters, graph, pathStartClip, pathEndClip, coreNodes, params.maxClusterDifference, 5, params.minReclusterDistance);
 	std::cerr << clusters.size() << " splitted morph clusters" << std::endl;
 	std::cerr << "phase morph clusters" << std::endl;
 	clusters = phaseClusters(clusters);
