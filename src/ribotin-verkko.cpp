@@ -384,7 +384,7 @@ int main(int argc, char** argv)
 	}
 	size_t numTangles = tangleNodes.size();
 	std::cerr << "assigning reads per tangle" << std::endl;
-	auto reads = getReadNamesPerCluster(verkkoBasePath, tangleNodes);
+	auto reads = getReadNamesPerTangle(verkkoBasePath, tangleNodes);
 	for (size_t i = 0; i < reads.size(); i++)
 	{
 		std::cerr << "tangle " << i << " has " << reads[i].size() << " hifi reads" << std::endl;
