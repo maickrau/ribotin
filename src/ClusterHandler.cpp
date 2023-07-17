@@ -1055,6 +1055,16 @@ void writeAlleleGraph(const GfaGraph& fullGraph, const Path& heavyPath, const st
 			}
 		}
 	}
+	std::map<std::pair<size_t, size_t>, size_t> nodeCoverage;
+	for (size_t i = 0; i < variants.size(); i++)
+	{
+		for (size_t j = 1; j < variants[i].path.size()-1; j++)
+		{
+			auto key = parent[i][j];
+			while (parent[key.first][key.second] != key) key = parent[key.first][key.second];
+			nodeCoverage[key] += variants[i].coverage;
+		}
+	}
 	std::map<std::pair<std::string, std::string>, size_t> edgeCoverage;
 	for (size_t i = 0; i < variants.size(); i++)
 	{
@@ -1105,7 +1115,10 @@ void writeAlleleGraph(const GfaGraph& fullGraph, const Path& heavyPath, const st
 			{
 				key = parent[key.first][key.second];
 			}
-			out << "S\t" << fullGraph.nodeNames[variants[i].path[j].id()] << "_" << key.first << "_" << key.second << "\t" << fullGraph.nodeSeqs[variants[i].path[j].id()] << "\tll:f:" << variants[i].coverage << "\tFC:f:" << (variants[i].coverage * fullGraph.nodeSeqs[variants[i].path[j].id()].size()) << std::endl;
+			if (key.first == i && key.second == j)
+			{
+				out << "S\t" << fullGraph.nodeNames[variants[i].path[j].id()] << "_" << key.first << "_" << key.second << "\t" << fullGraph.nodeSeqs[variants[i].path[j].id()] << "\tll:f:" << nodeCoverage.at(key) << "\tFC:f:" << (nodeCoverage.at(key) * fullGraph.nodeSeqs[variants[i].path[j].id()].size()) << std::endl;
+			}
 		}
 		{
 			Node prev = variants[i].path[0];
