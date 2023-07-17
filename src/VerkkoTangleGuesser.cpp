@@ -3,7 +3,7 @@
 #include <sstream>
 #include "fastqloader.h"
 #include "KmerMatcher.h"
-#include "VerkkoClusterGuesser.h"
+#include "VerkkoTangleGuesser.h"
 
 std::string revnode(std::string node)
 {
@@ -48,7 +48,7 @@ void merge(std::unordered_map<std::string, std::string>& parent, std::string lef
 	parent[right] = left;
 }
 
-std::vector<std::vector<std::string>> extendClusters(const std::unordered_set<std::string>& validNodes, const std::string& gfaPath)
+std::vector<std::vector<std::string>> extendTangles(const std::unordered_set<std::string>& validNodes, const std::string& gfaPath)
 {
 	std::unordered_map<std::string, std::string> parent;
 	for (auto node : validNodes)
@@ -75,26 +75,26 @@ std::vector<std::vector<std::string>> extendClusters(const std::unordered_set<st
 	{
 		find(parent, node);
 	}
-	std::unordered_map<std::string, size_t> clusterSize;
+	std::unordered_map<std::string, size_t> tangleSize;
 	for (auto node : validNodes)
 	{
-		clusterSize[find(parent, node)] += 1;
+		tangleSize[find(parent, node)] += 1;
 	}
-	std::unordered_map<std::string, size_t> clusterNumber;
-	size_t numClusters = 0;
-	for (auto pair : clusterSize)
+	std::unordered_map<std::string, size_t> tangleNumber;
+	size_t numTangles = 0;
+	for (auto pair : tangleSize)
 	{
 		if (pair.second < 10) continue;
-		clusterNumber[pair.first] = numClusters;
-		numClusters += 1;
+		tangleNumber[pair.first] = numTangles;
+		numTangles += 1;
 	}
 	std::vector<std::vector<std::string>> result;
-	result.resize(numClusters);
+	result.resize(numTangles);
 	for (auto node : validNodes)
 	{
-		auto cluster = find(parent, node);
-		if (clusterNumber.count(cluster) == 0) continue;
-		result[clusterNumber.at(cluster)].push_back(node);
+		auto tangle = find(parent, node);
+		if (tangleNumber.count(tangle) == 0) continue;
+		result[tangleNumber.at(tangle)].push_back(node);
 	}
 	return result;
 }
@@ -110,10 +110,10 @@ std::string homopolymerCompress(std::string original)
 	return result;
 }
 
-bool hasCycle(const std::vector<std::string>& clusterNodes, const std::unordered_map<std::string, std::vector<std::string>>& edges)
+bool hasCycle(const std::vector<std::string>& tangleNodes, const std::unordered_map<std::string, std::vector<std::string>>& edges)
 {
 	std::unordered_map<std::string, std::unordered_set<std::string>> reachable;
-	for (auto node : clusterNodes)
+	for (auto node : tangleNodes)
 	{
 		if (edges.count(">" + node) == 1)
 		{
@@ -135,7 +135,7 @@ bool hasCycle(const std::vector<std::string>& clusterNodes, const std::unordered
 	while (true)
 	{
 		bool changed = false;
-		for (auto node : clusterNodes)
+		for (auto node : tangleNodes)
 		{
 			auto oldReachable = reachable[">" + node];
 			for (auto node2 : oldReachable)
@@ -167,7 +167,7 @@ bool hasCycle(const std::vector<std::string>& clusterNodes, const std::unordered
 	return false;
 }
 
-void filterOutAcyclic(std::vector<std::vector<std::string>>& clusterNodes, const std::string& gfaPath)
+void filterOutAcyclic(std::vector<std::vector<std::string>>& tangleNodes, const std::string& gfaPath)
 {
 	std::unordered_map<std::string, std::vector<std::string>> edges;
 	{
@@ -190,15 +190,15 @@ void filterOutAcyclic(std::vector<std::vector<std::string>>& clusterNodes, const
 			edges[revnode(tonode)].push_back(revnode(fromnode));
 		}
 	}
-	for (size_t i = clusterNodes.size()-1; i < clusterNodes.size(); i--)
+	for (size_t i = tangleNodes.size()-1; i < tangleNodes.size(); i--)
 	{
-		if (hasCycle(clusterNodes[i], edges)) continue;
-		std::swap(clusterNodes[i], clusterNodes.back());
-		clusterNodes.pop_back();
+		if (hasCycle(tangleNodes[i], edges)) continue;
+		std::swap(tangleNodes[i], tangleNodes.back());
+		tangleNodes.pop_back();
 	}
 }
 
-std::vector<std::vector<std::string>> guessVerkkoRDNAClusters(std::string verkkoBasePath, const std::vector<std::string>& referencePath)
+std::vector<std::vector<std::string>> guessVerkkoRDNATangles(std::string verkkoBasePath, const std::vector<std::string>& referencePath)
 {
 	KmerMatcher matcher { 101 };
 	for (auto file : referencePath)
@@ -209,7 +209,7 @@ std::vector<std::vector<std::string>> guessVerkkoRDNAClusters(std::string verkko
 		});
 	}
 	auto nodes = matchNodes(matcher, verkkoBasePath + "/assembly.homopolymer-compressed.gfa");
-	auto clusters = extendClusters(nodes, verkkoBasePath + "/assembly.homopolymer-compressed.gfa");
-	filterOutAcyclic(clusters, verkkoBasePath + "/assembly.homopolymer-compressed.gfa");
-	return clusters;
+	auto tangles = extendTangles(nodes, verkkoBasePath + "/assembly.homopolymer-compressed.gfa");
+	filterOutAcyclic(tangles, verkkoBasePath + "/assembly.homopolymer-compressed.gfa");
+	return tangles;
 }

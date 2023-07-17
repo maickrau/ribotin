@@ -10,7 +10,7 @@
 #include "VerkkoReadAssignment.h"
 #include "ReadExtractor.h"
 #include "ClusterHandler.h"
-#include "VerkkoClusterGuesser.h"
+#include "VerkkoTangleGuesser.h"
 #include "KmerMatcher.h"
 #include "RibotinUtils.h"
 
@@ -379,7 +379,7 @@ int main(int argc, char** argv)
 	else
 	{
 		std::cerr << "guessing tangles" << std::endl;
-		tangleNodes = guessVerkkoRDNAClusters(verkkoBasePath, params["guess-tangles-using-reference"].as<std::vector<std::string>>());
+		tangleNodes = guessVerkkoRDNATangles(verkkoBasePath, params["guess-tangles-using-reference"].as<std::vector<std::string>>());
 		std::cerr << "resulted in " << tangleNodes.size() << " tangles" << std::endl;
 	}
 	size_t numTangles = tangleNodes.size();
