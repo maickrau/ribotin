@@ -69,13 +69,14 @@ The output folder will contain several files:
 - `variants.txt`: A list of variants supported by at least 3 reads. Format is: variant ID, variant path, reference path, variant read support, reference read support, variant sequence, reference sequence.
 - `variant-graph.gfa`: `graph.gfa` filtered only to the consensus path and the variant paths in `variants.txt`.
 - `variants.vcf`: A list of variants supported by at least 3 reads. Variant IDs match `variants.txt`
+- `allele-graph.gfa`: `graph.gfa` filtered only to the consensus path and the variant paths in `variants.txt`, with nodes duplicated so that a path cannot recombine in the middle of a variant.
 - `annotation.gff3`: Annotations lifted over from a previous reference. Only if using parameters `--annotation-reference-fasta` and `--annotation-gff3`
 
 The following files are created when ultralong ONT reads are included:
 
-- `ont-alns.gaf`: Aligned paths of ultralong ONT reads to `variant-graph.gfa`.
+- `ont-alns.gaf`: Aligned paths of ultralong ONT reads to `allele-graph.gfa`.
 - `loops.fa`: A list of individual rDNA morphs found in the ultralong ONT reads.
 - `morphs.fa`: A list of rDNA morph consensuses and their abundances.
-- `morphs.gaf`: The paths of the rDNA morph consensuses in `variant-graph.gfa`.
+- `morphs.gaf`: The paths of the rDNA morph consensuses in `allele-graph.gfa`.
 - `morphgraph.gfa`: A graph describing how the morph consensuses connect to each others.
 - `readpaths-morphgraph.gaf`: Paths of the ONT reads in `morphgraph.gfa`. Only shows reads which are assigned to complete morphs.
