@@ -236,7 +236,7 @@ int main(int argc, char** argv)
 		("c,tangles", "Input files for node tangles. Multiple files may be inputed with -c file1.txt -c file2.txt ... (required)", cxxopts::value<std::vector<std::string>>())
 		("guess-tangles-using-reference", "Guess the rDNA tangles using k-mer matches to given reference sequence (required)", cxxopts::value<std::vector<std::string>>())
 		("orient-by-reference", "Rotate and possibly reverse complement the consensus to match the orientation of the given reference", cxxopts::value<std::string>())
-		("approx-morphsize", "Approximate length of one morph", cxxopts::value<size_t>()->default_value("45000"))
+		("approx-morphsize", "Approximate length of one morph")
 		("do-ul", "Do ONT read analysis (yes/no/as_verkko)", cxxopts::value<std::string>()->default_value("as_verkko"))
 		("ul-tmp-folder", "Temporary folder for ultralong ONT read analysis", cxxopts::value<std::string>()->default_value("./tmp"))
 		("k", "k-mer size", cxxopts::value<size_t>()->default_value("101"))
@@ -258,6 +258,7 @@ int main(int argc, char** argv)
 	if (params.count("h") == 1)
 	{
 		std::cerr << options.help() << std::endl;
+		std::cerr << "Valid presets for -x: human" << std::endl;
 		std::exit(0);
 	}
 	bool paramError = false;
