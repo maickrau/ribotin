@@ -2354,7 +2354,7 @@ std::vector<std::vector<OntLoop>> phaseClusters(const std::vector<std::vector<On
 	return result;
 }
 
-std::vector<std::vector<OntLoop>> clusterLoopSequences(const std::vector<OntLoop>& loops, const GfaGraph& graph, const std::unordered_map<Node, size_t>& pathStartClip, const std::unordered_map<Node, size_t>& pathEndClip, const std::unordered_set<size_t>& coreNodes, const size_t maxEdits)
+std::vector<std::vector<OntLoop>> roughClusterLoopSequences(const std::vector<OntLoop>& loops, const GfaGraph& graph, const std::unordered_map<Node, size_t>& pathStartClip, const std::unordered_map<Node, size_t>& pathEndClip, const std::unordered_set<size_t>& coreNodes, const size_t maxEdits)
 {
 	std::vector<size_t> parent;
 	parent.resize(loops.size());
@@ -2501,7 +2501,7 @@ std::vector<std::vector<OntLoop>> clusterByDbscan(const std::vector<OntLoop>& cl
 	return result;
 }
 
-std::vector<std::vector<OntLoop>> splitClusters(const std::vector<std::vector<OntLoop>>& clusters, const GfaGraph& graph, const std::unordered_map<Node, size_t>& pathStartClip, const std::unordered_map<Node, size_t>& pathEndClip, const std::unordered_set<size_t>& coreNodes, const size_t maxEdits, const size_t minPoints, const size_t minEdits)
+std::vector<std::vector<OntLoop>> densityClusterLoops(const std::vector<std::vector<OntLoop>>& clusters, const GfaGraph& graph, const std::unordered_map<Node, size_t>& pathStartClip, const std::unordered_map<Node, size_t>& pathEndClip, const std::unordered_set<size_t>& coreNodes, const size_t maxEdits, const size_t minPoints, const size_t minEdits)
 {
 	std::vector<size_t> editHistogram;
 	editHistogram.resize(maxEdits, 0);
@@ -3157,7 +3157,7 @@ void DoClusterONTAnalysis(const ClusterParams& params)
 	std::cerr << "consensus path length " << heavyPathLength << ", using " << minLength << " as minimum morph length" << std::endl;
 	auto ontPaths = extractCorrectedONTPaths(params.basePath + "/ont-alns.gaf", heavyPath, minLength, graph);
 	std::cerr << ontPaths.size() << " corrected paths" << std::endl;
-	std::cerr << "extract morph paths from ONTs" << std::endl;
+	std::cerr << "extract loops from ONTs" << std::endl;
 	std::unordered_map<Node, size_t> pathStartClip;
 	std::unordered_map<Node, size_t> pathEndClip;
 	std::unordered_set<size_t> borderNodes;
@@ -3165,7 +3165,7 @@ void DoClusterONTAnalysis(const ClusterParams& params)
 	assert(borderNodes.size() > 0);
 	auto loopSequences = extractLoopSequences(ontPaths, heavyPath, minLength, graph, borderNodes, pathStartClip, pathEndClip);
 	auto coreNodes = getCoreNodes(loopSequences);
-	std::cerr << loopSequences.size() << " morph paths in ONTs" << std::endl;
+	std::cerr << loopSequences.size() << " loops in ONTs" << std::endl;
 	{
 		std::ofstream file { params.basePath + "/loops.fa" };
 		for (size_t i = 0; i < loopSequences.size(); i++)
@@ -3178,17 +3178,17 @@ void DoClusterONTAnalysis(const ClusterParams& params)
 			file << loopSeq << std::endl;
 		}
 	}
-	std::cerr << "cluster morphs" << std::endl;
+	std::cerr << "cluster loops roughly" << std::endl;
 	orderLoopsByLength(loopSequences, graph, pathStartClip, pathEndClip);
 	std::cerr << "max clustering edit distance " << params.maxClusterDifference << std::endl;
-	auto unphasedClusters = clusterLoopSequences(loopSequences, graph, pathStartClip, pathEndClip, coreNodes, params.maxClusterDifference);
-	std::cerr << unphasedClusters.size() << " morph clusters" << std::endl;
-	std::cerr << "split morph clusters" << std::endl;
-	auto clusters = splitClusters(unphasedClusters, graph, pathStartClip, pathEndClip, coreNodes, params.maxClusterDifference, 5, params.minReclusterDistance);
-	std::cerr << clusters.size() << " splitted morph clusters" << std::endl;
-	std::cerr << "phase morph clusters" << std::endl;
+	auto unphasedClusters = roughClusterLoopSequences(loopSequences, graph, pathStartClip, pathEndClip, coreNodes, params.maxClusterDifference);
+	std::cerr << unphasedClusters.size() << " rough clusters" << std::endl;
+	std::cerr << "cluster loops by density" << std::endl;
+	auto clusters = densityClusterLoops(unphasedClusters, graph, pathStartClip, pathEndClip, coreNodes, params.maxClusterDifference, 5, params.minReclusterDistance);
+	std::cerr << clusters.size() << " density clusters" << std::endl;
+	std::cerr << "phase clusters" << std::endl;
 	clusters = phaseClusters(clusters);
-	std::cerr << clusters.size() << " phased morph clusters" << std::endl;
+	std::cerr << clusters.size() << " phased clusters" << std::endl;
 	std::sort(clusters.begin(), clusters.end(), [](const auto& left, const auto& right) { return left.size() > right.size(); });
 	std::cerr << "getting morph consensuses" << std::endl;
 	auto morphConsensuses = getMorphConsensuses(clusters, graph, pathStartClip, pathEndClip, params.namePrefix);
