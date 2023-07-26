@@ -302,7 +302,7 @@ int main(int argc, char** argv)
 			GraphAlignerPath = "GraphAligner";
 		}
 	}
-	if (params.count("minimap2") == 0 && params.count("nano") >= 1)
+	if (params.count("minimap2") == 0 && params.count("do-ul") >= 1)
 	{
 		std::cerr << "checking for minimap2" << std::endl;
 		int foundMinimap2 = system("which minimap2");
@@ -317,7 +317,7 @@ int main(int argc, char** argv)
 			minimapPath = "minimap2";
 		}
 	}
-	if (params.count("racon") == 0 && params.count("nano") >= 1)
+	if (params.count("racon") == 0 && params.count("do-ul") >= 1)
 	{
 		std::cerr << "checking for racon" << std::endl;
 		int foundRacon = system("which racon");
