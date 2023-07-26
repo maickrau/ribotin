@@ -245,9 +245,13 @@ int main(int argc, char** argv)
 		("t", "Number of threads", cxxopts::value<size_t>()->default_value("1"))
 		("approx-morphsize", "Approximate length of one morph", cxxopts::value<size_t>()->default_value("45000"))
 		("sample-name", "Name of the sample added to all morph names", cxxopts::value<std::string>())
+		("minimap2", "minimap2 path", cxxopts::value<std::string>())
+		("racon", "racon path", cxxopts::value<std::string>())
 	;
 	std::string MBGPath;
 	std::string GraphAlignerPath;
+	std::string minimapPath;
+	std::string raconPath;
 	auto params = options.parse(argc, argv);
 	if (params.count("v") == 1)
 	{
@@ -296,6 +300,36 @@ int main(int argc, char** argv)
 		else
 		{
 			GraphAlignerPath = "GraphAligner";
+		}
+	}
+	if (params.count("minimap2") == 0 && params.count("nano") >= 1)
+	{
+		std::cerr << "checking for minimap2" << std::endl;
+		int foundMinimap2 = system("which minimap2");
+		if (foundMinimap2 != 0)
+		{
+			std::cerr << "minimap2 not found" << std::endl;
+			std::cerr << "--minimap2 is required when using ultralong ONT reads" << std::endl;
+			paramError = true;
+		}
+		else
+		{
+			minimapPath = "minimap2";
+		}
+	}
+	if (params.count("racon") == 0 && params.count("nano") >= 1)
+	{
+		std::cerr << "checking for racon" << std::endl;
+		int foundRacon = system("which racon");
+		if (foundRacon != 0)
+		{
+			std::cerr << "racon not found" << std::endl;
+			std::cerr << "--racon is required when using ultralong ONT reads" << std::endl;
+			paramError = true;
+		}
+		else
+		{
+			raconPath = "racon";
 		}
 	}
 	if (params.count("i") == 0)
@@ -469,6 +503,8 @@ int main(int argc, char** argv)
 			}
 			clusterParams.MBGPath = MBGPath;
 			clusterParams.GraphAlignerPath = GraphAlignerPath;
+			clusterParams.minimapPath = minimapPath;
+			clusterParams.raconPath = raconPath;
 			clusterParams.k = k;
 			clusterParams.orientReferencePath = orientReferencePath;
 			clusterParams.annotationFasta = annotationFasta;
