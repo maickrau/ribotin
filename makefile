@@ -21,19 +21,13 @@ VERSION := Branch $(shell git rev-parse --abbrev-ref HEAD) commit $(shell git re
 $(shell mkdir -p bin)
 $(shell mkdir -p obj)
 
-all: $(BINDIR)/seqpicker $(BINDIR)/ribotin-verkko $(BINDIR)/ribotin-ref
-
-$(BINDIR)/seqpicker: $(OBJ) $(ODIR)/seqpicker.o
-	$(GPP) -o $@ $^ $(LINKFLAGS)
+all: $(BINDIR)/ribotin-verkko $(BINDIR)/ribotin-ref
 
 $(BINDIR)/ribotin-verkko: $(OBJ) $(ODIR)/ribotin-verkko.o
 	$(GPP) -o $@ $^ $(LINKFLAGS)
 
 $(BINDIR)/ribotin-ref: $(OBJ) $(ODIR)/ribotin-ref.o
 	$(GPP) -o $@ $^ $(LINKFLAGS)
-
-$(ODIR)/seqpicker.o: $(SRCDIR)/seqpicker.cpp $(DEPS) $(OBJ)
-	$(GPP) -c -o $@ $< $(CPPFLAGS) -DVERSION="\"$(VERSION)\""
 
 $(ODIR)/ribotin-verkko.o: $(SRCDIR)/ribotin-verkko.cpp $(DEPS) $(OBJ)
 	$(GPP) -c -o $@ $< $(CPPFLAGS) -DVERSION="\"$(VERSION)\"" -DRIBOTIN_TEMPLATE_PATH="\"$(TEMPLATEPATH)\""
