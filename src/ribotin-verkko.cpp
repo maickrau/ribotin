@@ -230,11 +230,13 @@ int main(int argc, char** argv)
 		("v,version", "Print version")
 		("i,in", "Input verkko folder (required)", cxxopts::value<std::string>())
 		("o,out", "Output folder prefix", cxxopts::value<std::string>()->default_value("./result"))
+		("t", "Number of threads", cxxopts::value<size_t>()->default_value("1"))
+		("x", "Preset parameters", cxxopts::value<std::string>())
+		("sample-name", "Name of the sample added to all morph names", cxxopts::value<std::string>())
 		("c,tangles", "Input files for node tangles. Multiple files may be inputed with -c file1.txt -c file2.txt ... (required)", cxxopts::value<std::vector<std::string>>())
 		("guess-tangles-using-reference", "Guess the rDNA tangles using k-mer matches to given reference sequence (required)", cxxopts::value<std::vector<std::string>>())
 		("orient-by-reference", "Rotate and possibly reverse complement the consensus to match the orientation of the given reference", cxxopts::value<std::string>())
-		("mbg", "MBG path", cxxopts::value<std::string>())
-		("graphaligner", "GraphAligner path", cxxopts::value<std::string>())
+		("approx-morphsize", "Approximate length of one morph", cxxopts::value<size_t>()->default_value("45000"))
 		("do-ul", "Do ultralong ONT read analysis (requires GraphAligner)")
 		("ul-tmp-folder", "Temporary folder for ultralong ONT read analysis", cxxopts::value<std::string>()->default_value("./tmp"))
 		("k", "k-mer size", cxxopts::value<size_t>()->default_value("101"))
@@ -242,9 +244,8 @@ int main(int argc, char** argv)
 		("annotation-gff3", "Lift over the annotations from given reference fasta+gff3 (requires liftoff)", cxxopts::value<std::string>())
 		("morph-cluster-maxedit", "Maximum edit distance between two morphs to assign them into the same cluster", cxxopts::value<size_t>()->default_value("200"))
 		("morph-recluster-minedit", "Minimum edit distance to recluster morphs", cxxopts::value<size_t>()->default_value("5"))
-		("t", "Number of threads", cxxopts::value<size_t>()->default_value("1"))
-		("approx-morphsize", "Approximate length of one morph", cxxopts::value<size_t>()->default_value("45000"))
-		("sample-name", "Name of the sample added to all morph names", cxxopts::value<std::string>())
+		("mbg", "MBG path", cxxopts::value<std::string>())
+		("graphaligner", "GraphAligner path", cxxopts::value<std::string>())
 	;
 	std::string MBGPath;
 	std::string GraphAlignerPath;
@@ -260,6 +261,14 @@ int main(int argc, char** argv)
 		std::exit(0);
 	}
 	bool paramError = false;
+	if (params.count("x") == 1)
+	{
+		if (params["x"].as<std::string>() != "human")
+		{
+			std::cerr << "No preset \"" << params["x"].as<std::string>() << "\"" << std::endl;
+			paramError = true;
+		}
+	}
 	if (params.count("mbg") == 0)
 	{
 		std::cerr << "checking for MBG" << std::endl;
@@ -303,7 +312,7 @@ int main(int argc, char** argv)
 		std::cerr << "Input verkko folder (-i) is required" << std::endl;
 		paramError = true;
 	}
-	if (params.count("c") == 0 && params.count("guess-tangles-using-reference") == 0)
+	if (params.count("c") == 0 && params.count("guess-tangles-using-reference") == 0 && params.count("x") == 0)
 	{
 		std::cerr << "Either node tangles (-c) or reference used for guessing (--guess-tangles-using-reference) are required" << std::endl;
 		paramError = true;
@@ -338,6 +347,11 @@ int main(int argc, char** argv)
 			paramError = true;
 		}
 	}
+	if (params.count("approx-morphsize") == 0 && params.count("x") == 0)
+	{
+		std::cerr << "Approximate size of one morph (--approx-morphsize) is required" << std::endl;
+		paramError = true;
+	}
 	if (paramError)
 	{
 		std::abort();
@@ -351,22 +365,45 @@ int main(int argc, char** argv)
 		std::abort();
 	}
 	std::string outputPrefix = params["o"].as<std::string>();
-	size_t k = params["k"].as<size_t>();
+	size_t k;
 	std::cerr << "output prefix: " << outputPrefix << std::endl;
 	std::string orientReferencePath;
 	std::string annotationFasta;
 	std::string annotationGff3;
 	std::string ulTmpFolder = params["ul-tmp-folder"].as<std::string>();
 	std::string sampleName;
+	size_t maxClusterDifference;
+	size_t minReclusterDistance;
+	size_t maxResolveLength;
+	std::vector<std::vector<std::string>> tangleNodes;
+	if (params.count("x") == 1)
+	{
+		if (params["x"].as<std::string>() == "human")
+		{
+			k = 101;
+			maxClusterDifference = 200;
+			minReclusterDistance = 5;
+			maxResolveLength = 45000/5;
+			if (params.count("c") == 0 && params.count("guess-tangles-using-reference") == 0)
+			{
+				std::cerr << "guessing tangles" << std::endl;
+				std::string refPath = std::string{RIBOTIN_TEMPLATE_PATH} + "/chm13_rDNAs.fa";
+				std::cerr << "using reference from " << refPath << std::endl;
+				tangleNodes = guessVerkkoRDNATangles(verkkoBasePath, std::vector<std::string>{refPath});
+				std::cerr << "resulted in " << tangleNodes.size() << " tangles" << std::endl;
+			}
+			orientReferencePath = std::string{RIBOTIN_TEMPLATE_PATH} + "/rDNA_one_unit.fasta";
+		}
+	}
 	size_t numThreads = params["t"].as<size_t>();
-	size_t maxClusterDifference = params["morph-cluster-maxedit"].as<size_t>();
-	size_t minReclusterDistance = params["morph-recluster-minedit"].as<size_t>();
-	size_t maxResolveLength = params["approx-morphsize"].as<size_t>()/5;
+	if (params.count("k") == 1) k = params["k"].as<size_t>();
+	if (params.count("morph-cluster-maxedit") == 1) maxClusterDifference = params["morph-cluster-maxedit"].as<size_t>();
+	if (params.count("morph-recluster-minedit") == 1) minReclusterDistance = params["morph-recluster-minedit"].as<size_t>();
+	if (params.count("approx-morphsize") == 1) maxResolveLength = params["approx-morphsize"].as<size_t>()/5;
 	if (params.count("sample-name") == 1) sampleName = params["sample-name"].as<std::string>();
 	if (params.count("orient-by-reference") == 1) orientReferencePath = params["orient-by-reference"].as<std::string>();
 	if (params.count("annotation-reference-fasta") == 1) annotationFasta = params["annotation-reference-fasta"].as<std::string>();
 	if (params.count("annotation-gff3") == 1) annotationGff3 = params["annotation-gff3"].as<std::string>();
-	std::vector<std::vector<std::string>> tangleNodes;
 	if (params.count("c") >= 1)
 	{
 		std::vector<std::string> tangleNodeFiles = params["c"].as<std::vector<std::string>>();
@@ -376,7 +413,7 @@ int main(int argc, char** argv)
 			tangleNodes.push_back(getNodesFromFile(tangleNodeFiles[i]));
 		}
 	}
-	else
+	else if (params.count("guess-tangles-using-reference") == 1)
 	{
 		std::cerr << "guessing tangles" << std::endl;
 		tangleNodes = guessVerkkoRDNATangles(verkkoBasePath, params["guess-tangles-using-reference"].as<std::vector<std::string>>());

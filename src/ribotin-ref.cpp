@@ -40,18 +40,19 @@ int main(int argc, char** argv)
 		("i,in", "Input HiFi/duplex reads. Multiple files can be input with -i file1.fa -i file2.fa etc (required)", cxxopts::value<std::vector<std::string>>())
 		("nano", "Input ultralong ONT reads. Multiple files can be input with --nano file1.fa --nano file2.fa etc", cxxopts::value<std::vector<std::string>>())
 		("o,out", "Output folder", cxxopts::value<std::string>()->default_value("./result"))
-		("mbg", "MBG path", cxxopts::value<std::string>())
-		("graphaligner", "GraphAligner path", cxxopts::value<std::string>())
+		("t", "Number of threads", cxxopts::value<size_t>()->default_value("1"))
+		("x", "Preset parameters", cxxopts::value<std::string>())
+		("sample-name", "Name of the sample added to all morph names", cxxopts::value<std::string>())
 		("r,reference", "Reference used for recruiting reads (required)", cxxopts::value<std::string>())
 		("orient-by-reference", "Rotate and possibly reverse complement the consensus to match the orientation of the given reference", cxxopts::value<std::string>())
+		("approx-morphsize", "Approximate length of one morph")
 		("k", "k-mer size", cxxopts::value<size_t>()->default_value("101"))
 		("annotation-reference-fasta", "Lift over the annotations from given reference fasta+gff3 (requires liftoff)", cxxopts::value<std::string>())
 		("annotation-gff3", "Lift over the annotations from given reference fasta+gff3 (requires liftoff)", cxxopts::value<std::string>())
 		("morph-cluster-maxedit", "Maximum edit distance between two morphs to assign them into the same cluster", cxxopts::value<size_t>()->default_value("200"))
 		("morph-recluster-minedit", "Minimum edit distance to recluster morphs", cxxopts::value<size_t>()->default_value("5"))
-		("t", "Number of threads", cxxopts::value<size_t>()->default_value("1"))
-		("approx-morphsize", "Approximate length of one morph", cxxopts::value<size_t>()->default_value("45000"))
-		("sample-name", "Name of the sample added to all morph names", cxxopts::value<std::string>())
+		("mbg", "MBG path", cxxopts::value<std::string>())
+		("graphaligner", "GraphAligner path", cxxopts::value<std::string>())
 	;
 	std::string MBGPath;
 	std::string GraphAlignerPath;
@@ -64,9 +65,18 @@ int main(int argc, char** argv)
 	if (params.count("h") == 1)
 	{
 		std::cerr << options.help() << std::endl;
+		std::cerr << "Valid presets for -x: human" << std::endl;
 		std::exit(0);
 	}
 	bool paramError = false;
+	if (params.count("x") == 1)
+	{
+		if (params["x"].as<std::string>() != "human")
+		{
+			std::cerr << "No preset \"" << params["x"].as<std::string>() << "\"" << std::endl;
+			paramError = true;
+		}
+	}
 	if (params.count("mbg") == 0)
 	{
 		std::cerr << "checking for MBG" << std::endl;
@@ -110,9 +120,14 @@ int main(int argc, char** argv)
 		std::cerr << "Input reads (-i) are required" << std::endl;
 		paramError = true;
 	}
-	if (params.count("r") == 0)
+	if (params.count("r") == 0 && params.count("x") == 0)
 	{
 		std::cerr << "Input reference (-r) is required" << std::endl;
+		paramError = true;
+	}
+	if (params.count("approx-morphsize") == 0 && params.count("x") == 0)
+	{
+		std::cerr << "Approximate size of one morph (--approx-morphsize) is required" << std::endl;
 		paramError = true;
 	}
 	if (params.count("t") == 1 && params["t"].as<size_t>() == 0)
@@ -149,24 +164,38 @@ int main(int argc, char** argv)
 	{
 		std::abort();
 	}
-	std::string refPath = params["r"].as<std::string>();
+	std::string refPath;
 	std::vector<std::string> hifiReadPaths = params["i"].as<std::vector<std::string>>();
 	std::vector<std::string> ontReadPaths;
-	if (params.count("nano") >= 1) ontReadPaths = params["nano"].as<std::vector<std::string>>();
 	ClusterParams clusterParams;
+	if (params.count("x") == 1)
+	{
+		if (params["x"].as<std::string>() == "human")
+		{
+			clusterParams.k = 101;
+			clusterParams.maxClusterDifference = 200;
+			clusterParams.minReclusterDistance = 5;
+			clusterParams.maxResolveLength = 45000/5;
+			clusterParams.orientReferencePath = std::string{RIBOTIN_TEMPLATE_PATH} + "/rDNA_one_unit.fasta";
+			refPath = std::string{RIBOTIN_TEMPLATE_PATH} + "/chm13_rDNAs.fa";
+		}
+	}
+	if (params.count("r") == 1) refPath = params["r"].as<std::string>();
 	clusterParams.MBGPath = MBGPath;
 	clusterParams.basePath = params["o"].as<std::string>();
-	clusterParams.k = params["k"].as<size_t>();
 	clusterParams.numThreads = 1;
 	clusterParams.numThreads = params["t"].as<size_t>();
 	clusterParams.maxClusterDifference = params["morph-cluster-maxedit"].as<size_t>();
 	clusterParams.minReclusterDistance = params["morph-recluster-minedit"].as<size_t>();
-	clusterParams.maxResolveLength = params["approx-morphsize"].as<size_t>()/5;
+	if (params.count("k") == 1) clusterParams.k = params["k"].as<size_t>();
+	if (params.count("approx-morphsize") == 1) clusterParams.maxResolveLength = params["approx-morphsize"].as<size_t>()/5;
+	if (params.count("nano") >= 1) ontReadPaths = params["nano"].as<std::vector<std::string>>();
 	if (params.count("sample-name") == 1) clusterParams.namePrefix = params["sample-name"].as<std::string>();
 	if (params.count("orient-by-reference") == 1) clusterParams.orientReferencePath = params["orient-by-reference"].as<std::string>();
 	if (params.count("annotation-reference-fasta") == 1) clusterParams.annotationFasta = params["annotation-reference-fasta"].as<std::string>();
 	if (params.count("annotation-gff3") == 1) clusterParams.annotationGff3 = params["annotation-gff3"].as<std::string>();
 	clusterParams.GraphAlignerPath = GraphAlignerPath;
+	std::cerr << "using reference from " << refPath << std::endl;
 	std::cerr << "output folder: " << clusterParams.basePath << std::endl;
 	std::filesystem::create_directories(clusterParams.basePath);
 	std::cerr << "extracting HiFi/duplex reads" << std::endl;
