@@ -46,7 +46,7 @@ For running `ribotin-ref` on nonhumans replace `-x human` with `--approx-morphsi
 
 For `ribotin-verkko`, replace `-x human` with either `--approx-morphsize <morphsize> --guess-clusters-using-reference path_to_reference_kmers.fa` or `--approx-morphsize <morphsize> -c cluster1.txt -c cluster2.txt` where `<morphsize>` is the estimated size of a single morph (45000 for human) and `path_to_reference_kmers.fa` is a fasta/fastq file which contains most rDNA k-mers and `cluster1.txt cluster2.txt` etc. are manually selected rDNA tangles from the verkko assembly.
 
-You can get the reference k-mers by doing a whole genome assembly with hifi reads using MBG or a similar hifi based assembly tool, and extracting the sequences of the rDNA tangle from the assembly. If you additionally have one complete morph from the same or related species, you can also include `--orient-by-reference previous_reference_single_morph.fa` to have the results in the same orientation (forward / reverse complement) and offset (rotation) as the previous reference.
+You can get the reference k-mers by doing a whole genome assembly with hifi reads using MBG or a similar hifi based assembly tool, and extracting the sequences of the rDNA tangle from the assembly. It does not matter whether the whole genome assembly has any complete morphs or not. If you additionally have one complete morph from the same or related species, you can also include `--orient-by-reference previous_reference_single_morph.fa` to have the results in the same orientation (forward / reverse complement) and offset (rotation) as the previous reference.
 
 ##### Clustering morphs with ultralong ONT reads
 
