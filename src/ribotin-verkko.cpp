@@ -237,7 +237,7 @@ int main(int argc, char** argv)
 		("guess-tangles-using-reference", "Guess the rDNA tangles using k-mer matches to given reference sequence (required)", cxxopts::value<std::vector<std::string>>())
 		("orient-by-reference", "Rotate and possibly reverse complement the consensus to match the orientation of the given reference", cxxopts::value<std::string>())
 		("approx-morphsize", "Approximate length of one morph", cxxopts::value<size_t>()->default_value("45000"))
-		("do-ul", "Do ultralong ONT read analysis (requires GraphAligner)")
+		("do-ul", "Do ONT read analysis (yes/no/as_verkko)", cxxopts::value<std::string>()->default_value("as_verkko"))
 		("ul-tmp-folder", "Temporary folder for ultralong ONT read analysis", cxxopts::value<std::string>()->default_value("./tmp"))
 		("k", "k-mer size", cxxopts::value<size_t>()->default_value("101"))
 		("annotation-reference-fasta", "Lift over the annotations from given reference fasta+gff3 (requires liftoff)", cxxopts::value<std::string>())
@@ -269,6 +269,11 @@ int main(int argc, char** argv)
 			paramError = true;
 		}
 	}
+	if (params.count("do-ul") == 1 && (params["do-ul"].as<std::string>() != "no" && params["do-ul"].as<std::string>() != "yes" && params["do-ul"].as<std::string>() != "as_verkko"))
+	{
+		std::cerr << "Unknown option for --do-ul: \"" << params["do-ul"].as<std::string>() << "\"" << std::endl;
+		paramError = true;
+	}
 	if (params.count("mbg") == 0)
 	{
 		std::cerr << "checking for MBG" << std::endl;
@@ -292,14 +297,14 @@ int main(int argc, char** argv)
 	{
 		GraphAlignerPath = params["graphaligner"].as<std::string>();
 	}
-	if (params.count("do-ul") == 1 && params.count("graphaligner") == 0)
+	if ((params["do-ul"].as<std::string>() == "yes" || params["do-ul"].as<std::string>() == "as_verkko") && params.count("graphaligner") == 0)
 	{
 		std::cerr << "checking for GraphAligner" << std::endl;
 		int foundGraphAligner = system("which GraphAligner");
 		if (foundGraphAligner != 0)
 		{
 			std::cerr << "GraphAligner not found" << std::endl;
-			std::cerr << "--graphaligner is required when using --ul-ont" << std::endl;
+			std::cerr << "--graphaligner is required when using --do-ul=yes or --do-ul=as_verkko" << std::endl;
 			paramError = true;
 		}
 		else
@@ -356,16 +361,25 @@ int main(int argc, char** argv)
 	{
 		std::abort();
 	}
-	bool doUL = params.count("do-ul") == 1;
 	std::string verkkoBasePath = params["i"].as<std::string>();
+	bool doUL = false;
+	if (params["do-ul"].as<std::string>() == "yes")
+	{
+		doUL = true;
+	}
+	if (params["do-ul"].as<std::string>() == "as_verkko" && checkAssemblyHasNanopore(verkkoBasePath + "/verkko.yml"))
+	{
+		doUL = true;
+	}
 	if (doUL && !checkAssemblyHasNanopore(verkkoBasePath + "/verkko.yml"))
 	{
 		std::cerr << "Assembly did not use ultralong ONT reads, cannot do ultralong ONT analysis." << std::endl;
-		std::cerr << "Try running without --do-ul to skip ultralong ONT analysis, or rerun Verkko with nanopore reads." << std::endl;
+		std::cerr << "Try running with --do-ul=no to skip ultralong ONT analysis, or rerun Verkko with nanopore reads." << std::endl;
 		std::abort();
 	}
 	std::string outputPrefix = params["o"].as<std::string>();
 	size_t k;
+	std::cerr << "do UL analysis: " << (doUL ? "yes" : "no") << std::endl;
 	std::cerr << "output prefix: " << outputPrefix << std::endl;
 	std::string orientReferencePath;
 	std::string annotationFasta;
