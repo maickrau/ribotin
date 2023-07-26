@@ -10,7 +10,7 @@
 #include "VerkkoReadAssignment.h"
 #include "ReadExtractor.h"
 #include "ClusterHandler.h"
-#include "VerkkoClusterGuesser.h"
+#include "VerkkoTangleGuesser.h"
 #include "KmerMatcher.h"
 #include "RibotinUtils.h"
 
@@ -87,10 +87,10 @@ void writeName(std::string filename, const std::string& name)
 	file << name;
 }
 
-void getKmers(std::string outputPrefix, size_t numClusters, std::string outputFile)
+void getKmers(std::string outputPrefix, size_t numTangles, std::string outputFile)
 {
 	std::ofstream file { outputFile };
-	for (size_t i = 0; i < numClusters; i++)
+	for (size_t i = 0; i < numTangles; i++)
 	{
 		FastQ::streamFastqFromFile(outputPrefix + std::to_string(i) + "/consensus.fa", false, [&file, i](FastQ& fastq)
 		{
@@ -112,12 +112,12 @@ void getKmers(std::string outputPrefix, size_t numClusters, std::string outputFi
 	}
 }
 
-void mergeVariantGraphs(std::string outputPrefix, size_t numClusters, std::string outputFile)
+void mergeGraphs(std::string outputPrefix, size_t numTangles, std::string outputFile)
 {
 	std::ofstream file { outputFile };
-	for (size_t i = 0; i < numClusters; i++)
+	for (size_t i = 0; i < numTangles; i++)
 	{
-		std::ifstream variantgraph { outputPrefix + std::to_string(i) + "/variant-graph.gfa" };
+		std::ifstream variantgraph { outputPrefix + std::to_string(i) + "/allele-graph.gfa" };
 		while (variantgraph.good())
 		{
 			std::string line;
@@ -144,7 +144,7 @@ void mergeVariantGraphs(std::string outputPrefix, size_t numClusters, std::strin
 	}
 }
 
-size_t getClusterNum(const std::string& pathstr)
+size_t getTangleNum(const std::string& pathstr)
 {
 	size_t firstGraph = pathstr.find("graph");
 	size_t firstNode = pathstr.find("node");
@@ -155,7 +155,7 @@ size_t getClusterNum(const std::string& pathstr)
 	return result;
 }
 
-void splitAlignmentsPerCluster(std::string outputPrefix, size_t numClusters, std::string rawGafFile)
+void splitAlignmentsPerTangle(std::string outputPrefix, size_t numTangles, std::string rawGafFile)
 {
 	std::unordered_map<std::string, size_t> uniqueMatch;
 	{
@@ -174,16 +174,16 @@ void splitAlignmentsPerCluster(std::string outputPrefix, size_t numClusters, std
 			if (mapq < 20) continue;
 			assert(readend > readstart);
 			if (readend - readstart < 20000) continue;
-			size_t clusterNum = getClusterNum(pathstr);
-			assert(clusterNum < numClusters);
-			if (uniqueMatch.count(readname) == 0) uniqueMatch[readname] = clusterNum;
-			if (uniqueMatch.count(readname) == 1 && uniqueMatch.at(readname) != clusterNum) uniqueMatch[readname] = std::numeric_limits<size_t>::max();
+			size_t tangleNum = getTangleNum(pathstr);
+			assert(tangleNum < numTangles);
+			if (uniqueMatch.count(readname) == 0) uniqueMatch[readname] = tangleNum;
+			if (uniqueMatch.count(readname) == 1 && uniqueMatch.at(readname) != tangleNum) uniqueMatch[readname] = std::numeric_limits<size_t>::max();
 		}
 	}
-	std::vector<std::ofstream> perClusterFiles;
-	for (size_t i = 0; i < numClusters; i++)
+	std::vector<std::ofstream> perTangleFiles;
+	for (size_t i = 0; i < numTangles; i++)
 	{
-		perClusterFiles.emplace_back(outputPrefix + std::to_string(i) + "/ont-alns.gaf");
+		perTangleFiles.emplace_back(outputPrefix + std::to_string(i) + "/ont-alns.gaf");
 	}
 	std::ifstream file { rawGafFile };
 	std::regex extraGraphRemover { "([<>])graph\\d+node" };
@@ -202,17 +202,17 @@ void splitAlignmentsPerCluster(std::string outputPrefix, size_t numClusters, std
 		assert(readend > readstart);
 		if (readend - readstart < 20000) continue;
 		if (uniqueMatch.at(readname) == std::numeric_limits<size_t>::max()) continue;
-		size_t clusterNum = uniqueMatch.at(readname);
-		assert(clusterNum < perClusterFiles.size());
+		size_t tangleNum = uniqueMatch.at(readname);
+		assert(tangleNum < perTangleFiles.size());
 		line = std::regex_replace(line, extraGraphRemover, "$1");
-		perClusterFiles[clusterNum] << line << std::endl;
+		perTangleFiles[tangleNum] << line << std::endl;
 	}
 }
 
-size_t medianConsensusLength(const std::string& outputPrefix, size_t numClusters)
+size_t medianConsensusLength(const std::string& outputPrefix, size_t numTangles)
 {
 	std::vector<size_t> lengths;
-	for (size_t i = 0; i < numClusters; i++)
+	for (size_t i = 0; i < numTangles; i++)
 	{
 		size_t consensusLength = getSequenceLength(outputPrefix + std::to_string(i) + "/consensus.fa");
 		lengths.push_back(consensusLength);
@@ -230,8 +230,8 @@ int main(int argc, char** argv)
 		("v,version", "Print version")
 		("i,in", "Input verkko folder (required)", cxxopts::value<std::string>())
 		("o,out", "Output folder prefix", cxxopts::value<std::string>()->default_value("./result"))
-		("c,cluster", "Input files for node clusters. Multiple files may be inputed with -c file1.txt -c file2.txt ... (required)", cxxopts::value<std::vector<std::string>>())
-		("guess-clusters-using-reference", "Guess the rDNA clusters using k-mer matches to given reference sequence (required)", cxxopts::value<std::vector<std::string>>())
+		("c,tangles", "Input files for node tangles. Multiple files may be inputed with -c file1.txt -c file2.txt ... (required)", cxxopts::value<std::vector<std::string>>())
+		("guess-tangles-using-reference", "Guess the rDNA tangles using k-mer matches to given reference sequence (required)", cxxopts::value<std::vector<std::string>>())
 		("orient-by-reference", "Rotate and possibly reverse complement the consensus to match the orientation of the given reference", cxxopts::value<std::string>())
 		("mbg", "MBG path", cxxopts::value<std::string>())
 		("graphaligner", "GraphAligner path", cxxopts::value<std::string>())
@@ -241,8 +241,10 @@ int main(int argc, char** argv)
 		("annotation-reference-fasta", "Lift over the annotations from given reference fasta+gff3 (requires liftoff)", cxxopts::value<std::string>())
 		("annotation-gff3", "Lift over the annotations from given reference fasta+gff3 (requires liftoff)", cxxopts::value<std::string>())
 		("morph-cluster-maxedit", "Maximum edit distance between two morphs to assign them into the same cluster", cxxopts::value<size_t>()->default_value("200"))
+		("morph-recluster-minedit", "Minimum edit distance to recluster morphs", cxxopts::value<size_t>()->default_value("5"))
 		("t", "Number of threads", cxxopts::value<size_t>()->default_value("1"))
 		("approx-morphsize", "Approximate length of one morph", cxxopts::value<size_t>()->default_value("45000"))
+		("sample-name", "Name of the sample added to all morph names", cxxopts::value<std::string>())
 	;
 	std::string MBGPath;
 	std::string GraphAlignerPath;
@@ -301,14 +303,14 @@ int main(int argc, char** argv)
 		std::cerr << "Input verkko folder (-i) is required" << std::endl;
 		paramError = true;
 	}
-	if (params.count("c") == 0 && params.count("guess-clusters-using-reference") == 0)
+	if (params.count("c") == 0 && params.count("guess-tangles-using-reference") == 0)
 	{
-		std::cerr << "Either node clusters (-c) or reference used for guessing (--guess-clusters-using-reference) are required" << std::endl;
+		std::cerr << "Either node tangles (-c) or reference used for guessing (--guess-tangles-using-reference) are required" << std::endl;
 		paramError = true;
 	}
-	if (params.count("c") == 1 && params.count("guess-clusters-using-reference") == 1)
+	if (params.count("c") == 1 && params.count("guess-tangles-using-reference") == 1)
 	{
-		std::cerr << "Only one of node clusters (-c) or reference used for guessing (--guess-clusters-using-reference) can be used" << std::endl;
+		std::cerr << "Only one of node tangles (-c) or reference used for guessing (--guess-tangles-using-reference) can be used" << std::endl;
 		paramError = true;
 	}
 	if (params.count("k") == 1 && params["k"].as<size_t>() < 31)
@@ -355,55 +357,61 @@ int main(int argc, char** argv)
 	std::string annotationFasta;
 	std::string annotationGff3;
 	std::string ulTmpFolder = params["ul-tmp-folder"].as<std::string>();
+	std::string sampleName;
 	size_t numThreads = params["t"].as<size_t>();
 	size_t maxClusterDifference = params["morph-cluster-maxedit"].as<size_t>();
+	size_t minReclusterDistance = params["morph-recluster-minedit"].as<size_t>();
 	size_t maxResolveLength = params["approx-morphsize"].as<size_t>()/5;
+	if (params.count("sample-name") == 1) sampleName = params["sample-name"].as<std::string>();
 	if (params.count("orient-by-reference") == 1) orientReferencePath = params["orient-by-reference"].as<std::string>();
 	if (params.count("annotation-reference-fasta") == 1) annotationFasta = params["annotation-reference-fasta"].as<std::string>();
 	if (params.count("annotation-gff3") == 1) annotationGff3 = params["annotation-gff3"].as<std::string>();
-	std::vector<std::vector<std::string>> clusterNodes;
+	std::vector<std::vector<std::string>> tangleNodes;
 	if (params.count("c") >= 1)
 	{
-		std::vector<std::string> clusterNodeFiles = params["c"].as<std::vector<std::string>>();
-		std::cerr << "reading nodes per cluster" << std::endl;
-		for (size_t i = 0; i < clusterNodeFiles.size(); i++)
+		std::vector<std::string> tangleNodeFiles = params["c"].as<std::vector<std::string>>();
+		std::cerr << "reading nodes per tangle" << std::endl;
+		for (size_t i = 0; i < tangleNodeFiles.size(); i++)
 		{
-			clusterNodes.push_back(getNodesFromFile(clusterNodeFiles[i]));
+			tangleNodes.push_back(getNodesFromFile(tangleNodeFiles[i]));
 		}
 	}
 	else
 	{
-		std::cerr << "guessing clusters" << std::endl;
-		clusterNodes = guessVerkkoRDNAClusters(verkkoBasePath, params["guess-clusters-using-reference"].as<std::vector<std::string>>());
-		std::cerr << "resulted in " << clusterNodes.size() << " clusters" << std::endl;
+		std::cerr << "guessing tangles" << std::endl;
+		tangleNodes = guessVerkkoRDNATangles(verkkoBasePath, params["guess-tangles-using-reference"].as<std::vector<std::string>>());
+		std::cerr << "resulted in " << tangleNodes.size() << " tangles" << std::endl;
 	}
-	size_t numClusters = clusterNodes.size();
-	std::cerr << "assigning reads per cluster" << std::endl;
-	auto reads = getReadNamesPerCluster(verkkoBasePath, clusterNodes);
+	size_t numTangles = tangleNodes.size();
+	std::cerr << "assigning reads per tangle" << std::endl;
+	auto reads = getReadNamesPerTangle(verkkoBasePath, tangleNodes);
 	for (size_t i = 0; i < reads.size(); i++)
 	{
-		std::cerr << "cluster " << i << " has " << reads[i].size() << " hifi reads" << std::endl;
+		std::cerr << "tangle " << i << " has " << reads[i].size() << " hifi reads" << std::endl;
 	}
 	std::vector<std::string> readFileNames;
-	for (size_t i = 0; i < numClusters; i++)
+	for (size_t i = 0; i < numTangles; i++)
 	{
 		std::filesystem::create_directories(outputPrefix + std::to_string(i));
 		readFileNames.push_back(outputPrefix + std::to_string(i) + "/hifi_reads.fa");
-		writeNodes(outputPrefix + std::to_string(i) + "/nodes.txt", clusterNodes[i]);
+		writeNodes(outputPrefix + std::to_string(i) + "/nodes.txt", tangleNodes[i]);
 	}
-	std::cerr << "extracting HiFi/duplex reads per cluster" << std::endl;
+	std::cerr << "extracting HiFi/duplex reads per tangle" << std::endl;
 	splitReads(getRawReadFilenames(verkkoBasePath + "/verkko.yml", "HIFI_READS"), reads, readFileNames);
-	std::vector<size_t> clustersWithoutReads;
-	for (size_t i = 0; i < numClusters; i++)
+	std::vector<size_t> tanglesWithoutReads;
+	for (size_t i = 0; i < numTangles; i++)
 	{
 		if (reads[i].size() == 0)
 		{
-			std::cerr << "WARNING: cluster " << i << " has no HiFi/duplex reads, skipping" << std::endl;
-			clustersWithoutReads.push_back(i);
+			std::cerr << "WARNING: tangle " << i << " has no HiFi/duplex reads, skipping" << std::endl;
+			tanglesWithoutReads.push_back(i);
 			continue;
 		}
 		ClusterParams clusterParams;
 		clusterParams.maxClusterDifference = maxClusterDifference;
+		clusterParams.minReclusterDistance = minReclusterDistance;
+		clusterParams.namePrefix = "tangle" + std::to_string(i);
+		if (sampleName != "") clusterParams.namePrefix = sampleName + "_" + clusterParams.namePrefix;
 		clusterParams.basePath = outputPrefix + std::to_string(i);
 		clusterParams.hifiReadPath = outputPrefix + std::to_string(i) + "/hifi_reads.fa";
 		if (doUL)
@@ -417,39 +425,42 @@ int main(int argc, char** argv)
 		clusterParams.annotationFasta = annotationFasta;
 		clusterParams.annotationGff3 = annotationGff3;
 		clusterParams.maxResolveLength = maxResolveLength;
-		std::cerr << "running cluster " << i << " in folder " << outputPrefix + std::to_string(i) << std::endl;
+		std::cerr << "running tangle " << i << " in folder " << outputPrefix + std::to_string(i) << std::endl;
 		HandleCluster(clusterParams);
 	}
 	if (doUL)
 	{
 		std::filesystem::create_directories(ulTmpFolder);
-		std::cerr << "getting kmers from clusters" << std::endl;
-		getKmers(outputPrefix, numClusters, ulTmpFolder + "/rdna_kmers.fa");
+		std::cerr << "getting kmers from tangles" << std::endl;
+		getKmers(outputPrefix, numTangles, ulTmpFolder + "/rdna_kmers.fa");
 		std::cerr << "extracting ultralong ONT reads" << std::endl;
 		auto fileNames = getRawReadFilenames(verkkoBasePath + "/verkko.yml", "ONT_READS");
 		std::ofstream readsfile { ulTmpFolder + "/ont_reads.fa" };
-		size_t consensusLength = medianConsensusLength(outputPrefix, numClusters);
+		size_t consensusLength = medianConsensusLength(outputPrefix, numTangles);
 		std::cerr << "median consensus length " << consensusLength << ", using " << consensusLength/2 << " as minimum ONT match length" << std::endl;
 		iterateMatchingReads(ulTmpFolder + "/rdna_kmers.fa", fileNames, 21, consensusLength/2, [&readsfile](const FastQ& seq)
 		{
 			readsfile << ">" << seq.seq_id << std::endl;
 			readsfile << seq.sequence << std::endl;
 		});
-		std::cerr << "merging variant graphs" << std::endl;
-		mergeVariantGraphs(outputPrefix, numClusters, ulTmpFolder + "/merged-variant-graph.gfa");
+		std::cerr << "merging allele graphs" << std::endl;
+		mergeGraphs(outputPrefix, numTangles, ulTmpFolder + "/merged-allele-graph.gfa");
 		std::cerr << "aligning ONT reads" << std::endl;
-		AlignONTReads(ulTmpFolder, GraphAlignerPath, ulTmpFolder + "/ont_reads.fa", ulTmpFolder + "/merged-variant-graph.gfa", ulTmpFolder + "/ont-alns.gaf", numThreads);
-		std::cerr << "splitting ONTs per cluster" << std::endl;
-		splitAlignmentsPerCluster(outputPrefix, numClusters, ulTmpFolder + "/ont-alns.gaf");
-		for (size_t i = 0; i < numClusters; i++)
+		AlignONTReads(ulTmpFolder, GraphAlignerPath, ulTmpFolder + "/ont_reads.fa", ulTmpFolder + "/merged-allele-graph.gfa", ulTmpFolder + "/ont-alns.gaf", numThreads);
+		std::cerr << "splitting ONTs per tangle" << std::endl;
+		splitAlignmentsPerTangle(outputPrefix, numTangles, ulTmpFolder + "/ont-alns.gaf");
+		for (size_t i = 0; i < numTangles; i++)
 		{
 			if (reads[i].size() == 0)
 			{
 				continue;
 			}
-			std::cerr << "running cluster " << i << std::endl;
+			std::cerr << "running tangle " << i << std::endl;
 			ClusterParams clusterParams;
 			clusterParams.maxClusterDifference = maxClusterDifference;
+			clusterParams.minReclusterDistance = minReclusterDistance;
+			clusterParams.namePrefix = "tangle" + std::to_string(i);
+			if (sampleName != "") clusterParams.namePrefix = sampleName + "_" + clusterParams.namePrefix;
 			clusterParams.basePath = outputPrefix + std::to_string(i);
 			clusterParams.hifiReadPath = outputPrefix + std::to_string(i) + "/hifi_reads.fa";
 			if (doUL)
@@ -465,10 +476,10 @@ int main(int argc, char** argv)
 			DoClusterONTAnalysis(clusterParams);
 		}
 	}
-	if (clustersWithoutReads.size() > 0)
+	if (tanglesWithoutReads.size() > 0)
 	{
-		std::cerr << "WARNING: some clusters did not have any HiFi/duplex reads assigned:";
-		for (auto cluster : clustersWithoutReads) std::cerr << " " << cluster;
+		std::cerr << "WARNING: some tangles did not have any HiFi/duplex reads assigned:";
+		for (auto tangle : tanglesWithoutReads) std::cerr << " " << tangle;
 		std::cerr << ", something likely went wrong." << std::endl;
 	}
 }

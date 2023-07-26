@@ -18,9 +18,11 @@ public:
 	std::string orientReferencePath;
 	std::string annotationFasta;
 	std::string annotationGff3;
+	std::string namePrefix;
 	size_t numThreads;
 	size_t maxClusterDifference;
 	size_t maxResolveLength;
+	size_t minReclusterDistance;
 };
 
 void HandleCluster(const ClusterParams& params);

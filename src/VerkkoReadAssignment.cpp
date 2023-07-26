@@ -127,9 +127,9 @@ std::unordered_map<std::string, std::unordered_set<std::string>> getNodeAssignme
 	return result;
 }
 
-std::vector<std::vector<std::string>> getUniqueReadAssignmentToCluster(const std::unordered_map<std::string, std::unordered_set<std::string>>& piecesPerRead, const std::unordered_map<std::string, std::unordered_set<std::string>>& pathsPerPiece, const std::unordered_map<std::string, size_t>& uniqueClusterPerPath, size_t numClusters)
+std::vector<std::vector<std::string>> getUniqueReadAssignmentToTangle(const std::unordered_map<std::string, std::unordered_set<std::string>>& piecesPerRead, const std::unordered_map<std::string, std::unordered_set<std::string>>& pathsPerPiece, const std::unordered_map<std::string, size_t>& uniqueTanglePerPath, size_t numTangles)
 {
-	std::unordered_map<std::string, size_t> clusterPerRead;
+	std::unordered_map<std::string, size_t> tanglePerRead;
 	for (auto pair : piecesPerRead)
 	{
 		for (auto piece : pair.second)
@@ -137,27 +137,27 @@ std::vector<std::vector<std::string>> getUniqueReadAssignmentToCluster(const std
 			if (pathsPerPiece.count(piece) == 0) continue;
 			for (auto path : pathsPerPiece.at(piece))
 			{
-				if (uniqueClusterPerPath.count(path) == 0) continue;
-				size_t cluster = uniqueClusterPerPath.at(path);
-				if (clusterPerRead.count(pair.first) == 1)
+				if (uniqueTanglePerPath.count(path) == 0) continue;
+				size_t tangle = uniqueTanglePerPath.at(path);
+				if (tanglePerRead.count(pair.first) == 1)
 				{
-					if (clusterPerRead.at(pair.first) != cluster)
+					if (tanglePerRead.at(pair.first) != tangle)
 					{
-						clusterPerRead[pair.first] = std::numeric_limits<size_t>::max();
+						tanglePerRead[pair.first] = std::numeric_limits<size_t>::max();
 					}
 				}
 				else
 				{
-					clusterPerRead[pair.first] = cluster;
+					tanglePerRead[pair.first] = tangle;
 				}
 			}
 		}
 	}
 	std::vector<std::vector<std::string>> result;
-	result.resize(numClusters);
-	for (auto pair : clusterPerRead)
+	result.resize(numTangles);
+	for (auto pair : tanglePerRead)
 	{
-		if (pair.second < numClusters)
+		if (pair.second < numTangles)
 		{
 			result[pair.second].push_back(pair.first);
 		}
@@ -165,13 +165,13 @@ std::vector<std::vector<std::string>> getUniqueReadAssignmentToCluster(const std
 	return result;
 }
 
-std::unordered_set<std::string> getUniqueNodesPerCluster(const std::vector<std::vector<std::string>>& nodesPerCluster)
+std::unordered_set<std::string> getUniqueNodesPerTangle(const std::vector<std::vector<std::string>>& nodesPerTangle)
 {
 	std::unordered_set<std::string> unique;
 	std::unordered_set<std::string> notUnique;
-	for (const auto& cluster : nodesPerCluster)
+	for (const auto& tangle : nodesPerTangle)
 	{
-		for (const auto& node : cluster)
+		for (const auto& node : tangle)
 		{
 			if (notUnique.count(node) == 1) continue;
 			if (unique.count(node) == 1)
@@ -255,12 +255,12 @@ std::unordered_set<std::string> getReadsTouchingNodes(const std::vector<std::str
 	return result;
 }
 
-std::unordered_map<std::string, size_t> getUniquePathAssignmentToCluster(const std::unordered_map<std::string, std::unordered_set<std::string>>& pathsPerNode, const std::vector<std::vector<std::string>>& nodesPerCluster)
+std::unordered_map<std::string, size_t> getUniquePathAssignmentToTangle(const std::unordered_map<std::string, std::unordered_set<std::string>>& pathsPerNode, const std::vector<std::vector<std::string>>& nodesPerTangle)
 {
 	std::unordered_map<std::string, size_t> result;
-	for (size_t i = 0; i < nodesPerCluster.size(); i++)
+	for (size_t i = 0; i < nodesPerTangle.size(); i++)
 	{
-		for (auto node : nodesPerCluster[i])
+		for (auto node : nodesPerTangle[i])
 		{
 			if (pathsPerNode.count(node) == 0) continue;
 			for (auto path : pathsPerNode.at(node))
@@ -282,7 +282,7 @@ std::unordered_map<std::string, size_t> getUniquePathAssignmentToCluster(const s
 	return result;
 }
 
-std::vector<std::vector<std::string>> getReadNamesPerCluster(std::string verkkoBaseFolder, const std::vector<std::vector<std::string>>& nodesPerCluster)
+std::vector<std::vector<std::string>> getReadNamesPerTangle(std::string verkkoBaseFolder, const std::vector<std::vector<std::string>>& nodesPerTangle)
 {
 	std::string scfMapFile = verkkoBaseFolder + "/6-layoutContigs/unitig-popped.layout.scfmap";
 	std::string layoutFile = verkkoBaseFolder + "/6-layoutContigs/unitig-popped.layout";
@@ -298,14 +298,14 @@ std::vector<std::vector<std::string>> getReadNamesPerCluster(std::string verkkoB
 	auto piecesPerRead = getReadAssignmentToPieces(layoutFile);
 	auto pathsPerPiece = getPieceAssignmentToPaths(scfMapFile);
 	auto pathsPerNode = getNodeAssignmentToPaths(pathsFile);
-	auto uniqueClusterPerPath = getUniquePathAssignmentToCluster(pathsPerNode, nodesPerCluster);
-	auto uniqueReadPerCluster = getUniqueReadAssignmentToCluster(piecesPerRead, pathsPerPiece, uniqueClusterPerPath, nodesPerCluster.size());
+	auto uniqueTanglePerPath = getUniquePathAssignmentToTangle(pathsPerNode, nodesPerTangle);
+	auto uniqueReadPerTangle = getUniqueReadAssignmentToTangle(piecesPerRead, pathsPerPiece, uniqueTanglePerPath, nodesPerTangle.size());
 	std::vector<std::vector<std::string>> result;
-	result.resize(nodesPerCluster.size());
-	for (size_t i = 0; i < nodesPerCluster.size(); i++)
+	result.resize(nodesPerTangle.size());
+	for (size_t i = 0; i < nodesPerTangle.size(); i++)
 	{
-		auto potentialReads = getReadsTouchingNodes(nodesPerCluster[i], verkkoBaseFolder + "/6-layoutContigs/combined-nodemap.txt", verkkoBaseFolder + "/1-buildGraph/paths.gaf");
-		for (auto read : uniqueReadPerCluster[i])
+		auto potentialReads = getReadsTouchingNodes(nodesPerTangle[i], verkkoBaseFolder + "/6-layoutContigs/combined-nodemap.txt", verkkoBaseFolder + "/1-buildGraph/paths.gaf");
+		for (auto read : uniqueReadPerTangle[i])
 		{
 			if (potentialReads.count(read) == 0) continue;
 			result[i].push_back(read);

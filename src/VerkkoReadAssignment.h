@@ -4,6 +4,6 @@
 #include <vector>
 #include <string>
 
-std::vector<std::vector<std::string>> getReadNamesPerCluster(std::string verkkoBaseFolder, const std::vector<std::vector<std::string>>& nodesPerCluster);
+std::vector<std::vector<std::string>> getReadNamesPerTangle(std::string verkkoBaseFolder, const std::vector<std::vector<std::string>>& nodesPerTangle);
 
 #endif
