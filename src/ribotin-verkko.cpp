@@ -442,6 +442,7 @@ int main(int argc, char** argv)
 			continue;
 		}
 		ClusterParams clusterParams;
+		clusterParams.numThreads = numThreads;
 		clusterParams.maxClusterDifference = maxClusterDifference;
 		clusterParams.minReclusterDistance = minReclusterDistance;
 		clusterParams.namePrefix = "tangle" + std::to_string(i);
@@ -491,6 +492,7 @@ int main(int argc, char** argv)
 			}
 			std::cerr << "running tangle " << i << std::endl;
 			ClusterParams clusterParams;
+			clusterParams.numThreads = numThreads;
 			clusterParams.maxClusterDifference = maxClusterDifference;
 			clusterParams.minReclusterDistance = minReclusterDistance;
 			clusterParams.namePrefix = "tangle" + std::to_string(i);
