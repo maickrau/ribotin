@@ -497,10 +497,7 @@ int main(int argc, char** argv)
 			if (sampleName != "") clusterParams.namePrefix = sampleName + "_" + clusterParams.namePrefix;
 			clusterParams.basePath = outputPrefix + std::to_string(i);
 			clusterParams.hifiReadPath = outputPrefix + std::to_string(i) + "/hifi_reads.fa";
-			if (doUL)
-			{
-				clusterParams.ontReadPath = outputPrefix + std::to_string(i) + "/ont_reads.fa";
-			}
+			clusterParams.ontReadPath = ulTmpFolder + "/ont_reads.fa";
 			clusterParams.MBGPath = MBGPath;
 			clusterParams.GraphAlignerPath = GraphAlignerPath;
 			clusterParams.minimapPath = minimapPath;
