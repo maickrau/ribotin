@@ -140,6 +140,11 @@ int main(int argc, char** argv)
 		std::cerr << "k must be at least 31" << std::endl;
 		paramError = true;
 	}
+	if (params.count("k") == 1 && params["k"].as<size_t>() % 2 == 0)
+	{
+		std::cerr << "k must be odd" << std::endl;
+		paramError = true;
+	}
 	if (params.count("annotation-gff3") == 1 && params.count("annotation-reference-fasta") == 0)
 	{
 		std::cerr << "--annotation-reference-fasta is missing while --annotation-gff3 is used" << std::endl;
@@ -168,6 +173,9 @@ int main(int argc, char** argv)
 	std::vector<std::string> hifiReadPaths = params["i"].as<std::vector<std::string>>();
 	std::vector<std::string> ontReadPaths;
 	ClusterParams clusterParams;
+	clusterParams.k = params["k"].as<size_t>();
+	clusterParams.maxClusterDifference = params["morph-cluster-maxedit"].as<size_t>();
+	clusterParams.minReclusterDistance = params["morph-recluster-minedit"].as<size_t>();
 	if (params.count("x") == 1)
 	{
 		if (params["x"].as<std::string>() == "human")
@@ -179,15 +187,15 @@ int main(int argc, char** argv)
 			clusterParams.orientReferencePath = std::string{RIBOTIN_TEMPLATE_PATH} + "/rDNA_one_unit.fasta";
 			refPath = std::string{RIBOTIN_TEMPLATE_PATH} + "/chm13_rDNAs.fa";
 		}
+		if (params.count("k") == 1) clusterParams.k = params["k"].as<size_t>();
+		if (params.count("morph-cluster-maxedit") == 1) clusterParams.maxClusterDifference = params["morph-cluster-maxedit"].as<size_t>();
+		if (params.count("morph-recluster-minedit") == 1) clusterParams.minReclusterDistance = params["morph-recluster-minedit"].as<size_t>();
 	}
 	if (params.count("r") == 1) refPath = params["r"].as<std::string>();
 	clusterParams.MBGPath = MBGPath;
 	clusterParams.basePath = params["o"].as<std::string>();
 	clusterParams.numThreads = 1;
 	clusterParams.numThreads = params["t"].as<size_t>();
-	clusterParams.maxClusterDifference = params["morph-cluster-maxedit"].as<size_t>();
-	clusterParams.minReclusterDistance = params["morph-recluster-minedit"].as<size_t>();
-	if (params.count("k") == 1) clusterParams.k = params["k"].as<size_t>();
 	if (params.count("approx-morphsize") == 1) clusterParams.maxResolveLength = params["approx-morphsize"].as<size_t>()/5;
 	if (params.count("nano") >= 1) ontReadPaths = params["nano"].as<std::vector<std::string>>();
 	if (params.count("sample-name") == 1) clusterParams.namePrefix = params["sample-name"].as<std::string>();

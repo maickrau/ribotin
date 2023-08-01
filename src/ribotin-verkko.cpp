@@ -333,6 +333,11 @@ int main(int argc, char** argv)
 		std::cerr << "k must be at least 31" << std::endl;
 		paramError = true;
 	}
+	if (params.count("k") == 1 && params["k"].as<size_t>() % 2 == 0)
+	{
+		std::cerr << "k must be odd" << std::endl;
+		paramError = true;
+	}
 	if (params.count("annotation-gff3") == 1 && params.count("annotation-reference-fasta") == 0)
 	{
 		std::cerr << "--annotation-reference-fasta is missing while --annotation-gff3 is used" << std::endl;
@@ -391,6 +396,9 @@ int main(int argc, char** argv)
 	size_t minReclusterDistance;
 	size_t maxResolveLength;
 	std::vector<std::vector<std::string>> tangleNodes;
+	k = params["k"].as<size_t>();
+	maxClusterDifference = params["morph-cluster-maxedit"].as<size_t>();
+	minReclusterDistance = params["morph-recluster-minedit"].as<size_t>();
 	if (params.count("x") == 1)
 	{
 		if (params["x"].as<std::string>() == "human")
@@ -409,11 +417,11 @@ int main(int argc, char** argv)
 			}
 			orientReferencePath = std::string{RIBOTIN_TEMPLATE_PATH} + "/rDNA_one_unit.fasta";
 		}
+		if (params.count("k") == 1) k = params["k"].as<size_t>();
+		if (params.count("morph-cluster-maxedit") == 1) maxClusterDifference = params["morph-cluster-maxedit"].as<size_t>();
+		if (params.count("morph-recluster-minedit") == 1) minReclusterDistance = params["morph-recluster-minedit"].as<size_t>();
 	}
 	size_t numThreads = params["t"].as<size_t>();
-	if (params.count("k") == 1) k = params["k"].as<size_t>();
-	if (params.count("morph-cluster-maxedit") == 1) maxClusterDifference = params["morph-cluster-maxedit"].as<size_t>();
-	if (params.count("morph-recluster-minedit") == 1) minReclusterDistance = params["morph-recluster-minedit"].as<size_t>();
 	if (params.count("approx-morphsize") == 1) maxResolveLength = params["approx-morphsize"].as<size_t>()/5;
 	if (params.count("sample-name") == 1) sampleName = params["sample-name"].as<std::string>();
 	if (params.count("orient-by-reference") == 1) orientReferencePath = params["orient-by-reference"].as<std::string>();
