@@ -787,12 +787,16 @@ std::vector<ReadPath> loadReadPaths(const std::string& filename, const GfaGraph&
 		auto parts = split(line, '\t');
 		ReadPath here;
 		std::string readname = parts[0];
+		size_t readlength = std::stoull(parts[1]);
 		size_t readstart = std::stoull(parts[2]);
 		size_t readend = std::stoull(parts[3]);
 		std::string pathstr = parts[5];
 		size_t pathLength = std::stoull(parts[6]);
 		size_t pathStart = std::stoull(parts[7]);
 		size_t pathEnd = std::stoull(parts[8]);
+		here.readLength = readlength;
+		here.readStart = readstart;
+		here.readEnd = readend;
 		here.pathStartClip = pathStart;
 		here.pathEndClip = pathLength - pathEnd;
 		here.path = parsePath(pathstr, graph.nodeNameToId);
@@ -2026,10 +2030,8 @@ size_t getEditDistanceWfa(const PathSequenceView& left, const PathSequenceView& 
 			if (i >= 2) nextOffsets[i] = std::max(nextOffsets[i], offsets[i-2]);
 			if (i < nextOffsets.size()-2) nextOffsets[i] = std::max(nextOffsets[i], offsets[i]+1);
 			assert(nextOffsets[i] + i >= zeroPos);
-			size_t offsetone = nextOffsets[i];
 			nextOffsets[i] = std::min(nextOffsets[i], rightSize - i + zeroPos);
 			assert(nextOffsets[i]+i-zeroPos <= rightSize);
-			size_t offsettwo = nextOffsets[i];
 			nextOffsets[i] = std::min(nextOffsets[i], leftSize);
 			assert(nextOffsets[i]+i-zeroPos <= rightSize);
 			assert(nextOffsets[i] <= leftSize);
@@ -2766,8 +2768,6 @@ std::vector<std::tuple<size_t, size_t, std::string>> getEdits(const std::string&
 	while (matchMatrix[0][0].second < refSequence.size() && matchMatrix[0][0].second < querySequence.size() && refSequence[matchMatrix[0][0].second] == querySequence[matchMatrix[0][0].second]) matchMatrix[0][0].second += 1;
 	size_t edits = 0;
 	std::pair<size_t, size_t> backtraceWfaPosition = uninitialized;
-	size_t slicesWithNumber = 1;
-	size_t mostOffset = 0;
 	for (edits = 1; edits < maxEdits; edits++)
 	{
 		matchMatrix.emplace_back();
@@ -2776,7 +2776,6 @@ std::vector<std::tuple<size_t, size_t, std::string>> getEdits(const std::string&
 		matchMatrix.back().resize(2*edits+1, uninitialized);
 		insertionMatrix.back().resize(2*edits+1, uninitialized);
 		deletionMatrix.back().resize(2*edits+1, uninitialized);
-		bool hasNumber = false;
 		for (size_t j = 0; j < 2*edits+1; j++)
 		{
 			//mismatch
@@ -3057,7 +3056,6 @@ void writeMorphGraphAndReadPaths(const std::string& graphFile, const std::string
 	{
 		assert(pair.second.size() >= 1);
 		std::sort(pair.second.begin(), pair.second.end(), [](auto left, auto right){ return std::get<0>(left) < std::get<0>(right); });
-		size_t lastMatch = 0;
 		for (size_t i = 0; i < pair.second.size(); i++)
 		{
 			if (i == 0 || std::get<0>(pair.second[i]) + 1000 < std::get<1>(pair.second[i-1]) || std::get<0>(pair.second[i]) > std::get<1>(pair.second[i-1]) + 1000)
@@ -3085,7 +3083,6 @@ void writeMorphGraphAndReadPaths(const std::string& graphFile, const std::string
 	{
 		assert(pair.second.size() >= 1);
 		std::sort(pair.second.begin(), pair.second.end(), [](auto left, auto right){ return std::get<0>(left) < std::get<0>(right); });
-		size_t lastMatch = 0;
 		for (size_t i = 0; i < pair.second.size(); i++)
 		{
 			if (i == 0 || std::get<1>(pair.second[i]) + 1000 < std::get<0>(pair.second[i-1]) || std::get<1>(pair.second[i]) > std::get<0>(pair.second[i-1]) + 1000)
