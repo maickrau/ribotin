@@ -793,6 +793,7 @@ std::vector<ReadPath> loadReadPaths(const std::string& filename, const GfaGraph&
 		size_t pathLength = std::stoull(parts[6]);
 		size_t pathStart = std::stoull(parts[7]);
 		size_t pathEnd = std::stoull(parts[8]);
+		here.readName = readname;
 		here.pathStartClip = pathStart;
 		here.pathEndClip = pathLength - pathEnd;
 		here.path = parsePath(pathstr, graph.nodeNameToId);
@@ -2977,6 +2978,53 @@ void orderLoopsByLength(std::vector<OntLoop>& loops, const GfaGraph& graph, cons
 	std::swap(result, loops);
 }
 
+void writeReadVariants(std::vector<Variant>& variants, const GfaGraph& graph, const Path& heavyPath, const std::vector<ReadPath>& readPaths, std::string fileName)
+{
+	phmap::flat_hash_map<std::string, std::vector<size_t>> alts;
+	phmap::flat_hash_map<std::string, std::vector<size_t>> refs;
+	for (size_t i = 0; i < readPaths.size(); i++)
+	{
+		for (size_t j = 0; j < variants.size(); j++)
+		{
+			if (isSubstring(variants[j].path, readPaths[i].path))
+			{
+				alts[readPaths[i].readName].push_back(j);
+			}
+			if (isSubstring(variants[j].referencePath, readPaths[i].path))
+			{
+				refs[readPaths[i].readName].push_back(j);
+			}
+		}
+	}
+	std::ofstream file { fileName };
+	for (const auto& read : alts)
+	{
+		file << read.first;
+		for (auto i : read.second)
+		{
+			file << " alt-" << i;
+		}
+		if (refs.count(read.first) == 1)
+		{
+			for (auto i : refs.at(read.first))
+			{
+				file << " ref-" << i;
+			}
+		}
+		file << std::endl;
+	}
+	for (const auto& read : refs)
+	{
+		if (alts.count(read.first) == 1) continue;
+		file << read.first;
+		for (auto i : read.second)
+		{
+			file << " ref-" << i;
+		}
+		file << std::endl;
+	}
+}
+
 void HandleCluster(const ClusterParams& params)
 {
 	std::cerr << "running MBG" << std::endl;
@@ -3001,6 +3049,7 @@ void HandleCluster(const ClusterParams& params)
 	std::vector<Variant> variants = getVariants(graph, heavyPath, readPaths, 3);
 	nameVariants(variants, graph, heavyPath);
 	std::cerr << variants.size() << " variants" << std::endl;
+	writeReadVariants(variants, graph, heavyPath, readPaths, params.basePath + "/readvariants.txt");
 	std::cerr << "writing variants" << std::endl;
 	writeVariants(heavyPath, graph, variants, params.basePath + "/variants.txt");
 	std::cerr << "writing variant graph" << std::endl;
