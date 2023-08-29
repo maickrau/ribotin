@@ -3311,9 +3311,16 @@ std::vector<std::pair<size_t, size_t>> getKmerMatchesRecursive(const std::string
 	return result;
 }
 
-std::vector<std::tuple<size_t, size_t, std::string>> getKmerAnchoredEdits(const std::string& raw, const phmap::flat_hash_map<size_t, size_t>& rawUniqueKmers, const std::string& read, const size_t k)
+std::vector<std::pair<size_t, size_t>> getKmerMatches(const std::string& raw, const std::string& read, size_t k)
 {
+	phmap::flat_hash_map<size_t, size_t> rawUniqueKmers = getUniqueKmers(raw, 0, raw.size(), k);
 	auto matches = getKmerMatchesRecursive(raw, rawUniqueKmers, read, 0, raw.size(), 0, read.size(), k, false, false);
+	return matches;
+}
+
+std::vector<std::tuple<size_t, size_t, std::string>> getKmerAnchoredEdits(const std::string& raw, const std::string& read, const size_t k)
+{
+	auto matches = getKmerMatches(raw, read, k);
 	std::vector<std::tuple<size_t, size_t, std::string>> result;
 	for (size_t i = 1; i < matches.size(); i++)
 	{
@@ -3338,11 +3345,10 @@ std::string getPolishedConsensus(const std::string& raw, const std::vector<std::
 {
 	const size_t k = 11;
 	const float requiredFraction = 0.6;
-	phmap::flat_hash_map<size_t, size_t> uniqueKmers = getUniqueKmers(raw, 0, raw.size(), k);
 	std::map<std::tuple<size_t, size_t, std::string>, size_t> editCount;
 	for (size_t i = 0; i < reads.size(); i++)
 	{
-		auto editsHere = getKmerAnchoredEdits(raw, uniqueKmers, reads[i], k);
+		auto editsHere = getKmerAnchoredEdits(raw, reads[i], k);
 		for (auto edit : editsHere)
 		{
 			editCount[edit] += 1;
@@ -3386,6 +3392,86 @@ std::string getPolishedConsensus(const std::string& raw, const std::vector<std::
 	return result;
 }
 
+std::pair<std::string, std::vector<uint8_t>> homopolymerCompress(const std::string& read)
+{
+	std::pair<std::string, std::vector<uint8_t>> result;
+	result.first.push_back(read[0]);
+	result.second.push_back(0);
+	for (size_t i = 1; i < read.size(); i++)
+	{
+		if (read[i] == read[i-1])
+		{
+			result.second.back() += 1;
+		}
+		else
+		{
+			result.first.push_back(read[i]);
+			result.second.push_back(1);
+		}
+	}
+	return result;
+}
+
+std::string getHomopolymerPolishedConsensus(const std::string& raw, const std::vector<std::string>& reads)
+{
+	const size_t k = 11;
+	std::pair<std::string, std::vector<uint8_t>> hpcRaw = homopolymerCompress(raw);
+	std::vector<std::vector<uint8_t>> homopolymerCounts;
+	homopolymerCounts.resize(hpcRaw.first.size());
+	for (size_t i = 0; i < hpcRaw.second.size(); i++)
+	{
+		homopolymerCounts[i].push_back(hpcRaw.second[i]);
+	}
+	for (size_t i = 0; i < reads.size(); i++)
+	{
+		std::pair<std::string, std::vector<uint8_t>> hpcRead = homopolymerCompress(reads[i]);
+		auto matches = getKmerMatches(hpcRaw.first, hpcRead.first, k);
+		std::vector<bool> checked;
+		checked.resize(hpcRaw.first.size(), false);
+		for (auto match : matches)
+		{
+			for (size_t j = 2; j+2 < k; j++)
+			{
+				size_t rawPos = match.first+j;
+				size_t readPos = match.second+j;
+				if (checked[rawPos]) continue;
+				checked[rawPos] = true;
+				homopolymerCounts[rawPos].push_back(hpcRead.second[readPos]);
+			}
+		}
+	}
+	std::string result;
+	result.reserve(raw.size());
+	size_t dels = 0;
+	size_t ins = 0;
+	for (size_t i = 0; i < hpcRaw.first.size(); i++)
+	{
+		std::sort(homopolymerCounts[i].begin(), homopolymerCounts[i].end());
+		size_t chosenLength = homopolymerCounts[i][homopolymerCounts[i].size()/2];
+		if (chosenLength < hpcRaw.second[i])
+		{
+			dels += hpcRaw.second[i] - chosenLength;
+		}
+		else if (chosenLength > hpcRaw.second[i])
+		{
+			ins += chosenLength - hpcRaw.second[i];
+		}
+		for (size_t j = 0; j < chosenLength; j++)
+		{
+			result += hpcRaw.first[i];
+		}
+	}
+	if (dels > 0 || ins > 0)
+	{
+		std::cerr << "hpccorrect del " << dels << " ins " << ins << std::endl;
+	}
+	else
+	{
+		std::cerr << "don't hpccorrect" << std::endl;
+	}
+	return result;
+}
+
 void polishMorphConsensuses(std::vector<MorphConsensus>& morphConsensuses, const std::string& ontReadPath)
 {
 	phmap::flat_hash_map<std::string, std::vector<std::tuple<size_t, size_t, size_t>>> fwMatches;
@@ -3425,7 +3511,9 @@ void polishMorphConsensuses(std::vector<MorphConsensus>& morphConsensuses, const
 	});
 	for (size_t i = 0; i < morphConsensuses.size(); i++)
 	{
-		morphConsensuses[i].sequence = getPolishedConsensus(morphConsensuses[i].sequence, alignableSequences[i]);
+		auto snpPolished = getPolishedConsensus(morphConsensuses[i].sequence, alignableSequences[i]);
+		auto homopolymerPolished = getHomopolymerPolishedConsensus(snpPolished, alignableSequences[i]);
+		morphConsensuses[i].sequence = getPolishedConsensus(homopolymerPolished, alignableSequences[i]);
 	}
 }
 
