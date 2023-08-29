@@ -3141,6 +3141,294 @@ void writeMorphGraphAndReadPaths(const std::string& graphFile, const std::string
 	}
 }
 
+template <typename F>
+void iterateKmers(const std::string& str, size_t start, size_t end, size_t k, F callback)
+{
+	if (start+k > end) return;
+	size_t mask = ((size_t)1 << (size_t)(2*k))-1;
+	size_t kmer = 0;
+	for (size_t i = 0; i < k; i++)
+	{
+		kmer <<= 2;
+		switch(str[start+i])
+		{
+			case 'A':
+				kmer += 0;
+				break;
+			case 'C':
+				kmer += 1;
+				break;
+			case 'G':
+				kmer += 2;
+				break;
+			case 'T':
+				kmer += 3;
+				break;
+		}
+	}
+	callback(kmer, start);
+	for (size_t i = start+k; i < end; i++)
+	{
+		kmer <<= 2;
+		kmer &= mask;
+		switch(str[i])
+		{
+			case 'A':
+				kmer += 0;
+				break;
+			case 'C':
+				kmer += 1;
+				break;
+			case 'G':
+				kmer += 2;
+				break;
+			case 'T':
+				kmer += 3;
+				break;
+		}
+		callback(kmer, i-k+1);
+	}
+}
+
+phmap::flat_hash_map<size_t, size_t> getUniqueKmers(const std::string& str, size_t start, size_t end, size_t k)
+{
+	phmap::flat_hash_map<size_t, uint8_t> counts;
+	iterateKmers(str, start, end, k, [&counts](size_t kmer, size_t pos)
+	{
+		counts[kmer] += 1;
+		if (counts[kmer] > 2) counts[kmer] = 2;
+	});
+	phmap::flat_hash_map<size_t, size_t> result;
+	iterateKmers(str, start, end, k, [&counts, &result](size_t kmer, size_t pos)
+	{
+		if (counts.at(kmer) != 1) return;
+		result[kmer] = pos;
+	});
+	return result;
+}
+
+std::vector<std::pair<size_t, size_t>> getKmerMatchesRecursive(const std::string& raw, const phmap::flat_hash_map<size_t, size_t>& rawUniqueKmers, const std::string& read, size_t rawStart, size_t rawEnd, size_t readStart, size_t readEnd, size_t k, bool forceLeftColinear, bool forceRightColinear)
+{
+	if (rawEnd < rawStart+k) return std::vector<std::pair<size_t, size_t>>{};
+	if (readEnd < readStart+k) return std::vector<std::pair<size_t, size_t>>{};
+	phmap::flat_hash_map<size_t, size_t> readUniqueKmers = getUniqueKmers(read, readStart, readEnd, 11);
+	std::vector<std::pair<size_t, size_t>> matches;
+	for (auto pair : rawUniqueKmers)
+	{
+		if (readUniqueKmers.count(pair.first) == 0) continue;
+		size_t rawPos = pair.second;
+		size_t readPos = readUniqueKmers.at(pair.first);
+		assert(rawPos >= rawStart);
+		assert(rawPos < rawEnd);
+		assert(readPos >= readStart);
+		assert(readPos < readEnd);
+		if (forceLeftColinear)
+		{
+			if (rawPos < rawStart+k || readPos < readStart+k)
+			{
+				if (rawPos-rawStart != readPos-readStart) continue;
+			}
+		}
+		if (forceRightColinear)
+		{
+			if (rawPos+k+k >= rawEnd || readPos+k+k >= readEnd)
+			{
+				if (rawEnd-rawPos != readEnd-readPos) continue;
+			}
+		}
+		//assert(raw.substr(rawPos, k) == read.substr(readPos, k));
+		matches.emplace_back(rawPos, readPos);
+	}
+	std::sort(matches.begin(), matches.end(), [](auto left, auto right) { return left.first < right.first; });
+	std::vector<size_t> longestSeq;
+	longestSeq.resize(matches.size(), 1);
+	std::vector<size_t> minIndexPerLength;
+	minIndexPerLength.push_back(0);
+	minIndexPerLength.push_back(0);
+	for (size_t i = 1; i < matches.size(); i++)
+	{
+		for (size_t j = i-1; j < i; j--)
+		{
+			if (matches[j].first < matches[i].first && matches[j].second < matches[i].second)
+			{
+				if ((matches[i].first >= matches[j].first + k && matches[i].second >= matches[j].second + k) || (matches[i].second-matches[j].second == matches[i].first-matches[j].first))
+				{
+					longestSeq[i] = std::max(longestSeq[i], longestSeq[j]+1);
+				}
+			}
+			if (longestSeq[i] == minIndexPerLength.size()) minIndexPerLength.push_back(i);
+			assert(longestSeq[i] < minIndexPerLength.size());
+			if (j < minIndexPerLength[longestSeq[i]]) break;
+		}
+	}
+	std::vector<std::pair<size_t, size_t>> chosenMatches;
+	size_t maxPos = 0;
+	for (size_t i = 0; i < longestSeq.size(); i++)
+	{
+		if (longestSeq[i] > longestSeq[maxPos]) maxPos = i;
+	}
+	while (maxPos != longestSeq.size())
+	{
+		chosenMatches.emplace_back(matches[maxPos]);
+		if (longestSeq[maxPos] == 1) break;
+		bool found = false;
+		for (size_t j = maxPos-1; j < maxPos; j--)
+		{
+			if (longestSeq[j] != longestSeq[maxPos]-1) continue;
+			if ((matches[maxPos].first >= matches[j].first + k && matches[maxPos].second >= matches[j].second + k) || (matches[maxPos].second-matches[j].second == matches[maxPos].first-matches[j].first))
+			{
+				maxPos = j;
+				found = true;
+				break;
+			}
+		}
+		assert(found);
+	}
+	if (chosenMatches.size() == 0) return chosenMatches;
+	std::vector<std::pair<size_t, size_t>> result;
+	size_t lastRawStart = rawStart;
+	size_t lastReadStart = readStart;
+	for (size_t i = chosenMatches.size()-1; i < chosenMatches.size(); i--)
+	{
+		auto newRawKmers = getUniqueKmers(raw, lastRawStart, chosenMatches[i].first+k-1, k);
+		auto recursiveResult = getKmerMatchesRecursive(raw, newRawKmers, read, lastRawStart, chosenMatches[i].first+k-1, lastReadStart, chosenMatches[i].second+k-1, k, i != chosenMatches.size()-1 || forceLeftColinear, true);
+		lastRawStart = chosenMatches[i].first+1;
+		lastReadStart = chosenMatches[i].second+1;
+		if (recursiveResult.size() >= 1 && result.size() >= 1)
+		{
+			assert((recursiveResult[0].first > result.back().first+k && recursiveResult[0].second > result.back().second+k) || recursiveResult[0].first-result.back().first == recursiveResult[0].second-result.back().second);
+		}
+		result.insert(result.end(), recursiveResult.begin(), recursiveResult.end());
+		result.push_back(chosenMatches[i]);
+		if (recursiveResult.size() >= 1)
+		{
+			assert((result.back().first > recursiveResult.back().first+k && result.back().second > recursiveResult.back().second+k) || result.back().first-recursiveResult.back().first == result.back().second-recursiveResult.back().second);
+		}
+	}
+	auto newRawKmers = getUniqueKmers(raw, lastRawStart, rawEnd, k);
+	auto recursiveResult = getKmerMatchesRecursive(raw, newRawKmers, read, lastRawStart, rawEnd, lastReadStart, readEnd, k, true, forceRightColinear);
+	result.insert(result.end(), recursiveResult.begin(), recursiveResult.end());
+	return result;
+}
+
+std::vector<std::tuple<size_t, size_t, std::string>> getKmerAnchoredEdits(const std::string& raw, const phmap::flat_hash_map<size_t, size_t>& rawUniqueKmers, const std::string& read, const size_t k)
+{
+	auto matches = getKmerMatchesRecursive(raw, rawUniqueKmers, read, 0, raw.size(), 0, read.size(), k, false, false);
+	std::vector<std::tuple<size_t, size_t, std::string>> result;
+	for (size_t i = 1; i < matches.size(); i++)
+	{
+		assert(matches[i].first > matches[i-1].first);
+		assert(matches[i].second > matches[i-1].second);
+		if (matches[i].first < matches[i-1].first+k)
+		{
+			assert(matches[i].second - matches[i-1].second == matches[i].first - matches[i-1].first);
+			continue;
+		}
+		size_t rawStart = matches[i-1].first+k;
+		size_t rawEnd = matches[i].first;
+		assert(rawEnd >= rawStart);
+		std::string replacement = read.substr(matches[i-1].second+k, matches[i].second - (matches[i-1].second+k));
+		if (replacement == raw.substr(rawStart, rawEnd-rawStart)) continue;
+		result.emplace_back(rawStart, rawEnd, replacement);
+	}
+	return result;
+}
+
+std::string getPolishedConsensus(const std::string& raw, const std::vector<std::string>& reads)
+{
+	const size_t k = 11;
+	const float requiredFraction = 0.6;
+	phmap::flat_hash_map<size_t, size_t> uniqueKmers = getUniqueKmers(raw, 0, raw.size(), k);
+	std::map<std::tuple<size_t, size_t, std::string>, size_t> editCount;
+	for (size_t i = 0; i < reads.size(); i++)
+	{
+		auto editsHere = getKmerAnchoredEdits(raw, uniqueKmers, reads[i], k);
+		for (auto edit : editsHere)
+		{
+			editCount[edit] += 1;
+		}
+	}
+	std::vector<std::tuple<size_t, size_t, std::string>> chosenEdits;
+	for (auto pair : editCount)
+	{
+		if (pair.second / requiredFraction <= reads.size()) continue;
+		chosenEdits.emplace_back(pair.first);
+	}
+	if (chosenEdits.size() >= 1)
+	{
+		size_t correctOld = 0;
+		size_t correctNew = 0;
+		for (auto pair : chosenEdits)
+		{
+			correctOld += std::get<1>(pair) - std::get<0>(pair);
+			correctNew += std::get<2>(pair).size();
+		}
+		std::cerr << "correct replace " << correctOld << " bp with " << correctNew << " bp" << std::endl;
+	}
+	else
+	{
+		std::cerr << "don't correct" << std::endl;
+	}
+	std::sort(chosenEdits.begin(), chosenEdits.end(), [](auto left, auto right)
+	{
+		return std::get<0>(left) < std::get<0>(right);
+	});
+	size_t lastMatch = 0;
+	std::string result;
+	for (size_t i = 0; i < chosenEdits.size(); i++)
+	{
+		assert(std::get<0>(chosenEdits[i]) >= lastMatch);
+		result += raw.substr(lastMatch, std::get<0>(chosenEdits[i]) - lastMatch);
+		result += std::get<2>(chosenEdits[i]);
+		lastMatch = std::get<1>(chosenEdits[i]);
+	}
+	result += raw.substr(lastMatch);
+	return result;
+}
+
+void polishMorphConsensuses(std::vector<MorphConsensus>& morphConsensuses, const std::string& ontReadPath)
+{
+	phmap::flat_hash_map<std::string, std::vector<std::tuple<size_t, size_t, size_t>>> fwMatches;
+	phmap::flat_hash_map<std::string, std::vector<std::tuple<size_t, size_t, size_t>>> bwMatches;
+	for (size_t i = 0; i < morphConsensuses.size(); i++)
+	{
+		for (const auto& loop : morphConsensuses[i].ontLoops)
+		{
+			if (loop.approxEnd < loop.approxStart)
+			{
+				bwMatches[loop.readName].emplace_back(loop.approxEnd, loop.approxStart, i);
+			}
+			else
+			{
+				fwMatches[loop.readName].emplace_back(loop.approxStart, loop.approxEnd, i);
+			}
+		}
+	}
+	std::vector<std::vector<std::string>> alignableSequences;
+	alignableSequences.resize(morphConsensuses.size());
+	FastQ::streamFastqFromFile(ontReadPath, false, [&fwMatches, &bwMatches, &alignableSequences](FastQ& fastq)
+	{
+		if (fwMatches.count(fastq.seq_id) == 1)
+		{
+			for (auto pos : fwMatches.at(fastq.seq_id))
+			{
+				alignableSequences[std::get<2>(pos)].emplace_back(fastq.sequence.substr(std::get<0>(pos), std::get<1>(pos) - std::get<0>(pos)));
+			}
+		}
+		if (bwMatches.count(fastq.seq_id) == 1)
+		{
+			for (auto pos : bwMatches.at(fastq.seq_id))
+			{
+				alignableSequences[std::get<2>(pos)].emplace_back(revcomp(fastq.sequence.substr(std::get<0>(pos), std::get<1>(pos) - std::get<0>(pos))));
+			}
+		}
+	});
+	for (size_t i = 0; i < morphConsensuses.size(); i++)
+	{
+		morphConsensuses[i].sequence = getPolishedConsensus(morphConsensuses[i].sequence, alignableSequences[i]);
+	}
+}
+
 void DoClusterONTAnalysis(const ClusterParams& params)
 {
 	std::cerr << "reading allele graph" << std::endl;
@@ -3189,6 +3477,8 @@ void DoClusterONTAnalysis(const ClusterParams& params)
 	std::sort(clusters.begin(), clusters.end(), [](const auto& left, const auto& right) { return left.size() > right.size(); });
 	std::cerr << "getting morph consensuses" << std::endl;
 	auto morphConsensuses = getMorphConsensuses(clusters, graph, pathStartClip, pathEndClip, params.namePrefix);
+	std::cerr << "polish morph consensuses" << std::endl;
+	polishMorphConsensuses(morphConsensuses, params.ontReadPath);
 	std::cerr << "write morph consensuses" << std::endl;
 	writeMorphConsensuses(params.basePath + "/morphs.fa", morphConsensuses);
 	std::cerr << "write morph paths" << std::endl;
