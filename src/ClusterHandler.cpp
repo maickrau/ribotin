@@ -3311,30 +3311,49 @@ std::vector<std::pair<size_t, size_t>> getKmerMatchesRecursive(const std::string
 	return result;
 }
 
-std::vector<std::pair<size_t, size_t>> getKmerMatches(const std::string& raw, const std::string& read, size_t k)
+std::vector<std::tuple<size_t, size_t, size_t>> getKmerMatchBlocks(const std::string& raw, const std::string& read, size_t k)
 {
 	phmap::flat_hash_map<size_t, size_t> rawUniqueKmers = getUniqueKmers(raw, 0, raw.size(), k);
-	auto matches = getKmerMatchesRecursive(raw, rawUniqueKmers, read, 0, raw.size(), 0, read.size(), k, false, false);
-	return matches;
+	auto kmerMatches = getKmerMatchesRecursive(raw, rawUniqueKmers, read, 0, raw.size(), 0, read.size(), k, false, false);
+	std::vector<std::tuple<size_t, size_t, size_t>> matchBlocks;
+	if (kmerMatches.size() == 0) return matchBlocks;
+	matchBlocks.emplace_back(kmerMatches[0].first, kmerMatches[0].second, k);
+	for (size_t i = 1; i < kmerMatches.size(); i++)
+	{
+		assert(kmerMatches[i].first > kmerMatches[i-1].first);
+		assert(kmerMatches[i].second > kmerMatches[i-1].second);
+		if (kmerMatches[i].first < kmerMatches[i-1].first+k)
+		{
+			assert(kmerMatches[i].second - kmerMatches[i-1].second == kmerMatches[i].first - kmerMatches[i-1].first);
+		}
+		assert(kmerMatches[i].first > std::get<0>(matchBlocks.back()));
+		assert(kmerMatches[i].second > std::get<1>(matchBlocks.back()));
+		if (kmerMatches[i].first - std::get<0>(matchBlocks.back()) != kmerMatches[i].second - std::get<1>(matchBlocks.back()))
+		{
+			matchBlocks.emplace_back(kmerMatches[i].first, kmerMatches[i].second, k);
+			continue;
+		}
+		if (kmerMatches[i].first > std::get<0>(matchBlocks.back())+std::get<2>(matchBlocks.back()))
+		{
+			matchBlocks.emplace_back(kmerMatches[i].first, kmerMatches[i].second, k);
+			continue;
+		}
+		assert(std::get<2>(matchBlocks.back()) < kmerMatches[i].first + k - std::get<0>(matchBlocks.back()));
+		std::get<2>(matchBlocks.back()) = kmerMatches[i].first + k - std::get<0>(matchBlocks.back());
+	}
+	return matchBlocks;
 }
 
 std::vector<std::tuple<size_t, size_t, std::string>> getKmerAnchoredEdits(const std::string& raw, const std::string& read, const size_t k)
 {
-	auto matches = getKmerMatches(raw, read, k);
+	auto matches = getKmerMatchBlocks(raw, read, k);
 	std::vector<std::tuple<size_t, size_t, std::string>> result;
 	for (size_t i = 1; i < matches.size(); i++)
 	{
-		assert(matches[i].first > matches[i-1].first);
-		assert(matches[i].second > matches[i-1].second);
-		if (matches[i].first < matches[i-1].first+k)
-		{
-			assert(matches[i].second - matches[i-1].second == matches[i].first - matches[i-1].first);
-			continue;
-		}
-		size_t rawStart = matches[i-1].first+k;
-		size_t rawEnd = matches[i].first;
+		size_t rawStart = std::get<0>(matches[i-1])+std::get<2>(matches[i-1]);
+		size_t rawEnd = std::get<0>(matches[i]);
 		assert(rawEnd >= rawStart);
-		std::string replacement = read.substr(matches[i-1].second+k, matches[i].second - (matches[i-1].second+k));
+		std::string replacement = read.substr(std::get<1>(matches[i-1])+std::get<2>(matches[i-1]), std::get<1>(matches[i]) - (std::get<1>(matches[i-1])+std::get<2>(matches[i-1])));
 		if (replacement == raw.substr(rawStart, rawEnd-rawStart)) continue;
 		result.emplace_back(rawStart, rawEnd, replacement);
 	}
@@ -3425,15 +3444,15 @@ std::string getHomopolymerPolishedConsensus(const std::string& raw, const std::v
 	for (size_t i = 0; i < reads.size(); i++)
 	{
 		std::pair<std::string, std::vector<uint8_t>> hpcRead = homopolymerCompress(reads[i]);
-		auto matches = getKmerMatches(hpcRaw.first, hpcRead.first, k);
+		auto matches = getKmerMatchBlocks(hpcRaw.first, hpcRead.first, k);
 		std::vector<bool> checked;
 		checked.resize(hpcRaw.first.size(), false);
 		for (auto match : matches)
 		{
-			for (size_t j = 2; j+2 < k; j++)
+			for (size_t j = 2; j+2 < std::get<2>(match); j++)
 			{
-				size_t rawPos = match.first+j;
-				size_t readPos = match.second+j;
+				size_t rawPos = std::get<0>(match)+j;
+				size_t readPos = std::get<1>(match)+j;
 				if (checked[rawPos]) continue;
 				checked[rawPos] = true;
 				homopolymerCounts[rawPos].push_back(hpcRead.second[readPos]);
