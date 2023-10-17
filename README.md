@@ -28,7 +28,7 @@ First you must run a whole genome assembly with [verkko](https://github.com/marb
 bin/ribotin-verkko -x human -i /path/to/verkko/assembly -o output_folder_prefix
 ```
 
-This finds the rDNA clusters based on k-mer matches to human rDNA and assembly graph topology, extracts HiFi reads uniquely assigned to each cluster, and for each cluster builds a graph and a consensus and finds variants supported by at least 3 reads and builds morph consensuses. Results are written per cluster to `output_folder_prefix[x]` where `[x]` is the cluster number.
+The folder in parameter `-i` should be the same folder as verkko's parameter `-d`. This finds the rDNA clusters based on k-mer matches to human rDNA and assembly graph topology, extracts HiFi reads uniquely assigned to each cluster, and for each cluster builds a graph and a consensus and finds variants supported by at least 3 reads and builds morph consensuses. Results are written per cluster to `output_folder_prefix[x]` where `[x]` is the cluster number.
 
 ##### Verkko based (manual):
 
@@ -46,7 +46,9 @@ For running `ribotin-ref` on nonhumans replace `-x human` with `--approx-morphsi
 
 For `ribotin-verkko`, replace `-x human` with either `--approx-morphsize <morphsize> --guess-clusters-using-reference path_to_reference_kmers.fa` or `--approx-morphsize <morphsize> -c cluster1.txt -c cluster2.txt` where `<morphsize>` is the estimated size of a single morph (45000 for human) and `path_to_reference_kmers.fa` is a fasta/fastq file which contains most rDNA k-mers and `cluster1.txt cluster2.txt` etc. are manually selected rDNA tangles from the verkko assembly.
 
-You can get the reference k-mers by doing a whole genome assembly with hifi reads using MBG or a similar hifi based assembly tool, and extracting the sequences of the rDNA tangle from the assembly. It does not matter whether the whole genome assembly has any complete morphs or not. If you additionally have one complete morph from the same or related species, you can also include `--orient-by-reference previous_reference_single_morph.fa` to have the results in the same orientation (forward / reverse complement) and offset (rotation) as the previous reference.
+You can get the reference k-mers by doing a whole genome assembly with hifi reads using MBG or a similar hifi based assembly tool, and extracting the sequences of the rDNA tangle from the assembly. The reference k-mers fasta should have most rDNA k-mers present but it does not matter whether they are complete morphs or fragments.
+
+If you additionally have one complete morph from the same or related species, you can also include `--orient-by-reference previous_reference_single_morph.fa` to have the results in the same orientation (forward / reverse complement) and offset (rotation) as the previous reference.
 
 ##### Clustering morphs with ultralong ONT reads
 
