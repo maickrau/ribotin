@@ -28,23 +28,23 @@ First you must run a whole genome assembly with [verkko](https://github.com/marb
 bin/ribotin-verkko -x human -i /path/to/verkko/assembly -o output_folder_prefix
 ```
 
-The folder in parameter `-i` should be the same folder as verkko's parameter `-d`. This finds the rDNA clusters based on k-mer matches to human rDNA and assembly graph topology, extracts HiFi reads uniquely assigned to each cluster, and for each cluster builds a graph and a consensus and finds variants supported by at least 3 reads and builds morph consensuses. Results are written per cluster to `output_folder_prefix[x]` where `[x]` is the cluster number.
+The folder in parameter `-i` should be the same folder as verkko's parameter `-d`. This finds the rDNA tangles based on k-mer matches to human rDNA and assembly graph topology, extracts HiFi reads uniquely assigned to each tangle, and for each tangle builds a graph and a consensus and finds variants supported by at least 3 reads and builds morph consensuses. Results are written per tangle to `output_folder_prefix[x]` where `[x]` is the tangle number.
 
 ##### Verkko based (manual):
 
-First you must run a whole genome assembly with [verkko](https://github.com/marbl/verkko). Then manually pick the nodes in each rDNA cluster from `assembly.homopolymer-compressed.noseq.gfa`, and save them to files with one cluster per file eg `node_cluster1.txt`, `node_cluster2.txt`, `node_cluster3.txt`. Format of the node cluster files should be eg `utig4-1 utig4-2 utig4-3...` or `utig4-1, utig4-2, utig4-3...` or each node in its own line. Then run:
+First you must run a whole genome assembly with [verkko](https://github.com/marbl/verkko). Then manually pick the nodes in each rDNA tangle from `assembly.homopolymer-compressed.noseq.gfa`. Each tangle should only have the rDNA tangle nodes, and not the surrounding nodes. Save the tangle nodes to files with one tangle per file eg `node_tangle1.txt`, `node_tangle2.txt`, `node_tangle3.txt`. Format of the node tangle files should be eg `utig4-1 utig4-2 utig4-3...` or `utig4-1, utig4-2, utig4-3...` or each node in its own line. Then run:
 
 ```
-bin/ribotin-verkko -x human -i /path/to/verkko/assembly -o output_folder_prefix -c node_cluster1.txt -c node_cluster2.txt -c node_cluster3.txt
+bin/ribotin-verkko -x human -i /path/to/verkko/assembly -o output_folder_prefix -c node_tangle1.txt -c node_tangle2.txt -c node_tangle3.txt
 ```
 
-This extracts HiFi reads uniquely assigned to each node cluster, and for each cluster builds a graph and a consensus and finds variants supported by at least 3 reads and build morph consensuses. Results are written per cluster to `output_folder_prefix[x]` where `[x]` is the cluster number. 
+This extracts HiFi reads uniquely assigned to each node tangle, and for each tangle builds a graph and a consensus and finds variants supported by at least 3 reads and build morph consensuses. Results are written per tangle to `output_folder_prefix[x]` where `[x]` is the tangle number. 
 
 ##### Nonhumans
 
 For running `ribotin-ref` on nonhumans replace `-x human` with `--approx-morphsize <morphsize> -r path_to_reference_kmers.fa` where `<morphsize>` is the estimated size of a single morph (45000 for human) and `path_to_reference_kmers.fa` is a fasta/fastq file which contains most rDNA k-mers.
 
-For `ribotin-verkko`, replace `-x human` with either `--approx-morphsize <morphsize> --guess-clusters-using-reference path_to_reference_kmers.fa` or `--approx-morphsize <morphsize> -c cluster1.txt -c cluster2.txt` where `<morphsize>` is the estimated size of a single morph (45000 for human) and `path_to_reference_kmers.fa` is a fasta/fastq file which contains most rDNA k-mers and `cluster1.txt cluster2.txt` etc. are manually selected rDNA tangles from the verkko assembly.
+For `ribotin-verkko`, replace `-x human` with either `--approx-morphsize <morphsize> --guess-tangles-using-reference path_to_reference_kmers.fa` or `--approx-morphsize <morphsize> -c tangle1.txt -c tangle2.txt` where `<morphsize>` is the estimated size of a single morph (45000 for human) and `path_to_reference_kmers.fa` is a fasta/fastq file which contains most rDNA k-mers and `tangle1.txt tangle2.txt` etc. are manually selected rDNA tangles from the verkko assembly.
 
 You can get the reference k-mers by doing a whole genome assembly with hifi reads using MBG or a similar hifi based assembly tool, and extracting the sequences of the rDNA tangle from the assembly. The reference k-mers fasta should have most rDNA k-mers present but it does not matter whether they are complete morphs or fragments.
 
