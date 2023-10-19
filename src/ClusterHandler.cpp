@@ -676,51 +676,259 @@ Path readHeavyPath(const GfaGraph& graph, const std::string& heavyPathGafFile)
 	return result;
 }
 
-Path getHeavyPath(const GfaGraph& graph)
+void filterOut(std::unordered_set<size_t>& nodes, const std::unordered_set<size_t>& removeThese)
 {
-	size_t maxCoverageNode = 0;
-	for (size_t i = 1; i < graph.nodeCoverages.size(); i++)
+	for (auto node : removeThese)
 	{
-		if (graph.nodeCoverages[i] > graph.nodeCoverages[maxCoverageNode]) maxCoverageNode = i;
+		if (nodes.count(node) == 1) nodes.erase(node);
 	}
-	std::unordered_map<Node, std::pair<Node, double>> predecessor;
-	std::priority_queue<std::tuple<Node, Node, double>, std::vector<std::tuple<Node, Node, double>>, CoverageComparer> checkStack;
-	checkStack.emplace(Node { maxCoverageNode, true }, Node { maxCoverageNode, true }, 0);
+}
+
+void filterOut(std::unordered_map<Node, std::unordered_set<Node>>& edges, const std::unordered_set<size_t>& removeThese)
+{
+	for (auto node : removeThese)
+	{
+		if (edges.count(Node { node, true }) == 1) edges.erase(Node { node, true });
+		if (edges.count(Node { node, false }) == 1) edges.erase(Node { node, false });
+	}
+	for (auto& pair : edges)
+	{
+		for (auto node : removeThese)
+		{
+			if (pair.second.count(Node { node, true }) == 1) pair.second.erase(Node { node, true });
+			if (pair.second.count(Node { node, false }) == 1) pair.second.erase(Node { node, false });
+		}
+	}
+}
+
+bool isCircular(const std::unordered_set<size_t>& nodes, const std::unordered_map<Node, std::unordered_set<Node>>& edges, Node startNode)
+{
+	std::unordered_set<Node> reachable;
+	std::vector<Node> stack;
+	stack.push_back(startNode);
+	while (stack.size() > 0)
+	{
+		auto top = stack.back();
+		stack.pop_back();
+		if (reachable.count(top) == 1) continue;
+		reachable.insert(top);
+		if (edges.count(top) == 0) continue;
+		for (auto edge : edges.at(top))
+		{
+			stack.push_back(edge);
+			if (edge == startNode) return true;
+		}
+	}
+	return false;
+}
+
+void filterOutNonCircularParts(std::unordered_set<size_t>& nodes, std::unordered_map<Node, std::unordered_set<Node>>& edges, size_t startNode)
+{
+	std::unordered_set<Node> reachable;
+	std::vector<Node> stack;
+	stack.push_back(Node { startNode, true });
+	stack.push_back(Node { startNode, false });
+	while (stack.size() > 0)
+	{
+		auto top = stack.back();
+		stack.pop_back();
+		if (reachable.count(top) == 1) continue;
+		reachable.insert(top);
+		if (edges.count(top) == 0) continue;
+		for (auto edge : edges.at(top))
+		{
+			stack.push_back(edge);
+		}
+	}
+	std::unordered_set<size_t> notCircular;
+	for (auto node : nodes)
+	{
+		if (reachable.count(Node { node, true }) == 1 && reachable.count(Node { node, false }) == 1)
+		{
+			continue;
+		}
+		notCircular.insert(node);
+	}
+	assert(notCircular.count(startNode) == 0);
+	filterOut(nodes, notCircular);
+	filterOut(edges, notCircular);
+}
+
+class PathRecWideCoverage
+{
+public:
+	PathRecWideCoverage() = default;
+	PathRecWideCoverage(const size_t coverage, const size_t length)
+	{
+		coverages.emplace_back(coverage, length);
+	}
+	bool operator<(const PathRecWideCoverage& other) const
+	{
+		for (size_t i = 0; i < coverages.size() && i < other.coverages.size(); i++)
+		{
+			if (coverages[i].first < other.coverages[i].first) return true;
+			if (coverages[i].first > other.coverages[i].first) return false;
+			if (coverages[i].second > other.coverages[i].second) return true;
+			if (coverages[i].second < other.coverages[i].second) return false;
+		}
+		if (coverages.size() < other.coverages.size()) return true;
+		return false;
+	}
+	std::vector<std::pair<size_t, size_t>> coverages;
+private:
+};
+
+PathRecWideCoverage operator+(const PathRecWideCoverage& left, const PathRecWideCoverage& right)
+{
+	PathRecWideCoverage result;
+	size_t leftIndex = 0;
+	size_t rightIndex = 0;
+	while (leftIndex < left.coverages.size() && rightIndex < right.coverages.size())
+	{
+		if (left.coverages[leftIndex].first < right.coverages[rightIndex].first)
+		{
+			result.coverages.emplace_back(left.coverages[leftIndex]);
+			leftIndex += 1;
+		}
+		else if (left.coverages[leftIndex].first > right.coverages[rightIndex].first)
+		{
+			result.coverages.emplace_back(right.coverages[rightIndex]);
+			rightIndex += 1;
+		}
+		else
+		{
+			assert(left.coverages[leftIndex].first == right.coverages[rightIndex].first);
+			result.coverages.emplace_back(left.coverages[leftIndex]);
+			result.coverages.back().second += right.coverages[rightIndex].second;
+			leftIndex += 1;
+			rightIndex += 1;
+		}
+	}
+	while (leftIndex < left.coverages.size())
+	{
+		result.coverages.emplace_back(left.coverages[leftIndex]);
+		leftIndex += 1;
+	}
+	while (rightIndex < right.coverages.size())
+	{
+		result.coverages.emplace_back(right.coverages[rightIndex]);
+		rightIndex += 1;
+	}
+	return result;
+}
+
+Path getRecWidestPath(const std::unordered_set<size_t>& coveredNodes, const std::unordered_map<Node, std::unordered_set<Node>>& coveredEdges, const GfaGraph& graph, const Node start)
+{
+	std::unordered_map<Node, PathRecWideCoverage> nodeRecWideCoverage;
+	std::unordered_map<Node, Node> predecessor;
+	nodeRecWideCoverage[start] = PathRecWideCoverage { graph.nodeCoverages[start.id()], graph.nodeSeqs[start.id()].size() };
+	std::vector<Node> checkStack;
+	assert(coveredEdges.count(start) == 1);
+	for (auto edge : coveredEdges.at(start)) checkStack.push_back(edge);
 	while (checkStack.size() > 0)
 	{
-		auto top = checkStack.top();
-		checkStack.pop();
-		if (graph.edges.count(std::get<0>(top)) == 0) continue;
-		if (predecessor.count(std::get<0>(top)) == 1 && predecessor.at(std::get<0>(top)).second >= std::get<2>(top)) continue;
-		predecessor[std::get<0>(top)] = std::make_pair(std::get<1>(top), std::get<2>(top));
-		for (auto edge : graph.edges.at(std::get<0>(top)))
+		auto top = checkStack.back();
+		checkStack.pop_back();
+		if (predecessor.count(top) == 1)
 		{
-			double coverage = std::min(graph.nodeCoverages.at(std::get<0>(edge).id()), std::get<2>(edge));
-			if (predecessor.count(std::get<0>(edge)) == 1 && predecessor.at(std::get<0>(edge)).second > coverage) continue;
-			checkStack.emplace(std::get<0>(edge), std::get<0>(top), coverage);
+			assert(nodeRecWideCoverage.count(top) == 1);
+			continue;
+		}
+		assert(predecessor.count(top) == 0);
+		assert(nodeRecWideCoverage.count(top) == 0 || top == start);
+		bool hasAllNeighbors = true;
+		Node bestPredecessor;
+		bool hasAny = false;
+		assert(coveredEdges.count(reverse(top)) == 1);
+		for (auto revedge : coveredEdges.at(reverse(top)))
+		{
+			auto pre = reverse(revedge);
+			if (nodeRecWideCoverage.count(pre) == 0)
+			{
+				hasAllNeighbors = false;
+				break;
+			}
+			else
+			{
+				if (!hasAny)
+				{
+					bestPredecessor = pre;
+				}
+				else if (nodeRecWideCoverage.at(bestPredecessor) < nodeRecWideCoverage.at(pre))
+				{
+					bestPredecessor = pre;
+					hasAny = true;
+				}
+			}
+		}
+		if (!hasAllNeighbors) continue;
+		if (hasAllNeighbors)
+		{
+			predecessor[top] = bestPredecessor;
+			nodeRecWideCoverage[top] = nodeRecWideCoverage.at(bestPredecessor) + PathRecWideCoverage { graph.nodeCoverages[top.id()], graph.nodeSeqs[top.id()].size() };
+			assert(coveredEdges.count(top) == 1);
+			for (auto edge : coveredEdges.at(top)) checkStack.push_back(edge);
 		}
 	}
+	assert(predecessor.count(start) == 1);
+	assert(predecessor.count(reverse(start)) == 0);
 	Path result;
-	result.nodes.emplace_back(maxCoverageNode, true);
-	std::unordered_set<Node> visited;
-	while (true)
+	Node pos = predecessor.at(start);
+	while (pos != start)
 	{
-		assert(predecessor.count(result.nodes.back()) == 1);
-		auto pre = predecessor.at(result.nodes.back());
-		if (std::get<0>(pre).id() == maxCoverageNode)
-		{
-			break;
-		}
-		if (visited.count(reverse(pre.first)) == 1)
-		{
-			std::cerr << "The consensus sequence has a palindrome. Unable to build consensus." << std::endl;
-			std::abort();
-		}
-		assert(visited.count(pre.first) == 0);
-		visited.insert(pre.first);
-		result.nodes.emplace_back(pre.first);
+		result.nodes.push_back(pos);
+		pos = predecessor.at(pos);
 	}
+	result.nodes.push_back(start);
 	std::reverse(result.nodes.begin(), result.nodes.end());
+	return result;
+}
+
+Path getHeavyPath(const GfaGraph& graph)
+{
+	std::unordered_set<size_t> coveredNodes;
+	std::unordered_map<Node, std::unordered_set<Node>> coveredEdges;
+	std::vector<std::pair<size_t, size_t>> nodeAndCoverage;
+	std::vector<std::tuple<Node, Node, size_t>> edgeAndCoverage;
+	for (size_t i = 0; i < graph.nodeCoverages.size(); i++)
+	{
+		nodeAndCoverage.emplace_back(i, graph.nodeCoverages[i]);
+	}
+	for (const auto& pair : graph.edges)
+	{
+		for (const auto& target : pair.second)
+		{
+			edgeAndCoverage.emplace_back(pair.first, std::get<0>(target), std::get<2>(target));
+		}
+	}
+	std::sort(nodeAndCoverage.begin(), nodeAndCoverage.end(), [](auto left, auto right) { return left.second > right.second; });
+	std::sort(edgeAndCoverage.begin(), edgeAndCoverage.end(), [](auto left, auto right) { return std::get<2>(left) > std::get<2>(right); });
+	size_t topCoverageNode = nodeAndCoverage[0].first;
+	size_t minCoverage = nodeAndCoverage[0].second;
+	size_t nodeIndex = 0;
+	size_t edgeIndex = 0;
+	while (minCoverage > 0)
+	{
+		size_t nextCoverage = 0;
+		while (nodeIndex < nodeAndCoverage.size() && nodeAndCoverage[nodeIndex].second >= minCoverage)
+		{
+			coveredNodes.emplace(nodeAndCoverage[nodeIndex].first);
+			nodeIndex += 1;
+		}
+		while (edgeIndex < edgeAndCoverage.size() && std::get<2>(edgeAndCoverage[edgeIndex]) >= minCoverage)
+		{
+			coveredEdges[std::get<0>(edgeAndCoverage[edgeIndex])].emplace(std::get<1>(edgeAndCoverage[edgeIndex]));
+			coveredEdges[reverse(std::get<1>(edgeAndCoverage[edgeIndex]))].emplace(reverse(std::get<0>(edgeAndCoverage[edgeIndex])));
+			edgeIndex += 1;
+		}
+		if (nodeIndex < nodeAndCoverage.size()) nextCoverage = nodeAndCoverage[nodeIndex].second;
+		if (edgeIndex < edgeAndCoverage.size()) nextCoverage = std::max(nextCoverage, std::get<2>(edgeAndCoverage[edgeIndex]));
+		assert(nextCoverage < minCoverage);
+		minCoverage = nextCoverage;
+		if (isCircular(coveredNodes, coveredEdges, Node { topCoverageNode, true })) break;
+	}
+	filterOutNonCircularParts(coveredNodes, coveredEdges, topCoverageNode);
+	Path result = getRecWidestPath(coveredNodes, coveredEdges, graph, Node { topCoverageNode, true });
 	for (size_t i = 0; i < result.nodes.size(); i++)
 	{
 		Node prev;
