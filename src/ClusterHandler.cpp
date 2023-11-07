@@ -703,18 +703,21 @@ void filterOut(std::unordered_map<Node, std::unordered_set<Node>>& edges, const 
 
 bool isCircular(const std::unordered_set<size_t>& nodes, const std::unordered_map<Node, std::unordered_set<Node>>& edges, Node startNode)
 {
+	assert(nodes.count(startNode.id()) == 1);
 	std::unordered_set<Node> reachable;
 	std::vector<Node> stack;
 	stack.push_back(startNode);
 	while (stack.size() > 0)
 	{
 		auto top = stack.back();
+		assert(nodes.count(top.id()) == 1);
 		stack.pop_back();
 		if (reachable.count(top) == 1) continue;
 		reachable.insert(top);
 		if (edges.count(top) == 0) continue;
 		for (auto edge : edges.at(top))
 		{
+			if (nodes.count(edge.id()) == 0) continue;
 			stack.push_back(edge);
 			if (edge == startNode) return true;
 		}
@@ -724,6 +727,7 @@ bool isCircular(const std::unordered_set<size_t>& nodes, const std::unordered_ma
 
 void filterOutNonCircularParts(std::unordered_set<size_t>& nodes, std::unordered_map<Node, std::unordered_set<Node>>& edges, size_t startNode)
 {
+	assert(nodes.count(startNode) == 1);
 	std::unordered_set<Node> reachable;
 	std::vector<Node> stack;
 	stack.push_back(Node { startNode, true });
@@ -737,6 +741,7 @@ void filterOutNonCircularParts(std::unordered_set<size_t>& nodes, std::unordered
 		if (edges.count(top) == 0) continue;
 		for (auto edge : edges.at(top))
 		{
+			if (nodes.count(edge.id()) == 0) continue;
 			stack.push_back(edge);
 		}
 	}
@@ -819,6 +824,7 @@ PathRecWideCoverage operator+(const PathRecWideCoverage& left, const PathRecWide
 
 Path getRecWidestPath(const std::unordered_set<size_t>& coveredNodes, const std::unordered_map<Node, std::unordered_set<Node>>& coveredEdges, const GfaGraph& graph, const Node start)
 {
+	assert(coveredNodes.count(start.id()) == 1);
 	std::unordered_map<Node, PathRecWideCoverage> nodeRecWideCoverage;
 	std::unordered_map<Node, Node> predecessor;
 	nodeRecWideCoverage[start] = PathRecWideCoverage { graph.nodeCoverages[start.id()], graph.nodeSeqs[start.id()].size() };
@@ -828,6 +834,7 @@ Path getRecWidestPath(const std::unordered_set<size_t>& coveredNodes, const std:
 	while (checkStack.size() > 0)
 	{
 		auto top = checkStack.back();
+		assert(coveredNodes.count(top.id()) == 1);
 		checkStack.pop_back();
 		if (predecessor.count(top) == 1)
 		{
@@ -842,6 +849,7 @@ Path getRecWidestPath(const std::unordered_set<size_t>& coveredNodes, const std:
 		assert(coveredEdges.count(reverse(top)) == 1);
 		for (auto revedge : coveredEdges.at(reverse(top)))
 		{
+			if (coveredNodes.count(revedge.id()) == 0) continue;
 			auto pre = reverse(revedge);
 			if (nodeRecWideCoverage.count(pre) == 0)
 			{
@@ -867,7 +875,11 @@ Path getRecWidestPath(const std::unordered_set<size_t>& coveredNodes, const std:
 			predecessor[top] = bestPredecessor;
 			nodeRecWideCoverage[top] = nodeRecWideCoverage.at(bestPredecessor) + PathRecWideCoverage { graph.nodeCoverages[top.id()], graph.nodeSeqs[top.id()].size() };
 			assert(coveredEdges.count(top) == 1);
-			for (auto edge : coveredEdges.at(top)) checkStack.push_back(edge);
+			for (auto edge : coveredEdges.at(top))
+			{
+				if (coveredNodes.count(edge.id()) == 0) continue;
+				checkStack.push_back(edge);
+			}
 		}
 	}
 	assert(predecessor.count(start) == 1);
