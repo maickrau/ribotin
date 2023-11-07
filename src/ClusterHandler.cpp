@@ -830,7 +830,11 @@ Path getRecWidestPath(const std::unordered_set<size_t>& coveredNodes, const std:
 	nodeRecWideCoverage[start] = PathRecWideCoverage { graph.nodeCoverages[start.id()], graph.nodeSeqs[start.id()].size() };
 	std::vector<Node> checkStack;
 	assert(coveredEdges.count(start) == 1);
-	for (auto edge : coveredEdges.at(start)) checkStack.push_back(edge);
+	for (auto edge : coveredEdges.at(start))
+	{
+		if (coveredNodes.count(edge.id()) == 0) continue;
+		checkStack.push_back(edge);
+	}
 	while (checkStack.size() > 0)
 	{
 		auto top = checkStack.back();
@@ -854,13 +858,13 @@ Path getRecWidestPath(const std::unordered_set<size_t>& coveredNodes, const std:
 			if (nodeRecWideCoverage.count(pre) == 0)
 			{
 				hasAllNeighbors = false;
-				break;
 			}
 			else
 			{
 				if (!hasAny)
 				{
 					bestPredecessor = pre;
+					hasAny = true;
 				}
 				else if (nodeRecWideCoverage.at(bestPredecessor) < nodeRecWideCoverage.at(pre))
 				{
@@ -869,6 +873,7 @@ Path getRecWidestPath(const std::unordered_set<size_t>& coveredNodes, const std:
 				}
 			}
 		}
+		assert(hasAny);
 		if (!hasAllNeighbors) continue;
 		if (hasAllNeighbors)
 		{
@@ -878,6 +883,8 @@ Path getRecWidestPath(const std::unordered_set<size_t>& coveredNodes, const std:
 			for (auto edge : coveredEdges.at(top))
 			{
 				if (coveredNodes.count(edge.id()) == 0) continue;
+				assert(coveredEdges.count(reverse(edge)) == 1);
+				assert(coveredEdges.at(reverse(edge)).count(reverse(top)) == 1);
 				checkStack.push_back(edge);
 			}
 		}
