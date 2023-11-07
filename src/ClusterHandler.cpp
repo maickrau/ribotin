@@ -960,7 +960,7 @@ void writePathSequence(const Path& path, const GfaGraph& graph, std::string outp
 	file << ">";
 	if (namePrefix != "") file << namePrefix << "_";
 	file << "heavy_path" << std::endl;
-	file << pathseq;
+	file << pathseq << std::endl;
 }
 
 void writePathGaf(const Path& path, const GfaGraph& graph, std::string outputFile)
