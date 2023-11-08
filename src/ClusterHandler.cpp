@@ -903,6 +903,196 @@ Path getRecWidestPath(const std::unordered_set<size_t>& coveredNodes, const std:
 	return result;
 }
 
+std::vector<Node> getCoreNodeOrder(const std::unordered_set<size_t>& nodes, const std::unordered_map<Node, std::unordered_set<Node>>& edges, const std::unordered_set<size_t> coreNodes, const size_t startNode)
+{
+	std::vector<Node> result;
+	result.emplace_back(startNode, true);
+	while (true)
+	{
+		std::vector<Node> stack { result.back() };
+		Node pos = result.back();
+		Node nextPos = pos;
+		std::unordered_set<size_t> visited;
+		while (stack.size() >= 1)
+		{
+			auto top = stack.back();
+			stack.pop_back();
+			if (visited.count(top.id()) == 1) continue;
+			visited.insert(top.id());
+			assert(nodes.count(top.id()) == 1);
+			for (auto edge : edges.at(top))
+			{
+				if (nodes.count(edge.id()) == 0) continue;
+				if (coreNodes.count(edge.id()) == 1)
+				{
+					nextPos = edge;
+					stack.clear();
+					break;
+				}
+				stack.push_back(edge);
+			}
+		}
+		assert(nextPos != pos);
+		result.push_back(nextPos);
+		pos = nextPos;
+		if (pos.id() == startNode) break;
+		assert(result.size() <= coreNodes.size());
+	}
+	assert(result.size() == coreNodes.size()+1);
+	assert(result[0].id() == startNode);
+	assert(result.back().id() == startNode);
+	return result;
+}
+
+bool isReachable(std::unordered_set<size_t>& nodes, std::unordered_map<Node, std::unordered_set<Node>>& edges, const Node start, const Node end)
+{
+	std::unordered_set<size_t> checked;
+	std::vector<Node> stack;
+	stack.push_back(start);
+	while (stack.size() >= 1)
+	{
+		auto top = stack.back();
+		stack.pop_back();
+		if (checked.count(top.id()) == 1) continue;
+		checked.insert(top.id());
+		if (edges.count(top) == 0) continue;
+		for (auto edge : edges.at(top))
+		{
+			if (nodes.count(edge.id()) == 0) continue;
+			stack.push_back(edge);
+			if (edge == end) return true;
+		}
+	}
+	return false;
+}
+
+void filterOutNonThroughGoers(std::unordered_set<size_t>& nodes, const std::unordered_set<size_t>& removables, std::unordered_map<Node, std::unordered_set<Node>>& edges, const Node start, const Node end)
+{
+	std::unordered_set<Node> visited;
+	std::vector<Node> checkStack { start, reverse(end) };
+	while (checkStack.size() >= 1)
+	{
+		auto top = checkStack.back();
+		checkStack.pop_back();
+		assert(nodes.count(top.id()) == 1);
+		if (visited.count(top) == 1) continue;
+		visited.insert(top);
+		if (top == end) continue;
+		if (top == reverse(start)) continue;
+		if (edges.count(top) == 0) continue;
+		for (auto edge : edges.at(top))
+		{
+			if (nodes.count(edge.id()) == 0) continue;
+			checkStack.push_back(edge);
+		}
+	}
+	std::unordered_set<size_t> removeThese;
+	for (size_t node : removables)
+	{
+		if (visited.count(Node { node, true }) == 1 && visited.count(Node { node, false }) == 1) continue;
+		removeThese.insert(node);
+	}
+	filterOut(nodes, removeThese);
+	filterOut(edges, removeThese);
+}
+
+void filterOutDefinitelyNonConsensusNodes(std::unordered_set<size_t>& nodes, std::unordered_map<Node, std::unordered_set<Node>>& edges, const Node start, const Node end, const GfaGraph& graph)
+{
+	if (edges.at(start).count(end) == 1) return; // corner case, just don't handle it and hope for no problem
+	std::unordered_set<size_t> nodesInSubgraph;
+	std::vector<Node> checkStack { start };
+	while (checkStack.size() >= 1)
+	{
+		auto top = checkStack.back();
+		checkStack.pop_back();
+		if (nodesInSubgraph.count(top.id()) == 1) continue;
+		nodesInSubgraph.insert(top.id());
+		if (top == end) continue;
+		for (auto edge : edges.at(top))
+		{
+			if (nodes.count(edge.id()) == 0) continue;
+			checkStack.push_back(edge);
+		}
+	}
+	assert(nodesInSubgraph.size() >= 3);
+	assert(nodesInSubgraph.count(start.id()) == 1);
+	assert(nodesInSubgraph.count(end.id()) == 1);
+	nodesInSubgraph.erase(start.id());
+	nodesInSubgraph.erase(end.id());
+	std::vector<std::pair<size_t, size_t>> nodeAndCoverage;
+	std::vector<std::tuple<Node, Node, size_t>> edgeAndCoverage;
+	for (size_t node : nodesInSubgraph)
+	{
+		nodeAndCoverage.emplace_back(node, graph.nodeCoverages[node]);
+		Node fw { node, true };
+		if (graph.edges.count(fw) == 1)
+		{
+			for (const auto& target : graph.edges.at(fw))
+			{
+				edgeAndCoverage.emplace_back(fw, std::get<0>(target), std::get<2>(target));
+			}
+		}
+		Node bw { node, false };
+		if (graph.edges.count(bw) == 1)
+		{
+			for (const auto& target : graph.edges.at(bw))
+			{
+				edgeAndCoverage.emplace_back(bw, std::get<0>(target), std::get<2>(target));
+			}
+		}
+	}
+	filterOut(nodes, nodesInSubgraph);
+	filterOut(edges, nodesInSubgraph);
+	std::sort(nodeAndCoverage.begin(), nodeAndCoverage.end(), [](auto left, auto right) { return left.second > right.second; });
+	std::sort(edgeAndCoverage.begin(), edgeAndCoverage.end(), [](auto left, auto right) { return std::get<2>(left) > std::get<2>(right); });
+	size_t minCoverage = nodeAndCoverage[0].second;
+	size_t nodeIndex = 0;
+	size_t edgeIndex = 0;
+	while (minCoverage > 0)
+	{
+		size_t nextCoverage = 0;
+		while (nodeIndex < nodeAndCoverage.size() && nodeAndCoverage[nodeIndex].second >= minCoverage)
+		{
+			nodes.emplace(nodeAndCoverage[nodeIndex].first);
+			nodeIndex += 1;
+		}
+		while (edgeIndex < edgeAndCoverage.size() && std::get<2>(edgeAndCoverage[edgeIndex]) >= minCoverage)
+		{
+			edges[std::get<0>(edgeAndCoverage[edgeIndex])].emplace(std::get<1>(edgeAndCoverage[edgeIndex]));
+			edges[reverse(std::get<1>(edgeAndCoverage[edgeIndex]))].emplace(reverse(std::get<0>(edgeAndCoverage[edgeIndex])));
+			edgeIndex += 1;
+		}
+		if (nodeIndex < nodeAndCoverage.size()) nextCoverage = nodeAndCoverage[nodeIndex].second;
+		if (edgeIndex < edgeAndCoverage.size()) nextCoverage = std::max(nextCoverage, std::get<2>(edgeAndCoverage[edgeIndex]));
+		assert(nextCoverage < minCoverage);
+		minCoverage = nextCoverage;
+		if (isReachable(nodes, edges, start, end)) break;
+	}
+	filterOutNonThroughGoers(nodes, nodesInSubgraph, edges, start, end);
+}
+
+void filterOutDefinitelyNonConsensusNodes(std::unordered_set<size_t>& nodes, std::unordered_map<Node, std::unordered_set<Node>>& edges, const size_t startNode, const GfaGraph& graph)
+{
+	std::unordered_set<size_t> coreNodes;
+	std::vector<size_t> testNodes { nodes.begin(), nodes.end() };
+	for (size_t node : testNodes)
+	{
+		if (node == startNode) continue;
+		nodes.erase(node);
+		if (!isCircular(nodes, edges, Node { startNode, true })) coreNodes.insert(node);
+		nodes.insert(node);
+	}
+	if (coreNodes.size() < 2) return;
+	nodes.erase(startNode);
+	if (!isCircular(nodes, edges, Node { *coreNodes.begin(), true })) coreNodes.insert(startNode);
+	nodes.insert(startNode);
+	std::vector<Node> coreNodeOrder = getCoreNodeOrder(nodes, edges, coreNodes, *coreNodes.begin());
+	for (size_t i = 1; i < coreNodeOrder.size(); i++)
+	{
+		filterOutDefinitelyNonConsensusNodes(nodes, edges, coreNodeOrder[i-1], coreNodeOrder[i], graph);
+	}
+}
+
 Path getHeavyPath(const GfaGraph& graph)
 {
 	std::unordered_set<size_t> coveredNodes;
@@ -947,6 +1137,13 @@ Path getHeavyPath(const GfaGraph& graph)
 		if (isCircular(coveredNodes, coveredEdges, Node { topCoverageNode, true })) break;
 	}
 	filterOutNonCircularParts(coveredNodes, coveredEdges, topCoverageNode);
+	while (true)
+	{
+		size_t sizeBeforeFilter = coveredNodes.size();
+		filterOutDefinitelyNonConsensusNodes(coveredNodes, coveredEdges, topCoverageNode, graph);
+		filterOutNonCircularParts(coveredNodes, coveredEdges, topCoverageNode);
+		if (coveredNodes.size() == sizeBeforeFilter) break;
+	}
 	Path result = getRecWidestPath(coveredNodes, coveredEdges, graph, Node { topCoverageNode, true });
 	for (size_t i = 0; i < result.nodes.size(); i++)
 	{
