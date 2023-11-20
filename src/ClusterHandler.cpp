@@ -1927,6 +1927,49 @@ void writeVariantVCF(std::string filename, const Path& heavyPath, const GfaGraph
 	}
 }
 
+void liftoverAnnotationsToMorphs(const std::string& basePath, const std::vector<MorphConsensus>& morphConsensuses, const std::string& annotationFasta, const std::string& annotationGff3)
+{
+	{
+		std::ofstream typefile { basePath + "/liftoff_types.txt" };
+		typefile << "rRNA" << std::endl;
+		typefile << "misc_RNA" << std::endl;
+		typefile << "repeat_region" << std::endl;
+		typefile << "gene" << std::endl;
+		typefile << "pseudogene" << std::endl;
+	}
+	for (size_t i = 0; i < morphConsensuses.size(); i++)
+	{
+		std::string tmpfilepath { basePath + "/tmp_seq.fa" };
+		{
+			std::ofstream tmpfile { tmpfilepath };
+			tmpfile << ">" << morphConsensuses[i].name << std::endl;
+			tmpfile << morphConsensuses[i].sequence << std::endl;
+		}
+		std::string command = "liftoff -f " + basePath + "/liftoff_types.txt -g " + annotationGff3 + " -o " + basePath + "/tmp-morph-annotations-part" + std::to_string(i) + ".gff3 -u "+ basePath + "/morph-unmapped_features" + std::to_string(i) + ".txt -dir " + basePath + "/liftoff_intermediate_files/ " + tmpfilepath + " " + annotationFasta + " 1> " + basePath + "/liftoff_morphs_stdout" + std::to_string(i) + ".txt 2> " + basePath + "/liftoff_morphs_stderr" + std::to_string(i) + ".txt";
+		std::cerr << "running liftoff with command:" << std::endl;
+		std::cerr << command << std::endl;
+		int result = system(command.c_str());
+		if (result != 0)
+		{
+			std::cerr << "liftoff did not run successfully" << std::endl;
+			std::abort();
+		}
+		command = "rm -r " + basePath + "/liftoff_intermediate_files/ " + tmpfilepath + ".fai " + tmpfilepath + ".mmi";
+		std::cerr << command << std::endl;
+		result = system(command.c_str());
+	}
+	std::cerr << "combining liftoff results" << std::endl;
+	std::string outputFile = basePath + "/morph-annotations.gff3";
+	std::string command = "echo \"##gff-version 3\" > " + outputFile + "\ncat " + basePath + "/tmp-morph-annotations-part*.gff3 | grep -v '#' >> " + outputFile;
+	std::cerr << command << std::endl;
+	int result = system(command.c_str());
+	if (result != 0)
+	{
+		std::cerr << "failed to combine liftoff results" << std::endl;
+		std::abort();
+	}
+}
+
 void liftoverAnnotationsToConsensus(const std::string& basePath, const std::string& consensusPath, const std::string& annotationFasta, const std::string& annotationGff3)
 {
 	{
@@ -1937,7 +1980,7 @@ void liftoverAnnotationsToConsensus(const std::string& basePath, const std::stri
 		typefile << "gene" << std::endl;
 		typefile << "pseudogene" << std::endl;
 	}
-	std::string command = "liftoff -f " + basePath + "/liftoff_types.txt -g " + annotationGff3 + " -o " + basePath + "/annotation.gff3 -u " + basePath + "/unmapped_features.txt -dir " + basePath + "/liftoff_intermediate_files/ " + consensusPath + " " + annotationFasta;
+	std::string command = "liftoff -f " + basePath + "/liftoff_types.txt -g " + annotationGff3 + " -o " + basePath + "/consensus-annotation.gff3 -u " + basePath + "/consensus-unmapped_features.txt -dir " + basePath + "/liftoff_intermediate_files/ " + consensusPath + " " + annotationFasta + " 1> " + basePath + "/liftoff_consensus_stdout.txt 2> " + basePath + "/liftoff_consensus_stderr.txt";
 	std::cerr << "running liftoff with command:" << std::endl;
 	std::cerr << command << std::endl;
 	int result = system(command.c_str());
@@ -3619,4 +3662,9 @@ void DoClusterONTAnalysis(const ClusterParams& params)
 	writeMorphPaths(params.basePath + "/morphs.gaf", morphConsensuses, graph, pathStartClip, pathEndClip);
 	std::cerr << "write morph graph and read paths" << std::endl;
 	writeMorphGraphAndReadPaths(params.basePath + "/morphgraph.gfa", params.basePath + "/readpaths-morphgraph.gaf", morphConsensuses);
+	if (params.annotationFasta.size() > 0)
+	{
+		std::cerr << "lifting over annotations to morphs" << std::endl;
+		liftoverAnnotationsToMorphs(params.basePath, morphConsensuses, params.annotationFasta, params.annotationGff3);
+	}
 }
