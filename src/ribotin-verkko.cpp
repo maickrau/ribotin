@@ -538,6 +538,7 @@ int main(int argc, char** argv)
 			DoClusterONTAnalysis(clusterParams);
 		}
 	}
+	std::cerr << "done" << std::endl;
 	if (tanglesWithoutReads.size() > 0)
 	{
 		std::cerr << "WARNING: some tangles did not have any HiFi/duplex reads assigned:";

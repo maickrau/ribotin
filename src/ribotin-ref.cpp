@@ -244,4 +244,5 @@ int main(int argc, char** argv)
 		AlignONTReads(clusterParams.basePath, clusterParams.GraphAlignerPath, clusterParams.ontReadPath, clusterParams.basePath + "/allele-graph.gfa", clusterParams.basePath + "/ont-alns.gaf", clusterParams.numThreads);
 		DoClusterONTAnalysis(clusterParams);
 	}
+	std::cerr << "done" << std::endl;
 }
