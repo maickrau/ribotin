@@ -1935,7 +1935,10 @@ void liftoverAnnotationsToMorphs(const std::string& basePath, const std::vector<
 		typefile << "misc_RNA" << std::endl;
 		typefile << "repeat_region" << std::endl;
 		typefile << "gene" << std::endl;
+		typefile << "transcript" << std::endl;
+		typefile << "exon" << std::endl;
 		typefile << "pseudogene" << std::endl;
+		typefile << "tandem_repeat" << std::endl;
 	}
 	for (size_t i = 0; i < morphConsensuses.size(); i++)
 	{
