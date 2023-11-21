@@ -348,7 +348,7 @@ int main(int argc, char** argv)
 		std::cerr << "--annotation-gff3 is missing while --annotation-reference-fasta is used" << std::endl;
 		paramError = true;
 	}
-	if (params.count("annotation-gff3") == 1 || params.count("annotation-reference-fasta") == 1)
+	if (params.count("annotation-gff3") == 1 || params.count("annotation-reference-fasta") == 1 || (params.count("x") == 1 && params["x"].as<std::string>() == "human"))
 	{
 		std::cerr << "checking for liftoff" << std::endl;
 		int foundLiftoff = system("which liftoff");
@@ -416,6 +416,8 @@ int main(int argc, char** argv)
 				std::cerr << "resulted in " << tangleNodes.size() << " tangles" << std::endl;
 			}
 			orientReferencePath = std::string{RIBOTIN_TEMPLATE_PATH} + "/rDNA_one_unit.fasta";
+			annotationFasta = std::string{RIBOTIN_TEMPLATE_PATH} + "/rDNA_one_unit.fasta";
+			annotationGff3 = std::string{RIBOTIN_TEMPLATE_PATH} + "/rDNA_annotation.gff3";
 		}
 		if (params.count("k") == 1) k = params["k"].as<size_t>();
 		if (params.count("morph-cluster-maxedit") == 1) maxClusterDifference = params["morph-cluster-maxedit"].as<size_t>();

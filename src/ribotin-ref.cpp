@@ -155,7 +155,7 @@ int main(int argc, char** argv)
 		std::cerr << "--annotation-gff3 is missing while --annotation-reference-fasta is used" << std::endl;
 		paramError = true;
 	}
-	if (params.count("annotation-gff3") == 1 || params.count("annotation-reference-fasta") == 1)
+	if (params.count("annotation-gff3") == 1 || params.count("annotation-reference-fasta") == 1 || (params.count("x") == 1 && params["x"].as<std::string>() == "human"))
 	{
 		std::cerr << "checking for liftoff" << std::endl;
 		int foundMinimap2 = system("which liftoff");
@@ -185,6 +185,8 @@ int main(int argc, char** argv)
 			clusterParams.minReclusterDistance = 5;
 			clusterParams.maxResolveLength = 45000/5;
 			clusterParams.orientReferencePath = std::string{RIBOTIN_TEMPLATE_PATH} + "/rDNA_one_unit.fasta";
+			clusterParams.annotationFasta = std::string{RIBOTIN_TEMPLATE_PATH} + "/rDNA_one_unit.fasta";
+			clusterParams.annotationGff3 = std::string{RIBOTIN_TEMPLATE_PATH} + "/rDNA_annotation.gff3";
 			refPath = std::string{RIBOTIN_TEMPLATE_PATH} + "/chm13_rDNAs.fa";
 		}
 		if (params.count("k") == 1) clusterParams.k = params["k"].as<size_t>();
