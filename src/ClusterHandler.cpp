@@ -1981,7 +1981,10 @@ void liftoverAnnotationsToConsensus(const std::string& basePath, const std::stri
 		typefile << "misc_RNA" << std::endl;
 		typefile << "repeat_region" << std::endl;
 		typefile << "gene" << std::endl;
+		typefile << "transcript" << std::endl;
+		typefile << "exon" << std::endl;
 		typefile << "pseudogene" << std::endl;
+		typefile << "tandem_repeat" << std::endl;
 	}
 	std::string command = "liftoff -f " + basePath + "/liftoff_types.txt -g " + annotationGff3 + " -o " + basePath + "/consensus-annotation.gff3 -u " + basePath + "/consensus-unmapped_features.txt -dir " + basePath + "/liftoff_intermediate_files/ " + consensusPath + " " + annotationFasta + " 1> " + basePath + "/liftoff_consensus_stdout.txt 2> " + basePath + "/liftoff_consensus_stderr.txt";
 	std::cerr << "running liftoff with command:" << std::endl;
