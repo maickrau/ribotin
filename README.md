@@ -52,7 +52,7 @@ If you additionally have one complete morph from the same or related species, yo
 
 ##### Species with short rDNA morphs
 
-If your species has short rDNA morph size (about 10000bp per morph) you can use the HiFi reads to get very accurate morphs. In this case input the HiFi reads as the nanopore reads as well and adjust the clustering parameters: `-i hifi_reads.fa --nano hifi_reads.fa --morph-cluster-maxedit 10 --morph-recluster-minedit 1`. This will resolve morphs with very small differences.
+If your species has short rDNA morph size (about 10000bp per morph) you can use the HiFi reads to get very accurate morphs. In this case input the HiFi reads as the nanopore reads as well and adjust the clustering parameters: `-i hifi_reads.fa --nano hifi_reads.fa --morph-cluster-maxedit 10 --morph-recluster-minedit 1 --approx-morphsize <morphsize> -r path_to_reference_kmers.fa`. This will resolve morphs with very small differences.
 
 ##### Clustering morphs with ultralong ONT reads
 
