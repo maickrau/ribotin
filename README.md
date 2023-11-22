@@ -50,6 +50,10 @@ You can get the reference k-mers by doing a whole genome assembly with hifi read
 
 If you additionally have one complete morph from the same or related species, you can also include `--orient-by-reference previous_reference_single_morph.fa` to have the results in the same orientation (forward / reverse complement) and offset (rotation) as the previous reference.
 
+##### Species with short rDNA morphs
+
+If your species has short rDNA morph size (about 10000bp per morph) you can use the HiFi reads to get very accurate morphs. In this case input the HiFi reads as the nanopore reads as well and adjust the clustering parameters: `-i hifi_reads.fa --nano hifi_reads.fa --morph-cluster-maxedit 10 --morph-recluster-minedit 1`. This will resolve morphs with very small differences.
+
 ##### Clustering morphs with ultralong ONT reads
 
 If you have ultralong ONT reads, you can include them to produce consensuses of highly abundant rDNA morphs similar to the CHM13 assembly. For `ribotin-ref`, add the parameter `--nano /path/to/ont/reads.fa` (multiple files may be added with `--nano file1.fa --nano file2.fa` etc). `ribotin-verkko` will automatically check if ONT reads were used in the assembly and use them, and can be overrode with `--do-ul=no`. This will error correct the ultralong ONT reads by aligning them to the allele graph, extract rDNA morphs from the corrected reads, cluster them based on sequence similarity, and compute a consensus for each cluster. This requires [GraphAligner](https://github.com/maickrau/GraphAligner) to be installed.
