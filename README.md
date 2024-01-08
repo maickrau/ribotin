@@ -18,7 +18,7 @@ Also needs [MBG](https://github.com/maickrau/MBG) version 1.0.13 or more recent,
 
 ##### Quick start with CHM13 test dataset:
 
-Download the [test dataset](https://zenodo.org/records/10468773/files/ribotin_testdata.tar.gz?download=1). Unzip with `tar -xzf ribotin_testdata.tar.gz` and then run `ribotin-ref -x human -i data/hifi_reads.fa --nano data/ont_reads.fa -o output`. This will run ribotin-ref on the test dataset and store the results in the folder `output`. The assembled morphs are in `output/morphs.fa` which describes the morph sequences as well as their ONT coverages.
+Download the [test dataset](https://zenodo.org/records/10468773/files/ribotin_testdata.tar.gz?download=1). Unzip with `tar -xzf ribotin_testdata.tar.gz` and then run `ribotin-ref -x human -i data/hifi_reads.fa --nano data/ont_reads.fa -o output`. This will run ribotin-ref on the test dataset and store the results in the folder `output`. The assembled morphs will be in `output/morphs.fa` which describes the morph sequences as well as their ONT coverages.
 
 The dataset also has example results with ribotin version 1.2 in `result_v1.2` and instructions for replicating them in `README`.
 
