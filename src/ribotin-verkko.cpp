@@ -440,8 +440,13 @@ int main(int argc, char** argv)
 	}
 	else if (params.count("guess-tangles-using-reference") == 1)
 	{
-		std::cerr << "guessing tangles" << std::endl;
-		tangleNodes = guessVerkkoRDNATangles(verkkoBasePath, params["guess-tangles-using-reference"].as<std::vector<std::string>>());
+		std::cerr << "guessing tangles using reference:" << std::endl;
+		std::vector<std::string> refPaths = params["guess-tangles-using-reference"].as<std::vector<std::string>>();
+		for (auto path : refPaths)
+		{
+			std::cerr << path << std::endl;
+		}
+		tangleNodes = guessVerkkoRDNATangles(verkkoBasePath, refPaths);
 		std::cerr << "resulted in " << tangleNodes.size() << " tangles" << std::endl;
 	}
 	size_t numTangles = tangleNodes.size();
