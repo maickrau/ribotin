@@ -7,10 +7,10 @@ SRCDIR=src
 
 LIBS=`pkg-config --libs zlib`
 
-_DEPS = fastqloader.h FastHasher.h VerkkoReadAssignment.h ReadExtractor.h KmerMatcher.h ClusterHandler.h VerkkoTangleGuesser.h RibotinUtils.h WfaHelper.h TwobitString.h
+_DEPS = fastqloader.h FastHasher.h VerkkoReadAssignment.h ReadExtractor.h KmerMatcher.h ClusterHandler.h VerkkoTangleGuesser.h RibotinUtils.h WfaHelper.h TwobitString.h TangleGuesser.h HifiasmIntegration.h
 DEPS = $(patsubst %, $(SRCDIR)/%, $(_DEPS))
 
-_OBJ = fastqloader.o FastHasher.o VerkkoReadAssignment.o ReadExtractor.o KmerMatcher.o ClusterHandler.o VerkkoTangleGuesser.o RibotinUtils.o WfaHelper.o TwobitString.o
+_OBJ = fastqloader.o FastHasher.o VerkkoReadAssignment.o ReadExtractor.o KmerMatcher.o ClusterHandler.o VerkkoTangleGuesser.o RibotinUtils.o WfaHelper.o TwobitString.o TangleGuesser.o HifiasmIntegration.o
 OBJ = $(patsubst %, $(ODIR)/%, $(_OBJ))
 
 LINKFLAGS = $(CPPFLAGS) -Wl,-Bstatic $(LIBS) -Wl,-Bdynamic -Wl,--as-needed -lpthread -pthread -static-libstdc++
@@ -21,15 +21,21 @@ VERSION := Branch $(shell git rev-parse --abbrev-ref HEAD) commit $(shell git re
 $(shell mkdir -p bin)
 $(shell mkdir -p obj)
 
-all: $(BINDIR)/ribotin-verkko $(BINDIR)/ribotin-ref
+all: $(BINDIR)/ribotin-verkko $(BINDIR)/ribotin-hifiasm $(BINDIR)/ribotin-ref
 
 $(BINDIR)/ribotin-verkko: $(OBJ) $(ODIR)/ribotin-verkko.o
+	$(GPP) -o $@ $^ $(LINKFLAGS)
+
+$(BINDIR)/ribotin-hifiasm: $(OBJ) $(ODIR)/ribotin-hifiasm.o
 	$(GPP) -o $@ $^ $(LINKFLAGS)
 
 $(BINDIR)/ribotin-ref: $(OBJ) $(ODIR)/ribotin-ref.o
 	$(GPP) -o $@ $^ $(LINKFLAGS)
 
 $(ODIR)/ribotin-verkko.o: $(SRCDIR)/ribotin-verkko.cpp $(DEPS) $(OBJ)
+	$(GPP) -c -o $@ $< $(CPPFLAGS) -DVERSION="\"$(VERSION)\"" -DRIBOTIN_TEMPLATE_PATH="\"$(TEMPLATEPATH)\""
+
+$(ODIR)/ribotin-hifiasm.o: $(SRCDIR)/ribotin-hifiasm.cpp $(DEPS) $(OBJ)
 	$(GPP) -c -o $@ $< $(CPPFLAGS) -DVERSION="\"$(VERSION)\"" -DRIBOTIN_TEMPLATE_PATH="\"$(TEMPLATEPATH)\""
 
 $(ODIR)/ribotin-ref.o: $(SRCDIR)/ribotin-ref.cpp $(DEPS) $(OBJ)

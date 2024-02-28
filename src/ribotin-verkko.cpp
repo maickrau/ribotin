@@ -464,7 +464,11 @@ int main(int argc, char** argv)
 		writeNodes(outputPrefix + std::to_string(i) + "/nodes.txt", tangleNodes[i]);
 	}
 	std::cerr << "extracting HiFi/duplex reads per tangle" << std::endl;
-	splitReads(getRawReadFilenames(verkkoBasePath + "/verkko.yml", "HIFI_READS"), reads, readFileNames);
+	bool allReadsFound = splitReads(getRawReadFilenames(verkkoBasePath + "/verkko.yml", "HIFI_READS"), reads, readFileNames);
+	if (!allReadsFound)
+	{
+		std::cerr << "WARNING: some HiFi reads were not found in the input read files. Double check that the HiFi read files have not been deleted or moved after running verkko." << std::endl;
+	}
 	std::vector<size_t> tanglesWithoutReads;
 	for (size_t i = 0; i < numTangles; i++)
 	{
