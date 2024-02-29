@@ -21,6 +21,7 @@ std::vector<std::string> getNodesFromFile(std::string filename)
 	{
 		std::string node;
 		file >> node;
+		if (!file.good()) break;
 		if (node.size() > 1 && node.back() == ',') node.pop_back();
 		result.push_back(node);
 	}
@@ -441,6 +442,7 @@ int main(int argc, char** argv)
 		std::cerr << "reading nodes per tangle" << std::endl;
 		for (size_t i = 0; i < tangleNodeFiles.size(); i++)
 		{
+			std::cerr << "reading from " << tangleNodeFiles[i] << std::endl;
 			tangleNodes.push_back(getNodesFromFile(tangleNodeFiles[i]));
 		}
 	}
