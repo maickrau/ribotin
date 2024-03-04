@@ -1,3 +1,4 @@
+#include <iostream>
 #include <limits>
 #include <unordered_set>
 #include <unordered_map>
@@ -282,6 +283,12 @@ std::unordered_map<std::string, size_t> getUniquePathAssignmentToTangle(const st
 	return result;
 }
 
+bool fileExists(std::string filename)
+{
+	std::ifstream file { filename };
+	return file.good();
+}
+
 std::vector<std::vector<std::string>> getReadNamesPerTangle(std::string verkkoBaseFolder, const std::vector<std::vector<std::string>>& nodesPerTangle)
 {
 	std::string scfMapFile = verkkoBaseFolder + "/6-layoutContigs/unitig-popped.layout.scfmap";
@@ -290,6 +297,15 @@ std::vector<std::vector<std::string>> getReadNamesPerTangle(std::string verkkoBa
 	if (getRukkiEnabled(verkkoBaseFolder + "/verkko.yml"))
 	{
 		pathsFile = verkkoBaseFolder + "/6-rukki/unitig-popped-unitig-normal-connected-tip.paths.gaf";
+		if (!fileExists(pathsFile))
+		{
+			pathsFile = verkkoBaseFolder + "/6-rukki/unitig-unrolled-unitig-unrolled-popped-unitig-normal-connected-tip.paths.gaf";
+			if (!fileExists(pathsFile))
+			{
+				std::cerr << "ERROR: could not find rukki paths file in the verkko folder!" << std::endl;
+				std::abort();
+			}
+		}
 	}
 	else
 	{
