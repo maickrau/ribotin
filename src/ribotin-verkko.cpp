@@ -368,6 +368,11 @@ int main(int argc, char** argv)
 		std::abort();
 	}
 	std::string verkkoBasePath = params["i"].as<std::string>();
+	if (!fileExists(verkkoBasePath + "/verkko.yml"))
+	{
+		std::cerr << "ERROR: could not find configuration file in the verkko assembly folder!" << std::endl;
+		std::abort();
+	}
 	bool doUL = false;
 	if (params["do-ul"].as<std::string>() == "yes")
 	{

@@ -6,6 +6,7 @@
 #include <cassert>
 #include <sstream>
 #include "VerkkoReadAssignment.h"
+#include "RibotinUtils.h"
 
 bool getRukkiEnabled(std::string configfile)
 {
@@ -283,16 +284,32 @@ std::unordered_map<std::string, size_t> getUniquePathAssignmentToTangle(const st
 	return result;
 }
 
-bool fileExists(std::string filename)
-{
-	std::ifstream file { filename };
-	return file.good();
-}
-
 std::vector<std::vector<std::string>> getReadNamesPerTangle(std::string verkkoBaseFolder, const std::vector<std::vector<std::string>>& nodesPerTangle)
 {
 	std::string scfMapFile = verkkoBaseFolder + "/6-layoutContigs/unitig-popped.layout.scfmap";
 	std::string layoutFile = verkkoBaseFolder + "/6-layoutContigs/unitig-popped.layout";
+	std::string nodemapFile = verkkoBaseFolder + "/6-layoutContigs/combined-nodemap.txt";
+	std::string hifipathFile = verkkoBaseFolder + "/1-buildGraph/paths.gaf";
+	if (!fileExists(scfMapFile))
+	{
+		std::cerr << "ERROR: could not find layout scfmap file in the verkko assembly folder!" << std::endl;
+		std::abort();
+	}
+	if (!fileExists(layoutFile))
+	{
+		std::cerr << "ERROR: could not find layout file in the verkko assembly folder!" << std::endl;
+		std::abort();
+	}
+	if (!fileExists(nodemapFile))
+	{
+		std::cerr << "ERROR: could not find node map file in the verkko assembly folder!" << std::endl;
+		std::abort();
+	}
+	if (!fileExists(hifipathFile))
+	{
+		std::cerr << "ERROR: could not find hifi path file in the verkko assembly folder!" << std::endl;
+		std::abort();
+	}
 	std::string pathsFile;
 	if (getRukkiEnabled(verkkoBaseFolder + "/verkko.yml"))
 	{
@@ -302,7 +319,7 @@ std::vector<std::vector<std::string>> getReadNamesPerTangle(std::string verkkoBa
 			pathsFile = verkkoBaseFolder + "/6-rukki/unitig-unrolled-unitig-unrolled-popped-unitig-normal-connected-tip.paths.gaf";
 			if (!fileExists(pathsFile))
 			{
-				std::cerr << "ERROR: could not find rukki paths file in the verkko folder!" << std::endl;
+				std::cerr << "ERROR: could not find rukki paths file in the verkko assembly folder!" << std::endl;
 				std::abort();
 			}
 		}
@@ -310,6 +327,11 @@ std::vector<std::vector<std::string>> getReadNamesPerTangle(std::string verkkoBa
 	else
 	{
 		pathsFile = verkkoBaseFolder + "/6-layoutContigs/consensus_paths.txt";
+	}
+	if (!fileExists(pathsFile))
+	{
+		std::cerr << "ERROR: could not find paths file in the verkko assembly folder!" << std::endl;
+		std::abort();
 	}
 	auto piecesPerRead = getReadAssignmentToPieces(layoutFile);
 	auto pathsPerPiece = getPieceAssignmentToPaths(scfMapFile);
@@ -320,7 +342,7 @@ std::vector<std::vector<std::string>> getReadNamesPerTangle(std::string verkkoBa
 	result.resize(nodesPerTangle.size());
 	for (size_t i = 0; i < nodesPerTangle.size(); i++)
 	{
-		auto potentialReads = getReadsTouchingNodes(nodesPerTangle[i], verkkoBaseFolder + "/6-layoutContigs/combined-nodemap.txt", verkkoBaseFolder + "/1-buildGraph/paths.gaf");
+		auto potentialReads = getReadsTouchingNodes(nodesPerTangle[i], nodemapFile, hifipathFile);
 		for (auto read : uniqueReadPerTangle[i])
 		{
 			if (potentialReads.count(read) == 0) continue;
