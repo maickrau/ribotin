@@ -4,6 +4,7 @@
 #include "fastqloader.h"
 #include "KmerMatcher.h"
 #include "VerkkoTangleGuesser.h"
+#include "RibotinUtils.h"
 
 std::string revnode(std::string node)
 {
@@ -200,6 +201,12 @@ void filterOutAcyclic(std::vector<std::vector<std::string>>& tangleNodes, const 
 
 std::vector<std::vector<std::string>> guessVerkkoRDNATangles(std::string verkkoBasePath, const std::vector<std::string>& referencePath)
 {
+	std::string graphFilePath = verkkoBasePath + "/assembly.homopolymer-compressed.gfa";
+	if (!fileExists(graphFilePath))
+	{
+		std::cerr << "ERROR: could not find assembly graph file in the verkko assembly folder!" << std::endl;
+		std::abort();
+	}
 	KmerMatcher matcher { 101 };
 	for (auto file : referencePath)
 	{
@@ -208,8 +215,8 @@ std::vector<std::vector<std::string>> guessVerkkoRDNATangles(std::string verkkoB
 			matcher.addReferenceKmers(homopolymerCompress(fastq.sequence));
 		});
 	}
-	auto nodes = matchNodes(matcher, verkkoBasePath + "/assembly.homopolymer-compressed.gfa");
-	auto tangles = extendTangles(nodes, verkkoBasePath + "/assembly.homopolymer-compressed.gfa");
-	filterOutAcyclic(tangles, verkkoBasePath + "/assembly.homopolymer-compressed.gfa");
+	auto nodes = matchNodes(matcher, graphFilePath);
+	auto tangles = extendTangles(nodes, graphFilePath);
+	filterOutAcyclic(tangles, graphFilePath);
 	return tangles;
 }

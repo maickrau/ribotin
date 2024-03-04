@@ -455,6 +455,11 @@ int main(int argc, char** argv)
 		std::cerr << "resulted in " << tangleNodes.size() << " tangles" << std::endl;
 	}
 	size_t numTangles = tangleNodes.size();
+	if (numTangles == 0)
+	{
+		std::cerr << "ERROR: No rDNA tangles found!" << std::endl;
+		std::abort();
+	}
 	std::cerr << "assigning reads per tangle" << std::endl;
 	auto reads = getReadNamesPerTangle(verkkoBasePath, tangleNodes);
 	for (size_t i = 0; i < reads.size(); i++)
