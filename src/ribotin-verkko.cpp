@@ -369,6 +369,11 @@ int main(int argc, char** argv)
 		std::abort();
 	}
 	std::string verkkoBasePath = params["i"].as<std::string>();
+	if (!fileExists(verkkoBasePath + "/verkko.yml"))
+	{
+		std::cerr << "ERROR: could not find configuration file in the verkko assembly folder!" << std::endl;
+		std::abort();
+	}
 	bool doUL = false;
 	if (params["do-ul"].as<std::string>() == "yes")
 	{
@@ -451,6 +456,11 @@ int main(int argc, char** argv)
 		std::cerr << "resulted in " << tangleNodes.size() << " tangles" << std::endl;
 	}
 	size_t numTangles = tangleNodes.size();
+	if (numTangles == 0)
+	{
+		std::cerr << "ERROR: No rDNA tangles found!" << std::endl;
+		std::abort();
+	}
 	std::cerr << "assigning reads per tangle" << std::endl;
 	auto reads = getReadNamesPerTangle(verkkoBasePath, tangleNodes);
 	for (size_t i = 0; i < reads.size(); i++)

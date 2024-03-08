@@ -4,6 +4,7 @@
 #include <vector>
 #include <string>
 
+bool fileExists(std::string filename);
 std::vector<std::string> split(const std::string& str, char separator);
 size_t getSequenceLength(const std::string& filename);
 inline int popcount(uint64_t x)
