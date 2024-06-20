@@ -1,6 +1,7 @@
 #ifndef TwobitString_h
 #define TwobitString_h
 
+#include <cstdint>
 #include <string>
 #include <vector>
 

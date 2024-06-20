@@ -1,11 +1,11 @@
 GPP=$(CXX)
-CPPFLAGS=-Wall -Wextra -std=c++17 -O3 -g -Izstr/src -Iparallel-hashmap/parallel_hashmap/ -Icxxopts/include -Wno-unused-parameter `pkg-config --cflags zlib`
+CPPFLAGS=-Wall -Wextra -std=c++17 -O3 -g -Izstr/src -Iparallel-hashmap/parallel_hashmap/ -Icxxopts/include -Wno-unused-parameter `pkg-config --cflags zlib` `pkg-config --cflags htslib`
 
 ODIR=obj
 BINDIR=bin
 SRCDIR=src
 
-LIBS=`pkg-config --libs zlib`
+LIBS=`pkg-config --libs zlib` `pkg-config --libs htslib`
 
 _DEPS = fastqloader.h FastHasher.h VerkkoReadAssignment.h ReadExtractor.h KmerMatcher.h ClusterHandler.h VerkkoTangleGuesser.h RibotinUtils.h WfaHelper.h TwobitString.h TangleGuesser.h HifiasmIntegration.h
 DEPS = $(patsubst %, $(SRCDIR)/%, $(_DEPS))
@@ -13,7 +13,7 @@ DEPS = $(patsubst %, $(SRCDIR)/%, $(_DEPS))
 _OBJ = fastqloader.o FastHasher.o VerkkoReadAssignment.o ReadExtractor.o KmerMatcher.o ClusterHandler.o VerkkoTangleGuesser.o RibotinUtils.o WfaHelper.o TwobitString.o TangleGuesser.o HifiasmIntegration.o
 OBJ = $(patsubst %, $(ODIR)/%, $(_OBJ))
 
-LINKFLAGS = $(CPPFLAGS) -Wl,-Bstatic $(LIBS) -Wl,-Bdynamic -Wl,--as-needed -lpthread -pthread -static-libstdc++
+LINKFLAGS = $(CPPFLAGS) $(LIBS) -lpthread -pthread -static-libstdc++
 
 TEMPLATEPATH := $(realpath template_seqs)
 VERSION := Branch $(shell git rev-parse --abbrev-ref HEAD) commit $(shell git rev-parse HEAD) $(shell git show -s --format=%ci)

@@ -1,6 +1,7 @@
 #ifndef RibotinUtils_h
 #define RibotinUtils_h
 
+#include <cstdint>
 #include <vector>
 #include <string>
 
