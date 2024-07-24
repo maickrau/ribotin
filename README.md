@@ -72,13 +72,11 @@ This extracts HiFi reads uniquely assigned to each node tangle, and for each tan
 
 ##### Nonhumans
 
-For running `ribotin-ref` on nonhumans replace `-x human` with `--approx-morphsize <morphsize> -r path_to_reference_kmers.fa` where `<morphsize>` is the estimated size of a single morph (45000 for human) and `path_to_reference_kmers.fa` is a fasta/fastq file which contains most rDNA k-mers.
+For running `ribotin-ref` on nonhumans replace `-x human` with `--approx-morphsize <morphsize> -r path_to_example_morphs.fa` where `<morphsize>` is the estimated size of a single morph (45000 for human) and `path_to_example_morphs.fa` is a fasta/fastq file which contains (partial or complete) example morphs from the same sample or species. It does not matter if the example morphs are complete or fragments as long as most rDNA k-mers are present. You can get partial reference morphs by doing a whole genome assembly with hifi reads using MBG or a similar hifi based assembly tool, and extracting the sequences of the rDNA tangle from the assembly. 
 
-For `ribotin-verkko` and `ribotin-hifiasm`, replace `-x human` with either `--approx-morphsize <morphsize> --guess-tangles-using-reference path_to_reference_kmers.fa` or `--approx-morphsize <morphsize> -c tangle1.txt -c tangle2.txt` where `<morphsize>` is the estimated size of a single morph (45000 for human) and `path_to_reference_kmers.fa` is a fasta/fastq file which contains most rDNA k-mers and `tangle1.txt tangle2.txt` etc. are manually selected rDNA tangles from the verkko or hifiasm assembly.
+For `ribotin-verkko` and `ribotin-hifiasm`, replace `-x human` with either `--approx-morphsize <morphsize> --guess-tangles-using-reference path_to_example_morphs.fa` if you have an example morphs file, or with `--approx-morphsize <morphsize> -c tangle1.txt -c tangle2.txt` if you have manually located rDNA tangles from a verkko or hifiasm assembly, where `tangle1.txt tangle2.txt` etc. are files with manually selected rDNA tangle nodes from the verkko or hifiasm assembly with every tangle in a separate file.
 
-You can get the reference k-mers by doing a whole genome assembly with hifi reads using MBG or a similar hifi based assembly tool, and extracting the sequences of the rDNA tangle from the assembly. The reference k-mers fasta should have most rDNA k-mers present but it does not matter whether they are complete morphs or fragments.
-
-If you additionally have one complete morph from the same or related species, you can also include `--orient-by-reference previous_reference_single_morph.fa` to have the results in the same orientation (forward / reverse complement) and offset (rotation) as the previous reference.
+If you additionally have one complete morph from the same or related species, you can also include `--orient-by-reference previous_reference_single_morph.fa` to have the results in the same orientation (forward / reverse complement) and offset (rotation) as the previous reference. This file should contain exactly one complete morph.
 
 ##### Species with short rDNA morphs
 
