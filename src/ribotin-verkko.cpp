@@ -518,20 +518,23 @@ int main(int argc, char** argv)
 		getKmers(outputPrefix, numTangles, ulTmpFolder + "/rdna_kmers.fa");
 		std::cerr << "extracting ultralong ONT reads" << std::endl;
 		auto fileNames = getRawReadFilenames(verkkoBasePath + "/verkko.yml", "ONT_READS");
-		std::ofstream readsfile { ulTmpFolder + "/ont_reads.fa" };
+		std::string selectedONTPath = ulTmpFolder + "/ont-alns.gaf";
 		size_t consensusLength = medianConsensusLength(outputPrefix, numTangles);
-		std::cerr << "median consensus length " << consensusLength << ", using " << consensusLength/2 << " as minimum ONT match length" << std::endl;
-		iterateMatchingReads(ulTmpFolder + "/rdna_kmers.fa", fileNames, 21, consensusLength/2, [&readsfile](const FastQ& seq)
 		{
-			readsfile << ">" << seq.seq_id << std::endl;
-			readsfile << seq.sequence << std::endl;
-		});
+			std::ofstream readsfile { selectedONTPath };
+			std::cerr << "median consensus length " << consensusLength << ", using " << consensusLength/2 << " as minimum ONT match length" << std::endl;
+			iterateMatchingReads(ulTmpFolder + "/rdna_kmers.fa", fileNames, 21, consensusLength/2, [&readsfile](const FastQ& seq)
+			{
+				readsfile << ">" << seq.seq_id << std::endl;
+				readsfile << seq.sequence << std::endl;
+			});
+		}
 		std::cerr << "merging allele graphs" << std::endl;
 		mergeGraphs(outputPrefix, numTangles, ulTmpFolder + "/merged-allele-graph.gfa");
 		std::cerr << "aligning ONT reads" << std::endl;
 		AlignONTReads(ulTmpFolder, GraphAlignerPath, ulTmpFolder + "/ont_reads.fa", ulTmpFolder + "/merged-allele-graph.gfa", ulTmpFolder + "/ont-alns.gaf", numThreads);
 		std::cerr << "splitting ONTs per tangle" << std::endl;
-		splitAlignmentsPerTangle(outputPrefix, numTangles, ulTmpFolder + "/ont-alns.gaf");
+		splitAlignmentsPerTangle(outputPrefix, numTangles, selectedONTPath);
 		for (size_t i = 0; i < numTangles; i++)
 		{
 			if (reads[i].size() == 0)
@@ -549,7 +552,7 @@ int main(int argc, char** argv)
 			clusterParams.hifiReadPath = outputPrefix + std::to_string(i) + "/hifi_reads.fa";
 			if (doUL)
 			{
-				clusterParams.ontReadPath = outputPrefix + std::to_string(i) + "/ont_reads.fa";
+				clusterParams.ontReadPath = selectedONTPath;
 			}
 			clusterParams.MBGPath = MBGPath;
 			clusterParams.GraphAlignerPath = GraphAlignerPath;

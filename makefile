@@ -1,5 +1,5 @@
 GPP=$(CXX)
-CPPFLAGS=-Wall -Wextra -std=c++17 -O3 -g -Izstr/src -Iparallel-hashmap/parallel_hashmap/ -Icxxopts/include -Wno-unused-parameter `pkg-config --cflags zlib` `pkg-config --cflags htslib`
+CPPFLAGS=-Wall -Wextra -std=c++17 -O3 -g -Izstr/src -Iedlib/edlib/include -Iparallel-hashmap/parallel_hashmap/ -Icxxopts/include -Wno-unused-parameter `pkg-config --cflags zlib` `pkg-config --cflags htslib`
 
 ODIR=obj
 BINDIR=bin
@@ -23,13 +23,13 @@ $(shell mkdir -p obj)
 
 all: $(BINDIR)/ribotin-verkko $(BINDIR)/ribotin-hifiasm $(BINDIR)/ribotin-ref
 
-$(BINDIR)/ribotin-verkko: $(OBJ) $(ODIR)/ribotin-verkko.o
+$(BINDIR)/ribotin-verkko: $(OBJ) $(ODIR)/ribotin-verkko.o edlib/edlib/src/edlib.cpp
 	$(GPP) -o $@ $^ $(LINKFLAGS)
 
-$(BINDIR)/ribotin-hifiasm: $(OBJ) $(ODIR)/ribotin-hifiasm.o
+$(BINDIR)/ribotin-hifiasm: $(OBJ) $(ODIR)/ribotin-hifiasm.o edlib/edlib/src/edlib.cpp
 	$(GPP) -o $@ $^ $(LINKFLAGS)
 
-$(BINDIR)/ribotin-ref: $(OBJ) $(ODIR)/ribotin-ref.o
+$(BINDIR)/ribotin-ref: $(OBJ) $(ODIR)/ribotin-ref.o edlib/edlib/src/edlib.cpp
 	$(GPP) -o $@ $^ $(LINKFLAGS)
 
 $(ODIR)/ribotin-verkko.o: $(SRCDIR)/ribotin-verkko.cpp $(DEPS) $(OBJ)

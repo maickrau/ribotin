@@ -13,11 +13,14 @@
 #include <algorithm>
 #include <sstream>
 #include <phmap.h>
+#include <thread>
+#include <chrono>
 #include "fastqloader.h"
 #include "ClusterHandler.h"
 #include "RibotinUtils.h"
 #include "WfaHelper.h"
 #include "TwobitString.h"
+#include "edlib.h"
 
 const size_t minPhaseCoverage = 10;
 
@@ -2537,6 +2540,21 @@ size_t getEditDistancePossiblyMemoized(const std::vector<Node>& left, const std:
 	return add;
 }
 
+size_t find(std::vector<size_t>& parent, size_t key)
+{
+	while (parent.at(key) != parent.at(parent.at(key))) parent[key] = parent[parent[key]];
+	return parent[key];
+}
+
+void merge(std::vector<size_t>& parent, size_t left, size_t right)
+{
+	left = find(parent, left);
+	right = find(parent, right);
+	assert(parent.at(left) == left);
+	assert(parent.at(right) == right);
+	parent[right] = left;
+}
+
 std::vector<std::pair<size_t, size_t>> getNodeMatches(const std::vector<Node>& left, size_t leftIndex, size_t leftStart, size_t leftEnd, const std::vector<Node>& right, size_t rightIndex, size_t rightStart, size_t rightEnd, const std::vector<phmap::flat_hash_map<Node, size_t>>& nodeCountIndex, const std::vector<phmap::flat_hash_map<Node, size_t>>& nodePosIndex)
 {
 	std::vector<std::pair<size_t, size_t>> unfilteredMatches;
@@ -3614,6 +3632,521 @@ void writeMorphGraphAndReadPaths(const std::string& graphFile, const std::string
 	}
 }
 
+template <typename T>
+void filterVector(std::vector<T>& vec, const std::vector<bool>& kept)
+{
+	std::vector<size_t> newIndex;
+	size_t totalKept = 0;
+	for (size_t i = 0; i < kept.size(); i++)
+	{
+		newIndex.emplace_back(totalKept);
+		if (kept[i]) totalKept += 1;
+	}
+	for (size_t i = 0; i < vec.size(); i++)
+	{
+		if (!kept[i]) continue;
+		vec[newIndex[i]] = vec[i];
+	}
+	vec.resize(totalKept);
+}
+
+size_t hammingDistance(const std::vector<uint8_t>& left, const std::vector<uint8_t>& right)
+{
+	assert(left.size() == right.size());
+	size_t result = 0;
+	for (size_t i = 0; i < left.size(); i++)
+	{
+		if (left[i] != right[i] || left[i] == 'N')
+		{
+			result += 1;
+		}
+	}
+	return result;
+}
+
+bool sitesArePhaseInformative(const std::vector<std::vector<uint8_t>>& readSNPMSA, const size_t left, const size_t right, const size_t third, const size_t solidThreshold)
+{
+	phmap::flat_hash_map<std::tuple<uint8_t, uint8_t, uint8_t>, size_t> pairCounts;
+	for (size_t i = 0; i < readSNPMSA.size(); i++)
+	{
+		pairCounts[std::make_tuple(readSNPMSA[i][left], readSNPMSA[i][right], readSNPMSA[i][third])] += 1;
+	}
+	phmap::flat_hash_set<std::tuple<uint8_t, uint8_t, uint8_t>> coveredPairs;
+	for (auto pair : pairCounts)
+	{
+		if (pair.second < solidThreshold) return false;
+		coveredPairs.emplace(pair.first);
+	}
+	if (coveredPairs.size() < 2) return false;
+	for (auto pair : coveredPairs)
+	{
+		for (auto pair2 : coveredPairs)
+		{
+			if (pair == pair2) continue;
+			size_t hammingDistance = 0;
+			if (std::get<0>(pair) != std::get<0>(pair2)) hammingDistance += 1;
+			if (std::get<1>(pair) != std::get<1>(pair2)) hammingDistance += 1;
+			if (std::get<2>(pair) != std::get<2>(pair2)) hammingDistance += 1;
+			assert(hammingDistance >= 1);
+			if (hammingDistance == 1) return false;
+		}
+	}
+	return true;
+}
+
+bool sitesArePhaseInformative(const std::vector<std::vector<uint8_t>>& readSNPMSA, const size_t left, const size_t right, const size_t solidThreshold)
+{
+	phmap::flat_hash_map<std::pair<uint8_t, uint8_t>, size_t> pairCounts;
+	for (size_t i = 0; i < readSNPMSA.size(); i++)
+	{
+		pairCounts[std::make_pair(readSNPMSA[i][left], readSNPMSA[i][right])] += 1;
+	}
+	phmap::flat_hash_set<std::pair<uint8_t, uint8_t>> coveredPairs;
+	for (auto pair : pairCounts)
+	{
+		if (pair.second < solidThreshold) return false;
+		coveredPairs.emplace(pair.first);
+	}
+	if (coveredPairs.size() < 2) return false;
+	for (auto pair : coveredPairs)
+	{
+		for (auto pair2 : coveredPairs)
+		{
+			if (pair == pair2) continue;
+			if (pair.first == pair2.first) return false;
+			if (pair.second == pair2.second) return false;
+		}
+	}
+	return true;
+}
+
+std::vector<std::vector<size_t>> SNPSplitAndAppend(const std::vector<OntLoop>& paths, const std::vector<std::string>& rawReads, const GfaGraph& graph, const std::unordered_map<Node, size_t>& pathStartClip, const std::unordered_map<Node, size_t>& pathEndClip)
+{
+	if (paths.size() < 10)
+	{
+//		std::cerr << "cluster with coverage " << rawReads.size() << " split to 1 cluster" << std::endl;
+		std::vector<std::vector<size_t>> result;
+		result.emplace_back();
+		for (size_t i = 0; i < paths.size(); i++)
+		{
+			result.back().emplace_back(i);
+		}
+		return result;
+	}
+	assert(rawReads.size() == paths.size());
+	assert(paths.size() >= 1);
+	std::vector<std::vector<uint8_t>> readSNPMSA;
+	readSNPMSA.resize(rawReads.size());
+	auto path = getConsensusPath(paths, graph);
+	std::string consensusSeq = getConsensusSequence(path, graph, pathStartClip, pathEndClip);
+/*	{
+		std::ofstream file { "ref_coverage_" + std::to_string(paths.size()) + ".fa" };
+		file << ">ref_coverage_" << paths.size() << std::endl;
+		file << consensusSeq << std::endl;
+	}
+	{
+		std::ofstream file { "reads_coverage_" + std::to_string(paths.size()) + ".fa" };
+		for (size_t i = 0; i < rawReads.size(); i++)
+		{
+			file << ">read_coverage_" << paths.size() << "_index_" << i << std::endl;
+			file << rawReads[i] << std::endl;
+		}
+	}*/
+	bool anyAlignmentError = false;
+	size_t sequenceLengthSum = 0;
+	size_t totalMismatches = 0;
+	for (size_t i = 0; i < rawReads.size(); i++)
+	{
+		EdlibAlignResult result = edlibAlign(consensusSeq.data(), consensusSeq.size(), rawReads[i].data(), rawReads[i].size(), edlibNewAlignConfig(std::max(consensusSeq.size(), rawReads[i].size()), EDLIB_MODE_HW, EDLIB_TASK_PATH, NULL, 0));
+		if (result.status != EDLIB_STATUS_OK)
+		{
+			anyAlignmentError = true;
+			edlibFreeAlignResult(result);
+			break;
+		}
+		assert(result.numLocations >= 1);
+		assert(result.endLocations[0] <= rawReads[i].size());
+		assert(result.endLocations[0] > result.startLocations[0]);
+		sequenceLengthSum += result.endLocations[0] - result.startLocations[0] + 1;
+		totalMismatches += result.editDistance;
+		size_t consensusPos = 0;
+		size_t seqPos = result.startLocations[0];
+		readSNPMSA[i].resize(consensusSeq.size(), 'N');
+		assert(result.alignmentLength >= std::max((size_t)(result.endLocations[0]-result.startLocations[0]), consensusSeq.size()));
+		for (size_t k = 0; k < result.alignmentLength; k++)
+		{
+			switch(result.alignment[k])
+			{
+			case 0:
+				assert(seqPos < rawReads[i].size());
+				assert(consensusPos < consensusSeq.size());
+				if (!(rawReads[i][seqPos] == consensusSeq[consensusPos]))
+				{
+					std::cerr << rawReads[i][seqPos] << " " << consensusSeq[consensusPos] << " " << seqPos << " " << consensusPos << " " << rawReads.size() << " " << i << std::endl;
+				}
+				assert(rawReads[i][seqPos] == consensusSeq[consensusPos]);
+				readSNPMSA[i][consensusPos] = rawReads[i][seqPos];
+				seqPos += 1;
+				consensusPos += 1;
+				continue;
+			case 1:
+				assert(consensusPos < consensusSeq.size());
+				readSNPMSA[i][consensusPos] = '-';
+				consensusPos += 1;
+				continue;
+			case 2:
+				assert(seqPos < rawReads[i].size());
+				seqPos += 1;
+				continue;
+			case 3:
+				assert(seqPos < rawReads[i].size());
+				assert(consensusPos < consensusSeq.size());
+				assert(rawReads[i][seqPos] != consensusSeq[consensusPos]);
+				readSNPMSA[i][consensusPos] = rawReads[i][seqPos];
+				seqPos += 1;
+				consensusPos += 1;
+				continue;
+			default:
+				assert(false);
+			}
+		}
+		assert(seqPos == result.endLocations[0]+1);
+		assert(consensusPos == consensusSeq.size());
+		edlibFreeAlignResult(result);
+	}
+	assert(!anyAlignmentError);
+	double approxErrorRate = (double)totalMismatches / (double)sequenceLengthSum;
+//	std::cerr << "cluster with coverage " << rawReads.size() << " approx error rate " << approxErrorRate << std::endl;
+	std::vector<bool> coveredSite;
+	coveredSite.resize(consensusSeq.size(), false);
+	std::vector<size_t> coveredSiteIndices;
+	for (size_t i = 0; i < consensusSeq.size(); i++)
+	{
+		phmap::flat_hash_map<size_t, size_t> alleleCounts;
+		for (size_t j = 0; j < readSNPMSA.size(); j++)
+		{
+			alleleCounts[readSNPMSA[j][i]] += 1;
+		}
+		size_t countCovered = 0;
+		size_t countN = 0;
+		for (auto pair : alleleCounts)
+		{
+//			std::cerr << "cluster with coverage " << rawReads.size() << " site " << i << " allele " << (char)pair.first << " count " << pair.second << std::endl;
+			if (pair.first == 'N')
+			{
+				countN = pair.second;
+				continue;
+			}
+			if (pair.first == '-') continue;
+			if (pair.second < 5) continue;
+			if (pair.second < rawReads.size() * approxErrorRate + 1) continue;
+			if (pair.first != consensusSeq[i])
+			{
+				if ((i > 0 && consensusSeq[i-1] == consensusSeq[i]) || (i+1 < consensusSeq.size() && consensusSeq[i+1] == consensusSeq[i]))
+				{
+					if ((i > 0 && consensusSeq[i-1] == pair.first) || (i+1 < consensusSeq.size() && consensusSeq[i+1] == pair.first))
+					{
+//						std::cerr << "hpc" << std::endl;
+						continue;
+					}
+				}
+			}
+			countCovered += 1;
+		}
+		if (countCovered < 2) continue;
+		if (countN > 5) continue;
+		coveredSite[i] = true;
+		coveredSiteIndices.emplace_back(i);
+//		std::cerr << "covered " << i << std::endl;
+	}
+//	std::cerr << "coverage " << rawReads.size() << " covered sites before phasing filtering " << coveredSiteIndices.size() << std::endl;
+	std::vector<bool> phaseInformativeSite;
+	phaseInformativeSite.resize(coveredSite.size(), false);
+	for (size_t i = 0; i < coveredSiteIndices.size(); i++)
+	{
+		assert(coveredSite[coveredSiteIndices[i]]);
+		for (size_t j = 0; j < i; j++)
+		{
+			assert(coveredSite[coveredSiteIndices[j]]);
+			if (phaseInformativeSite[coveredSiteIndices[i]] && phaseInformativeSite[coveredSiteIndices[j]]) continue;
+			if (sitesArePhaseInformative(readSNPMSA, coveredSiteIndices[i], coveredSiteIndices[j], std::max<size_t>(5, rawReads.size() * approxErrorRate + 1)))
+			{
+//				std::cerr << "phase informative two " << coveredSiteIndices[i] << " " << coveredSiteIndices[j] << std::endl;
+				phaseInformativeSite[coveredSiteIndices[i]] = true;
+				phaseInformativeSite[coveredSiteIndices[j]] = true;
+			}
+		}
+	}
+	for (size_t i = 2; i < coveredSiteIndices.size(); i++)
+	{
+		for (size_t j = 1; j < i ; j++)
+		{
+			for (size_t k = 0; k < j; k++)
+			{
+				if (phaseInformativeSite[coveredSiteIndices[i]] && phaseInformativeSite[coveredSiteIndices[j]] && phaseInformativeSite[coveredSiteIndices[k]]) continue;
+				if (sitesArePhaseInformative(readSNPMSA, coveredSiteIndices[i], coveredSiteIndices[j], coveredSiteIndices[k], std::max<size_t>(5, rawReads.size() * approxErrorRate + 1)))
+				{
+//					std::cerr << "phase informative three " << coveredSiteIndices[i] << " " << coveredSiteIndices[j] << " " << coveredSiteIndices[k] << std::endl;
+					phaseInformativeSite[coveredSiteIndices[i]] = true;
+					phaseInformativeSite[coveredSiteIndices[j]] = true;
+					phaseInformativeSite[coveredSiteIndices[k]] = true;
+				}
+			}
+		}
+	}
+	for (size_t i = 0; i < coveredSite.size(); i++)
+	{
+		if (!phaseInformativeSite[i]) coveredSite[i] = false;
+	}
+/*	std::cerr << "cluster with coverage " << rawReads.size() << " covered sites:";
+	for (size_t i = 0; i < coveredSite.size(); i++)
+	{
+		if (!coveredSite[i]) continue;
+		std::cerr << " " << i;
+	}
+	std::cerr << std::endl;
+	std::cerr << "cluster with coverage " << rawReads.size() << " total sites " << readSNPMSA[0].size() << std::endl;*/
+	for (size_t i = 0; i < readSNPMSA.size(); i++)
+	{
+		filterVector(readSNPMSA[i], coveredSite);
+	}
+//	std::cerr << "cluster with coverage " << rawReads.size() << " count covered sites " << readSNPMSA[0].size() << std::endl;
+	if (readSNPMSA[0].size() < 2)
+	{
+//		std::cerr << "cluster with coverage " << rawReads.size() << " split to 1 cluster" << std::endl;
+		std::vector<std::vector<size_t>> result;
+		result.emplace_back();
+		for (size_t i = 0; i < paths.size(); i++)
+		{
+			result.back().emplace_back(i);
+		}
+		return result;
+	}
+	std::vector<size_t> parent;
+	for (size_t i = 0; i < rawReads.size(); i++)
+	{
+		parent.emplace_back(i);
+	}
+/*	{
+		std::ofstream file { "MSA_coverage" + std::to_string(rawReads.size()) + ".txt" };
+		for (size_t i = 0; i < rawReads.size(); i++)
+		{
+			for (size_t j = 0; j < readSNPMSA[i].size(); j++)
+			{
+				file << (char)readSNPMSA[i][j];
+			}
+			file << std::endl;
+		}
+	}*/
+	assert(readSNPMSA[0].size() >= 2);
+	size_t maxErrorsToMerge = readSNPMSA[0].size() * 0.5;
+	assert(maxErrorsToMerge >= 1);
+//	std::cerr << "cluster with coverage " << rawReads.size() << " max errors " << maxErrorsToMerge << std::endl;
+	for (size_t i = 1; i < rawReads.size(); i++)
+	{
+		for (size_t j = 0; j < i; j++)
+		{
+			if (find(parent, i) == find(parent, j)) continue;
+//			if (i == 1 && j == 0) std::cerr << "hamming distance " << hammingDistance(readSNPMSA[i], readSNPMSA[j]) << " vs " << maxErrorsToMerge << std::endl;
+			if (hammingDistance(readSNPMSA[i], readSNPMSA[j]) > maxErrorsToMerge) continue;
+			merge(parent, i, j);
+		}
+	}
+	phmap::flat_hash_map<size_t, size_t> clusterToIndex;
+	size_t nextNum = 0;
+	for (size_t i = 0; i < rawReads.size(); i++)
+	{
+		if (clusterToIndex.count(find(parent, i)) == 1) continue;
+		clusterToIndex[find(parent, i)] = nextNum;
+		nextNum += 1;
+	}
+	assert(nextNum > 0);
+	if (nextNum == 1)
+	{
+//		std::cerr << "cluster with coverage " << rawReads.size() << " split to 1 cluster" << std::endl;
+		std::vector<std::vector<size_t>> result;
+		result.emplace_back();
+		for (size_t i = 0; i < paths.size(); i++)
+		{
+			result.back().emplace_back(i);
+		}
+		return result;
+	}
+	std::vector<std::vector<size_t>> result;
+	result.resize(nextNum);
+	for (size_t i = 0; i < paths.size(); i++)
+	{
+		result[clusterToIndex.at(find(parent, i))].emplace_back(i);
+	}
+/*	std::cerr << "cluster with coverage " << rawReads.size() << " split to " << nextNum << " clusters" << std::endl;
+	std::cerr << "sizes:";
+	for (size_t i = 0; i < nextNum; i++)
+	{
+		std::cerr << " " << result[i].size();
+	}
+	std::cerr << std::endl;*/
+	std::sort(result.begin(), result.end(), [](const auto& left, const auto& right) { return left.size() > right.size(); });
+	return result;
+}
+
+std::vector<std::vector<OntLoop>> SNPsplitClusters(const std::vector<std::vector<OntLoop>>& unphasedClusters, const std::string rawOntPath, const GfaGraph& graph, const std::unordered_map<Node, size_t>& pathStartClip, const std::unordered_map<Node, size_t>& pathEndClip, const size_t numThreads)
+{
+	std::vector<std::pair<std::vector<OntLoop>, std::vector<std::string>>> checkStack;
+	checkStack.resize(unphasedClusters.size());
+	for (size_t i = 0; i < unphasedClusters.size(); i++)
+	{
+		checkStack[i].first = unphasedClusters[i];
+		checkStack[i].second.resize(unphasedClusters[i].size());
+	}
+	{
+		phmap::flat_hash_map<std::string, std::vector<std::tuple<size_t, size_t, size_t, size_t, bool>>> loopPositionsInReads;
+		for (size_t i = 0; i < unphasedClusters.size(); i++)
+		{
+			for (size_t j = 0; j < unphasedClusters[i].size(); j++)
+			{
+				// todo: are any paths ever reverse complement??
+				loopPositionsInReads[unphasedClusters[i][j].readName].emplace_back(i, j, unphasedClusters[i][j].approxStart, unphasedClusters[i][j].approxEnd, true);
+			}
+		}
+		FastQ::streamFastqFromFile(rawOntPath, false, [&checkStack, &loopPositionsInReads](FastQ& fastq)
+		{
+			if (loopPositionsInReads.count(fastq.seq_id) == 0) return;
+			for (auto t : loopPositionsInReads.at(fastq.seq_id))
+			{
+				assert(checkStack[std::get<0>(t)].second[std::get<1>(t)].size() == 0);
+				size_t startPos = std::get<2>(t);
+				size_t endPos = std::get<3>(t);
+				bool reverse = false;
+				if (startPos > endPos)
+				{
+					std::swap(startPos, endPos);
+					reverse = true;
+				}
+				if (startPos > 500)
+				{
+					startPos -= 500;
+				}
+				else
+				{
+					startPos = 0;
+				}
+				if (endPos+500 < fastq.sequence.size())
+				{
+					endPos += 500;
+				}
+				else
+				{
+					endPos = fastq.sequence.size();
+				}
+				std::string str = fastq.sequence.substr(startPos, endPos-startPos);
+				if (reverse)
+				{
+					str = revcomp(str);
+				}
+				checkStack[std::get<0>(t)].second[std::get<1>(t)] = str;
+			}
+		});
+	}
+	for (size_t i = 0; i < unphasedClusters.size(); i++)
+	{
+		assert(checkStack[i].first.size() == checkStack[i].second.size());
+		for (size_t j = 0; j < unphasedClusters[i].size(); j++)
+		{
+			assert(checkStack[i].second[j].size() >= 1);
+		}
+	}
+	std::vector<std::vector<OntLoop>> result;
+	std::vector<std::vector<std::string>> rawSequencesPerResult;
+	std::vector<std::thread> threads;
+	std::mutex popMutex;
+	std::atomic<size_t> threadsRunning;
+	threadsRunning = 0;
+	for (size_t i = 0; i < numThreads; i++)
+	{
+		threads.emplace_back([&result, &checkStack, &popMutex, &threadsRunning, &graph, &pathStartClip, &pathEndClip, &rawSequencesPerResult](){
+			while (true)
+			{
+				std::vector<OntLoop> loops;
+				std::vector<std::string> rawSequences;
+				{
+					std::lock_guard<std::mutex> lock { popMutex };
+					if (checkStack.size() == 0)
+					{
+						if (threadsRunning == 0)
+						{
+							return;
+						}
+					}
+					else
+					{
+						std::swap(loops, checkStack.back().first);
+						std::swap(rawSequences, checkStack.back().second);
+						checkStack.pop_back();
+						threadsRunning += 1;
+					}
+				}
+				if (loops.size() == 0)
+				{
+					std::this_thread::sleep_for(std::chrono::milliseconds(10));
+					continue;
+				}
+				auto splitted = SNPSplitAndAppend(loops, rawSequences, graph, pathStartClip, pathEndClip);
+				assert(splitted.size() >= 1);
+				if (splitted.size() == 1)
+				{
+					std::lock_guard<std::mutex> lock { popMutex };
+					result.emplace_back();
+					std::swap(result.back(), loops);
+					rawSequencesPerResult.emplace_back();
+					std::swap(rawSequencesPerResult.back(), rawSequences);
+					threadsRunning -= 1;
+					continue;
+				}
+				{
+					std::lock_guard<std::mutex> lock { popMutex };
+					for (size_t i = 0; i < splitted.size(); i++)
+					{
+						assert(splitted[i].size() >= 1);
+						checkStack.emplace_back();
+						for (size_t n : splitted[i])
+						{
+							checkStack.back().first.emplace_back();
+							checkStack.back().second.emplace_back();
+							std::swap(checkStack.back().first.back(), loops[n]);
+							std::swap(checkStack.back().second.back(), rawSequences[n]);
+						}
+						for (size_t j = 0; j < checkStack.back().first.size(); j++)
+						{
+							assert(checkStack.back().second[j].size() != 0);
+						}
+					}
+					threadsRunning -= 1;
+					continue;
+				}
+			}
+		});
+	}
+	for (size_t i = 0; i < threads.size(); i++)
+	{
+		threads[i].join();
+	}
+	for (size_t i = 0; i < result.size(); i++)
+	{
+		auto path = getConsensusPath(result[i], graph);
+		std::string consensusSeq = getConsensusSequence(path, graph, pathStartClip, pathEndClip);
+		std::ofstream file { "ref_" + std::to_string(i) + "_coverage_" + std::to_string(result[i].size()) + ".fa" };
+		file << ">ref_" << i << "_coverage_" << result[i].size() << std::endl;
+		file << consensusSeq << std::endl;
+		std::ofstream file2 { "reads_" + std::to_string(i) + "_coverage_" + std::to_string(result[i].size()) + ".fa" };
+		for (size_t j = 0; j < rawSequencesPerResult[i].size(); j++)
+		{
+			file2 << ">read_" << i << "_" << j << std::endl;
+			file2 << rawSequencesPerResult[i][j] << std::endl;
+		}
+	}
+	return result;
+}
+
 void DoClusterONTAnalysis(const ClusterParams& params)
 {
 	std::cerr << "reading allele graph" << std::endl;
@@ -3658,6 +4191,9 @@ void DoClusterONTAnalysis(const ClusterParams& params)
 	std::cerr << clusters.size() << " density clusters" << std::endl;
 	std::cerr << "phase clusters" << std::endl;
 	clusters = phaseClusters(clusters);
+	std::cerr << clusters.size() << " phased clusters" << std::endl;
+	std::cerr << "SNP-split clusters" << std::endl;
+	clusters = SNPsplitClusters(clusters, params.ontReadPath, graph, pathStartClip, pathEndClip, params.numThreads);
 	std::cerr << clusters.size() << " phased clusters" << std::endl;
 	std::sort(clusters.begin(), clusters.end(), [](const auto& left, const auto& right) { return left.size() > right.size(); });
 	std::cerr << "getting morph consensuses" << std::endl;

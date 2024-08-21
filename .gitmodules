@@ -7,3 +7,6 @@
 [submodule "cxxopts"]
 	path = cxxopts
 	url = https://github.com/jarro2783/cxxopts.git
+[submodule "edlib"]
+	path = edlib
+	url = https://github.com/Martinsos/edlib.git

@@ -478,6 +478,7 @@ int main(int argc, char** argv)
 		std::cerr << "WARNING: some HiFi reads were not found in the input read files. Double check that all HiFi reads given to hifiasm are inputed with -i" << std::endl;
 	}
 	std::vector<size_t> tanglesWithoutReads;
+	std::string selectedONTPath = ulTmpFolder + "/ont-alns.gaf";
 	for (size_t i = 0; i < numTangles; i++)
 	{
 		if (reads[i].size() == 0)
@@ -496,7 +497,7 @@ int main(int argc, char** argv)
 		clusterParams.hifiReadPath = outputPrefix + std::to_string(i) + "/hifi_reads.fa";
 		if (doUL)
 		{
-			clusterParams.ontReadPath = outputPrefix + std::to_string(i) + "/ont_reads.fa";
+			clusterParams.ontReadPath = selectedONTPath;
 		}
 		clusterParams.MBGPath = MBGPath;
 		clusterParams.GraphAlignerPath = GraphAlignerPath;
@@ -545,7 +546,7 @@ int main(int argc, char** argv)
 			clusterParams.hifiReadPath = outputPrefix + std::to_string(i) + "/hifi_reads.fa";
 			if (doUL)
 			{
-				clusterParams.ontReadPath = outputPrefix + std::to_string(i) + "/ont_reads.fa";
+				clusterParams.ontReadPath = selectedONTPath;
 			}
 			clusterParams.MBGPath = MBGPath;
 			clusterParams.GraphAlignerPath = GraphAlignerPath;
