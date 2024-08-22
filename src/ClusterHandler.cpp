@@ -3822,10 +3822,6 @@ std::vector<std::vector<size_t>> tryBiallelicPhasing(const std::vector<std::vect
 		}
 		if (matchers.size() < 2) continue; // at least three sites used for phasing
 		std::sort(matchers.begin(), matchers.end());
-		for (auto j : matchers)
-		{
-			siteChecked[j] = true;
-		}
 		std::vector<uint8_t> alleleOne;
 		std::vector<uint8_t> alleleTwo;
 		{
@@ -3893,6 +3889,10 @@ std::vector<std::vector<size_t>> tryBiallelicPhasing(const std::vector<std::vect
 		if (countSkipped > 5) continue;
 		if (countOne < 5) continue;
 		if (countTwo < 5) continue;
+		for (auto j : matchers)
+		{
+			siteChecked[j] = true;
+		}
 		std::cerr << "coverage " << readSNPMSA.size() << " biallelic phasing site " << coveredSiteIndices[i] << " does phase, counts " << countOne << " " << countTwo << ", skipped " << countSkipped << std::endl;
 		for (size_t j = 0; j < assignments.size(); j++)
 		{
@@ -4304,6 +4304,7 @@ std::vector<std::vector<OntLoop>> SNPsplitClusters(const std::vector<std::vector
 					std::this_thread::sleep_for(std::chrono::milliseconds(10));
 					continue;
 				}
+				assert(loops.size() == rawSequences.size());
 				auto splitted = SNPSplitAndAppend(loops, rawSequences, graph, pathStartClip, pathEndClip);
 				assert(splitted.size() >= 1);
 				if (splitted.size() == 1)
@@ -4347,6 +4348,7 @@ std::vector<std::vector<OntLoop>> SNPsplitClusters(const std::vector<std::vector
 	for (size_t i = 0; i < result.size(); i++)
 	{
 		auto path = getConsensusPath(result[i], graph);
+		assert(rawSequencesPerResult[i].size() == result[i].size());
 		std::string consensusSeq = getConsensusSequence(path, graph, pathStartClip, pathEndClip);
 		std::ofstream file { "ref_" + std::to_string(i) + "_coverage_" + std::to_string(result[i].size()) + ".fa" };
 		file << ">ref_" << i << "_coverage_" << result[i].size() << std::endl;
