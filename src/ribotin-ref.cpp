@@ -208,7 +208,7 @@ int main(int argc, char** argv)
 	std::cerr << "using reference from " << refPath << std::endl;
 	std::cerr << "output folder: " << clusterParams.basePath << std::endl;
 	std::filesystem::create_directories(clusterParams.basePath);
-/*	std::cerr << "extracting HiFi/duplex reads" << std::endl;
+	std::cerr << "extracting HiFi/duplex reads" << std::endl;
 	{
 		std::ofstream readsfile { clusterParams.basePath + "/hifi_reads.fa" };
 		iterateMatchingReads(refPath, hifiReadPaths, 101, 2000, [&readsfile](const FastQ& seq)
@@ -216,10 +216,10 @@ int main(int argc, char** argv)
 			readsfile << ">" << seq.seq_id << std::endl;
 			readsfile << seq.sequence << std::endl;
 		});
-	}*/
+	}
 	std::cerr << "running" << std::endl;
 	clusterParams.hifiReadPath = clusterParams.basePath + "/hifi_reads.fa";
-/*	HandleCluster(clusterParams);
+	HandleCluster(clusterParams);
 	if (ontReadPaths.size() > 0)
 	{
 		std::cerr << "extracting ultralong ONT reads" << std::endl;
@@ -234,14 +234,14 @@ int main(int argc, char** argv)
 		{
 			readsfile << ">" << seq.seq_id << std::endl;
 			readsfile << seq.sequence << std::endl;
-		});*/
+		});
 		clusterParams.ontReadPath = clusterParams.basePath + "/ont_reads.fa";
-//	}
+	}
 	if (ontReadPaths.size() > 0)
 	{
 		std::cerr << "start ultralong ONT analysis" << std::endl;
 		std::cerr << "aligning ultralong ONT reads to allele graph" << std::endl;
-//		AlignONTReads(clusterParams.basePath, clusterParams.GraphAlignerPath, clusterParams.ontReadPath, clusterParams.basePath + "/allele-graph.gfa", clusterParams.basePath + "/ont-alns.gaf", clusterParams.numThreads);
+		AlignONTReads(clusterParams.basePath, clusterParams.GraphAlignerPath, clusterParams.ontReadPath, clusterParams.basePath + "/allele-graph.gfa", clusterParams.basePath + "/ont-alns.gaf", clusterParams.numThreads);
 		DoClusterONTAnalysis(clusterParams);
 	}
 	std::cerr << "done" << std::endl;
