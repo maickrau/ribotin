@@ -3720,6 +3720,224 @@ bool sitesArePhaseInformative(const std::vector<std::vector<uint8_t>>& readSNPMS
 	return true;
 }
 
+std::pair<uint8_t, uint8_t> getBiallelicMatchAlleles(const std::vector<std::vector<uint8_t>>& MSA, const size_t left, const size_t right)
+{
+	phmap::flat_hash_map<std::pair<uint8_t, uint8_t>, size_t> pairCounts;
+	for (size_t i = 0; i < MSA.size(); i++)
+	{
+		pairCounts[std::make_pair(MSA[i][left], MSA[i][right])] += 1;
+	}
+	std::vector<std::pair<std::pair<uint8_t, uint8_t>, size_t>> counts { pairCounts.begin(), pairCounts.end() };
+	assert(counts.size() >= 2);
+	std::sort(counts.begin(), counts.end(), [](const auto& left, const auto& right) {
+		if (left.second > right.second) return true;
+		if (left.second < right.second) return false;
+		if (left.first.first < right.first.first) return true;
+		return false;
+	});
+	assert(counts[0].second >= counts[1].second);
+	assert(counts[0].first.first != counts[1].first.first);
+	assert(counts[0].first.second != counts[1].first.second);
+	if (counts.size() >= 3)
+	{
+		assert(counts[1].second >= counts[2].second * 2);
+		counts.erase(counts.begin()+2, counts.end());
+	}
+	assert(counts.size() == 2);
+	std::sort(counts.begin(), counts.end());
+	assert(counts[0].first.first < counts[1].first.first);
+	return std::make_pair(counts[0].first.second, counts[1].first.second);
+}
+
+bool sitesApproximatelyBiallelicallyMatch(const std::vector<std::vector<uint8_t>>& MSA, const size_t left, const size_t right)
+{
+	phmap::flat_hash_map<std::pair<uint8_t, uint8_t>, size_t> pairCounts;
+	for (size_t i = 0; i < MSA.size(); i++)
+	{
+		pairCounts[std::make_pair(MSA[i][left], MSA[i][right])] += 1;
+	}
+	std::vector<std::pair<std::pair<uint8_t, uint8_t>, size_t>> counts { pairCounts.begin(), pairCounts.end() };
+	std::sort(counts.begin(), counts.end(), [](const auto& left, const auto& right) { return left.second > right.second; });
+	assert(counts[0].second >= counts[1].second);
+	if (counts.size() < 2) return false;
+	if (counts[0].second + counts[1].second < MSA.size() * 0.9) return false;
+	if (counts.size() >= 3 && counts[1].second < counts[2].second * 2) return false;
+	if (counts[0].second < MSA.size() * 0.1) return false;
+	if (counts[1].second < MSA.size() * 0.1) return false;
+	if (counts[0].second < 5) return false;
+	if (counts[1].second < 5) return false;
+	if (counts[0].first.first == counts[1].first.first) return false;
+	if (counts[0].first.second == counts[1].first.second) return false;
+	return true;
+}
+
+std::vector<std::vector<size_t>> tryBiallelicPhasing(const std::vector<std::vector<uint8_t>>& readSNPMSA)
+{
+	std::cerr << "coverage " << readSNPMSA.size() << " try biallelic phasing" << std::endl;
+	std::vector<size_t> coveredSiteIndices;
+	for (size_t i = 0; i < readSNPMSA[0].size(); i++)
+	{
+		phmap::flat_hash_map<uint8_t, size_t> alleleCounts;
+		for (size_t j = 0; j < readSNPMSA.size(); j++)
+		{
+			alleleCounts[readSNPMSA[j][i]] += 1;
+		}
+		std::vector<std::pair<uint8_t, size_t>> alleles { alleleCounts.begin(), alleleCounts.end() };
+		std::sort(alleles.begin(), alleles.end(), [](const auto& left, const auto& right) { return left.second > right.second; });
+		if (alleles.size() < 2) continue;
+		if (alleles.size() >= 3 && alleles[1].second < alleles[2].second * 2) continue;
+		if (alleles[0].second + alleles[1].second < readSNPMSA.size() * 0.9) continue;
+		if (alleles[0].second < 5) continue;
+		if (alleles[1].second < 5) continue;
+		if (alleles[0].first == '-') continue;
+		if (alleles[0].first == 'N') continue;
+		if (alleles[1].first == '-') continue;
+		if (alleles[1].first == 'N') continue;
+		coveredSiteIndices.emplace_back(i);
+	}
+	std::vector<bool> siteChecked;
+	std::vector<std::vector<size_t>> alleleIndices;
+	alleleIndices.resize(readSNPMSA.size());
+	siteChecked.resize(coveredSiteIndices.size(), false);
+	for (size_t i = 0; i < coveredSiteIndices.size(); i++)
+	{
+		if (siteChecked[i]) continue;
+		std::vector<size_t> matchers;
+		for (size_t j = 0; j < coveredSiteIndices.size(); j++)
+		{
+			if (i == j) continue;
+			if (sitesApproximatelyBiallelicallyMatch(readSNPMSA, coveredSiteIndices[i], coveredSiteIndices[j]))
+			{
+				matchers.emplace_back(j);
+			}
+		}
+		if (matchers.size() >= 1)
+		{
+			std::cerr << "coverage " << readSNPMSA.size() << " biallelic phasing site " << coveredSiteIndices[i] << " count " << matchers.size() << ":";
+			for (auto j : matchers)
+			{
+				std::cerr << " " << coveredSiteIndices[j];
+			}
+			std::cerr << std::endl;
+		}
+		if (matchers.size() < 2) continue; // at least three sites used for phasing
+		std::sort(matchers.begin(), matchers.end());
+		for (auto j : matchers)
+		{
+			siteChecked[j] = true;
+		}
+		std::vector<uint8_t> alleleOne;
+		std::vector<uint8_t> alleleTwo;
+		{
+			phmap::flat_hash_map<uint8_t, size_t> alleleCounts;
+			for (size_t j = 0; j < readSNPMSA.size(); j++)
+			{
+				alleleCounts[readSNPMSA[j][coveredSiteIndices[i]]] += 1;
+			}
+			std::vector<std::pair<uint8_t, size_t>> alleles { alleleCounts.begin(), alleleCounts.end() };
+			std::sort(alleles.begin(), alleles.end(), [](const auto& left, const auto& right) { return left.second > right.second; });
+			assert(alleles.size() >= 2);
+			if (alleles.size() >= 3)
+			{
+				assert(alleles[1].second >= alleles[2].second*2);
+				alleles.erase(alleles.begin()+2, alleles.end());
+			}
+			std::sort(alleles.begin(), alleles.end());
+			alleleOne.emplace_back(alleles[0].first);
+			alleleTwo.emplace_back(alleles[1].first);
+		}
+		for (size_t j : matchers)
+		{
+			uint8_t alleleA = 0;
+			uint8_t alleleB = 0;
+			std::tie(alleleA, alleleB) = getBiallelicMatchAlleles(readSNPMSA, coveredSiteIndices[i], coveredSiteIndices[j]);
+			assert(alleleA != 0);
+			assert(alleleB != 0);
+			assert(alleleA != alleleB);
+			alleleOne.emplace_back(alleleA);
+			alleleTwo.emplace_back(alleleB);
+		}
+		std::vector<size_t> assignments;
+		size_t countSkipped = 0;
+		size_t countOne = 0;
+		size_t countTwo = 0;
+		for (size_t j = 0; j < readSNPMSA.size(); j++)
+		{
+			std::vector<uint8_t> alleleHere;
+			alleleHere.emplace_back(readSNPMSA[j][coveredSiteIndices[i]]);
+			for (size_t k : matchers)
+			{
+				alleleHere.emplace_back(readSNPMSA[j][coveredSiteIndices[k]]);
+			}
+			size_t distanceOne = hammingDistance(alleleOne, alleleHere);
+			size_t distanceTwo = hammingDistance(alleleTwo, alleleHere);
+			if (distanceOne < distanceTwo)
+			{
+				countOne += 1;
+				assignments.emplace_back(0);
+			}
+			else if (distanceTwo < distanceOne)
+			{
+				countTwo += 1;
+				assignments.emplace_back(1);
+			}
+			else
+			{
+				assert(distanceOne == distanceTwo);
+				assignments.emplace_back(2);
+				countSkipped += 1;
+			}
+		}
+		if (matchers.size() < 4 && countSkipped > 0) continue; // five matchers keeps everything, three/four only keeps very consistent phasings
+		if (countSkipped > readSNPMSA.size() * 0.05) continue;
+		if (countSkipped > 5) continue;
+		if (countOne < 5) continue;
+		if (countTwo < 5) continue;
+		std::cerr << "coverage " << readSNPMSA.size() << " biallelic phasing site " << coveredSiteIndices[i] << " does phase, counts " << countOne << " " << countTwo << ", skipped " << countSkipped << std::endl;
+		for (size_t j = 0; j < assignments.size(); j++)
+		{
+			alleleIndices[j].emplace_back(assignments[j]);
+		}
+	}
+	std::vector<size_t> parent;
+	for (size_t j = 0; j < readSNPMSA.size(); j++)
+	{
+		parent.emplace_back(j);
+	}
+	phmap::flat_hash_map<size_t, size_t> clusterToIndex;
+	size_t nextNum = 0;
+	for (size_t j = 1; j < readSNPMSA.size(); j++)
+	{
+		for (size_t k = 0; k < j; k++)
+		{
+			if (alleleIndices[j] != alleleIndices[k]) continue;
+			merge(parent, j, k);
+		}
+	}
+	for (size_t i = 0; i < readSNPMSA.size(); i++)
+	{
+		if (clusterToIndex.count(find(parent, i)) == 1) continue;
+		clusterToIndex[find(parent, i)] = nextNum;
+		nextNum += 1;
+	}
+	assert(nextNum > 0);
+	std::vector<std::vector<size_t>> result;
+	result.resize(nextNum);
+	for (size_t i = 0; i < readSNPMSA.size(); i++)
+	{
+		result[clusterToIndex.at(find(parent, i))].emplace_back(i);
+	}
+	std::sort(result.begin(), result.end(), [](const auto& left, const auto& right) { return left.size() < right.size(); });
+	std::cerr << "coverage " << readSNPMSA.size() << " biallelic phasing split to " << nextNum << " clusters" << std::endl;
+	std::cerr << "sizes:";
+	for (size_t i = 0; i < nextNum; i++)
+	{
+		std::cerr << " " << result[i].size();
+	}
+	std::cerr << std::endl;
+	return result;
+}
+
 std::vector<std::vector<size_t>> SNPSplitAndAppend(const std::vector<OntLoop>& paths, const std::vector<std::string>& rawReads, const GfaGraph& graph, const std::unordered_map<Node, size_t>& pathStartClip, const std::unordered_map<Node, size_t>& pathEndClip)
 {
 	if (paths.size() < 10)
@@ -3894,10 +4112,6 @@ std::vector<std::vector<size_t>> SNPSplitAndAppend(const std::vector<OntLoop>& p
 			}
 		}
 	}
-	for (size_t i = 0; i < coveredSite.size(); i++)
-	{
-		if (!phaseInformativeSite[i]) coveredSite[i] = false;
-	}
 /*	std::cerr << "cluster with coverage " << rawReads.size() << " covered sites:";
 	for (size_t i = 0; i < coveredSite.size(); i++)
 	{
@@ -3906,21 +4120,16 @@ std::vector<std::vector<size_t>> SNPSplitAndAppend(const std::vector<OntLoop>& p
 	}
 	std::cerr << std::endl;
 	std::cerr << "cluster with coverage " << rawReads.size() << " total sites " << readSNPMSA[0].size() << std::endl;*/
+	auto filteredMSA = readSNPMSA;
 	for (size_t i = 0; i < readSNPMSA.size(); i++)
 	{
-		filterVector(readSNPMSA[i], coveredSite);
+		filterVector(filteredMSA[i], phaseInformativeSite);
 	}
-//	std::cerr << "cluster with coverage " << rawReads.size() << " count covered sites " << readSNPMSA[0].size() << std::endl;
-	if (readSNPMSA[0].size() < 2)
+//	std::cerr << "cluster with coverage " << rawReads.size() << " count covered sites " << filteredMSA[0].size() << std::endl;
+	if (filteredMSA[0].size() < 2)
 	{
 //		std::cerr << "cluster with coverage " << rawReads.size() << " split to 1 cluster" << std::endl;
-		std::vector<std::vector<size_t>> result;
-		result.emplace_back();
-		for (size_t i = 0; i < paths.size(); i++)
-		{
-			result.back().emplace_back(i);
-		}
-		return result;
+		return tryBiallelicPhasing(readSNPMSA);
 	}
 	std::vector<size_t> parent;
 	for (size_t i = 0; i < rawReads.size(); i++)
@@ -3931,15 +4140,15 @@ std::vector<std::vector<size_t>> SNPSplitAndAppend(const std::vector<OntLoop>& p
 		std::ofstream file { "MSA_coverage" + std::to_string(rawReads.size()) + ".txt" };
 		for (size_t i = 0; i < rawReads.size(); i++)
 		{
-			for (size_t j = 0; j < readSNPMSA[i].size(); j++)
+			for (size_t j = 0; j < filteredMSA[i].size(); j++)
 			{
-				file << (char)readSNPMSA[i][j];
+				file << (char)filteredMSA[i][j];
 			}
 			file << std::endl;
 		}
 	}*/
-	assert(readSNPMSA[0].size() >= 2);
-	size_t maxErrorsToMerge = readSNPMSA[0].size() * 0.5;
+	assert(filteredMSA[0].size() >= 2);
+	size_t maxErrorsToMerge = filteredMSA[0].size() * 0.5;
 	assert(maxErrorsToMerge >= 1);
 //	std::cerr << "cluster with coverage " << rawReads.size() << " max errors " << maxErrorsToMerge << std::endl;
 	for (size_t i = 1; i < rawReads.size(); i++)
@@ -3947,8 +4156,8 @@ std::vector<std::vector<size_t>> SNPSplitAndAppend(const std::vector<OntLoop>& p
 		for (size_t j = 0; j < i; j++)
 		{
 			if (find(parent, i) == find(parent, j)) continue;
-//			if (i == 1 && j == 0) std::cerr << "hamming distance " << hammingDistance(readSNPMSA[i], readSNPMSA[j]) << " vs " << maxErrorsToMerge << std::endl;
-			if (hammingDistance(readSNPMSA[i], readSNPMSA[j]) > maxErrorsToMerge) continue;
+//			if (i == 1 && j == 0) std::cerr << "hamming distance " << hammingDistance(filteredMSA[i], filteredMSA[j]) << " vs " << maxErrorsToMerge << std::endl;
+			if (hammingDistance(filteredMSA[i], filteredMSA[j]) > maxErrorsToMerge) continue;
 			merge(parent, i, j);
 		}
 	}
@@ -3961,6 +4170,10 @@ std::vector<std::vector<size_t>> SNPSplitAndAppend(const std::vector<OntLoop>& p
 		nextNum += 1;
 	}
 	assert(nextNum > 0);
+	if (nextNum == 1)
+	{
+		return tryBiallelicPhasing(readSNPMSA);
+	}
 	if (nextNum == 1)
 	{
 //		std::cerr << "cluster with coverage " << rawReads.size() << " split to 1 cluster" << std::endl;
@@ -3985,7 +4198,7 @@ std::vector<std::vector<size_t>> SNPSplitAndAppend(const std::vector<OntLoop>& p
 		std::cerr << " " << result[i].size();
 	}
 	std::cerr << std::endl;*/
-	std::sort(result.begin(), result.end(), [](const auto& left, const auto& right) { return left.size() > right.size(); });
+	std::sort(result.begin(), result.end(), [](const auto& left, const auto& right) { return left.size() < right.size(); });
 	return result;
 }
 
@@ -4061,6 +4274,7 @@ std::vector<std::vector<OntLoop>> SNPsplitClusters(const std::vector<std::vector
 	std::mutex popMutex;
 	std::atomic<size_t> threadsRunning;
 	threadsRunning = 0;
+	std::sort(checkStack.begin(), checkStack.end(), [](const auto& left, const auto& right) { return left.first.size() < right.first.size(); });
 	for (size_t i = 0; i < numThreads; i++)
 	{
 		threads.emplace_back([&result, &checkStack, &popMutex, &threadsRunning, &graph, &pathStartClip, &pathEndClip, &rawSequencesPerResult](){
