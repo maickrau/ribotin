@@ -4202,6 +4202,67 @@ std::vector<std::vector<size_t>> SNPSplitAndAppend(const std::vector<OntLoop>& p
 	return result;
 }
 
+std::vector<std::vector<std::string>> getRawLoopSequences(const std::vector<std::vector<OntLoop>>& clusters, const std::string& rawOntPath)
+{
+	phmap::flat_hash_map<std::string, std::vector<std::tuple<size_t, size_t, size_t, size_t>>> loopPositionsInReads;
+	std::vector<std::vector<std::string>> result;
+	result.resize(clusters.size());
+	for (size_t i = 0; i < clusters.size(); i++)
+	{
+		result[i].resize(clusters[i].size(), "");
+		for (size_t j = 0; j < clusters[i].size(); j++)
+		{
+			loopPositionsInReads[clusters[i][j].readName].emplace_back(i, j, clusters[i][j].approxStart, clusters[i][j].approxEnd);
+		}
+	}
+	FastQ::streamFastqFromFile(rawOntPath, false, [&result, &loopPositionsInReads](FastQ& fastq)
+	{
+		if (loopPositionsInReads.count(fastq.seq_id) == 0) return;
+		for (auto t : loopPositionsInReads.at(fastq.seq_id))
+		{
+			size_t startPos = std::get<2>(t);
+			size_t endPos = std::get<3>(t);
+			bool reverse = false;
+			if (startPos > endPos)
+			{
+				std::swap(startPos, endPos);
+				reverse = true;
+			}
+			if (startPos > 500)
+			{
+				startPos -= 500;
+			}
+			else
+			{
+				startPos = 0;
+			}
+			if (endPos+500 < fastq.sequence.size())
+			{
+				endPos += 500;
+			}
+			else
+			{
+				endPos = fastq.sequence.size();
+			}
+			std::string str = fastq.sequence.substr(startPos, endPos-startPos);
+			if (reverse)
+			{
+				str = revcomp(str);
+			}
+			assert(result[std::get<0>(t)][std::get<1>(t)] == "");
+			result[std::get<0>(t)][std::get<1>(t)] = str;
+		}
+	});
+	for (size_t i = 0; i < result.size(); i++)
+	{
+		for (size_t j = 0; j < result[i].size(); j++)
+		{
+			assert(result[i][j] != "");
+		}
+	}
+	return result;
+}
+
 std::vector<std::vector<OntLoop>> SNPsplitClusters(const std::vector<std::vector<OntLoop>>& unphasedClusters, const std::string rawOntPath, const GfaGraph& graph, const std::unordered_map<Node, size_t>& pathStartClip, const std::unordered_map<Node, size_t>& pathEndClip, const size_t numThreads)
 {
 	std::vector<std::pair<std::vector<OntLoop>, std::vector<std::string>>> checkStack;
@@ -4209,56 +4270,16 @@ std::vector<std::vector<OntLoop>> SNPsplitClusters(const std::vector<std::vector
 	for (size_t i = 0; i < unphasedClusters.size(); i++)
 	{
 		checkStack[i].first = unphasedClusters[i];
-		checkStack[i].second.resize(unphasedClusters[i].size());
 	}
 	{
-		phmap::flat_hash_map<std::string, std::vector<std::tuple<size_t, size_t, size_t, size_t, bool>>> loopPositionsInReads;
+		auto rawSequences = getRawLoopSequences(unphasedClusters, rawOntPath);
+		assert(rawSequences.size() == unphasedClusters.size());
+		assert(rawSequences.size() == checkStack.size());
 		for (size_t i = 0; i < unphasedClusters.size(); i++)
 		{
-			for (size_t j = 0; j < unphasedClusters[i].size(); j++)
-			{
-				// todo: are any paths ever reverse complement??
-				loopPositionsInReads[unphasedClusters[i][j].readName].emplace_back(i, j, unphasedClusters[i][j].approxStart, unphasedClusters[i][j].approxEnd, true);
-			}
+			assert(checkStack[i].first.size() == rawSequences[i].size());
+			std::swap(checkStack[i].second, rawSequences[i]);
 		}
-		FastQ::streamFastqFromFile(rawOntPath, false, [&checkStack, &loopPositionsInReads](FastQ& fastq)
-		{
-			if (loopPositionsInReads.count(fastq.seq_id) == 0) return;
-			for (auto t : loopPositionsInReads.at(fastq.seq_id))
-			{
-				assert(checkStack[std::get<0>(t)].second[std::get<1>(t)].size() == 0);
-				size_t startPos = std::get<2>(t);
-				size_t endPos = std::get<3>(t);
-				bool reverse = false;
-				if (startPos > endPos)
-				{
-					std::swap(startPos, endPos);
-					reverse = true;
-				}
-				if (startPos > 500)
-				{
-					startPos -= 500;
-				}
-				else
-				{
-					startPos = 0;
-				}
-				if (endPos+500 < fastq.sequence.size())
-				{
-					endPos += 500;
-				}
-				else
-				{
-					endPos = fastq.sequence.size();
-				}
-				std::string str = fastq.sequence.substr(startPos, endPos-startPos);
-				if (reverse)
-				{
-					str = revcomp(str);
-				}
-				checkStack[std::get<0>(t)].second[std::get<1>(t)] = str;
-			}
-		});
 	}
 	for (size_t i = 0; i < unphasedClusters.size(); i++)
 	{
@@ -4363,6 +4384,27 @@ std::vector<std::vector<OntLoop>> SNPsplitClusters(const std::vector<std::vector
 	return result;
 }
 
+void writeRawOntLoopSequences(const std::string outputFile, const std::vector<MorphConsensus>& morphConsensuses, const std::string rawOntPath)
+{
+	std::vector<std::vector<OntLoop>> loops;
+	loops.resize(morphConsensuses.size());
+	for (size_t i = 0; i < morphConsensuses.size(); i++)
+	{
+		loops[i] = morphConsensuses[i].ontLoops;
+	}
+	std::vector<std::vector<std::string>> sequences = getRawLoopSequences(loops, rawOntPath);
+	assert(sequences.size() == morphConsensuses.size());
+	std::ofstream file { outputFile };
+	for (size_t i = 0; i < morphConsensuses.size(); i++)
+	{
+		for (size_t j = 0; j < sequences[i].size(); j++)
+		{
+			file << ">morph_" << i << "_rawloop_" << j << "_" << loops[i][j].readName << "_" << loops[i][j].approxStart << "_" << loops[i][j].approxEnd << std::endl;
+			file << sequences[i][j] << std::endl;
+		}
+	}
+}
+
 void DoClusterONTAnalysis(const ClusterParams& params)
 {
 	std::cerr << "reading allele graph" << std::endl;
@@ -4418,6 +4460,8 @@ void DoClusterONTAnalysis(const ClusterParams& params)
 	writeMorphConsensuses(params.basePath + "/morphs.fa", morphConsensuses);
 	std::cerr << "write morph paths" << std::endl;
 	writeMorphPaths(params.basePath + "/morphs.gaf", morphConsensuses, graph, pathStartClip, pathEndClip);
+	std::cerr << "write raw ONT loop sequences" << std::endl;
+	writeRawOntLoopSequences(params.basePath + "/raw_loops.fa", morphConsensuses, params.ontReadPath);
 	std::cerr << "write morph graph and read paths" << std::endl;
 	writeMorphGraphAndReadPaths(params.basePath + "/morphgraph.gfa", params.basePath + "/readpaths-morphgraph.gaf", morphConsensuses);
 	if (params.annotationFasta.size() > 0)
