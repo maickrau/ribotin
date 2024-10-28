@@ -997,6 +997,7 @@ void filterOutNonThroughGoers(std::unordered_set<size_t>& nodes, const std::unor
 	}
 	filterOut(nodes, removeThese);
 	filterOut(edges, removeThese);
+	assert(isReachable(nodes, edges, start, end));
 }
 
 void filterOutDefinitelyNonConsensusNodes(std::unordered_set<size_t>& nodes, std::unordered_map<Node, std::unordered_set<Node>>& edges, const Node start, const Node end, const GfaGraph& graph)
@@ -1074,7 +1075,61 @@ void filterOutDefinitelyNonConsensusNodes(std::unordered_set<size_t>& nodes, std
 	filterOutNonThroughGoers(nodes, nodesInSubgraph, edges, start, end);
 }
 
-void filterOutDefinitelyNonConsensusNodes(std::unordered_set<size_t>& nodes, std::unordered_map<Node, std::unordered_set<Node>>& edges, const size_t startNode, const GfaGraph& graph)
+struct DistantNode
+{
+public:
+	DistantNode() = default;
+	DistantNode(size_t distance, Node node) :
+		distance(distance),
+		node(node)
+	{
+	}
+	size_t distance;
+	Node node;
+};
+
+struct DistantNodeComparator
+{
+public:
+	bool operator()(const DistantNode left, const DistantNode right)
+	{
+		return left.distance > right.distance;
+	}
+};
+
+size_t splitUndirectedDistance(const GfaGraph& graph, const std::unordered_set<size_t>& nodes, const std::unordered_map<Node, std::unordered_set<Node>>& edges, const size_t middleNode)
+{
+	std::unordered_map<Node, size_t> distance;
+	std::priority_queue<DistantNode, std::vector<DistantNode>, DistantNodeComparator> queue;
+	queue.emplace(0, Node { middleNode, true });
+	while (queue.size() >= 1)
+	{
+		auto top = queue.top();
+		queue.pop();
+		if (distance.count(top.node) == 1)
+		{
+			assert(distance.at(top.node) <= top.distance);
+			continue;
+		}
+		distance[top.node] = top.distance;
+		if (top.node.id() != middleNode)
+		{
+			queue.emplace(top.distance + graph.nodeSeqs.at(top.node.id()).size(), reverse(top.node));
+		}
+		if (edges.count(top.node) == 1)
+		{
+			for (auto edge : edges.at(top.node))
+			{
+				if (nodes.count(edge.id() == 0)) continue;
+				queue.emplace(top.distance, reverse(edge));
+			}
+		}
+	}
+	if (distance.count(Node { middleNode, false }) == 0) return std::numeric_limits<size_t>::max();
+	return distance.at(Node { middleNode, false });
+}
+
+void filterOutDefinitelyNonConsensusNodes(std::unordered_set<size_t>& nodes, std::unordered_map<Node, std::unordered_set<Node>>& edges, const size_t startNode, const GfaGraph& graph, const size_t localResolveLength)
 {
 	std::unordered_set<size_t> coreNodes;
 	std::vector<size_t> testNodes { nodes.begin(), nodes.end() };
@@ -1082,21 +1137,28 @@ void filterOutDefinitelyNonConsensusNodes(std::unordered_set<size_t>& nodes, std
 	{
 		if (node == startNode) continue;
 		nodes.erase(node);
-		if (!isCircular(nodes, edges, Node { startNode, true })) coreNodes.insert(node);
+		if (!isCircular(nodes, edges, Node { startNode, true }))
+		{
+			size_t splitDistance = splitUndirectedDistance(graph, nodes, edges, node);
+			if (splitDistance >= localResolveLength)
+			{
+				coreNodes.insert(node);
+			}
+		}
 		nodes.insert(node);
 	}
 	if (coreNodes.size() < 2) return;
 	nodes.erase(startNode);
 	if (!isCircular(nodes, edges, Node { *coreNodes.begin(), true })) coreNodes.insert(startNode);
 	nodes.insert(startNode);
-	std::vector<Node> coreNodeOrder = getCoreNodeOrder(nodes, edges, coreNodes, *coreNodes.begin());
+	std::vector<Node> coreNodeOrder = getCoreNodeOrder(nodes, edges, coreNodes, (coreNodes.count(startNode) == 1) ? startNode : *coreNodes.begin());
 	for (size_t i = 1; i < coreNodeOrder.size(); i++)
 	{
 		filterOutDefinitelyNonConsensusNodes(nodes, edges, coreNodeOrder[i-1], coreNodeOrder[i], graph);
 	}
 }
 
-Path getHeavyPath(const GfaGraph& graph)
+Path getHeavyPath(const GfaGraph& graph, const size_t localResolveLength)
 {
 	std::unordered_set<size_t> coveredNodes;
 	std::unordered_map<Node, std::unordered_set<Node>> coveredEdges;
@@ -1143,7 +1205,7 @@ Path getHeavyPath(const GfaGraph& graph)
 	while (true)
 	{
 		size_t sizeBeforeFilter = coveredNodes.size();
-		filterOutDefinitelyNonConsensusNodes(coveredNodes, coveredEdges, topCoverageNode, graph);
+		filterOutDefinitelyNonConsensusNodes(coveredNodes, coveredEdges, topCoverageNode, graph, localResolveLength);
 		filterOutNonCircularParts(coveredNodes, coveredEdges, topCoverageNode);
 		if (coveredNodes.size() == sizeBeforeFilter) break;
 	}
@@ -3475,7 +3537,7 @@ void HandleCluster(const ClusterParams& params)
 	GfaGraph graph;
 	graph.loadFromFile(params.basePath + "/graph.gfa");
 	std::cerr << "getting consensus" << std::endl;
-	Path heavyPath = getHeavyPath(graph);
+	Path heavyPath = getHeavyPath(graph, params.maxResolveLength);
 	std::cerr << "consensus length " << heavyPath.getSequence(graph.nodeSeqs).size() << "bp" << std::endl;
 	if (params.orientReferencePath.size() > 0)
 	{
