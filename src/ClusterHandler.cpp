@@ -15,6 +15,7 @@
 #include <phmap.h>
 #include <thread>
 #include <chrono>
+#include "ReadExtractor.h"
 #include "fastqloader.h"
 #include "ClusterHandler.h"
 #include "RibotinUtils.h"
@@ -4279,8 +4280,9 @@ std::vector<std::vector<std::string>> getRawLoopSequences(const std::vector<std:
 	}
 	FastQ::streamFastqFromFile(rawOntPath, false, [&result, &loopPositionsInReads](FastQ& fastq)
 	{
-		if (loopPositionsInReads.count(fastq.seq_id) == 0) return;
-		for (auto t : loopPositionsInReads.at(fastq.seq_id))
+		std::string readname = nameWithoutTags(fastq.seq_id);
+		if (loopPositionsInReads.count(readname) == 0) return;
+		for (auto t : loopPositionsInReads.at(readname))
 		{
 			size_t startPos = std::get<2>(t);
 			size_t endPos = std::get<3>(t);
@@ -4312,6 +4314,7 @@ std::vector<std::vector<std::string>> getRawLoopSequences(const std::vector<std:
 				str = revcomp(str);
 			}
 			assert(result[std::get<0>(t)][std::get<1>(t)] == "");
+			assert(str.size() >= 1);
 			result[std::get<0>(t)][std::get<1>(t)] = str;
 		}
 	});
