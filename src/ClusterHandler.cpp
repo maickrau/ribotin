@@ -3005,11 +3005,16 @@ std::vector<std::vector<OntLoop>> clusterByDbscan(const std::vector<OntLoop>& cl
 			parent[parent[j]] = parent[i];
 		}
 	}
+	for (size_t j = 0; j < parent.size(); j++)
+	{
+		while (parent[j] != parent[parent[j]]) parent[j] = parent[parent[j]];
+	}
 	std::vector<size_t> uniqueClusterForEdgePoint;
 	uniqueClusterForEdgePoint.resize(cluster.size(), std::numeric_limits<size_t>::max()-1);
 	for (size_t i = 0; i < cluster.size(); i++)
 	{
 		if (corePoint[i]) continue;
+		assert(parent[i] == i);
 		for (size_t j = 0; j < cluster.size(); j++)
 		{
 			if (i == j) continue;
@@ -3019,6 +3024,7 @@ std::vector<std::vector<OntLoop>> clusterByDbscan(const std::vector<OntLoop>& cl
 			if (editDistanceMatrix[canoni][canonj] > epsilon) continue;
 			if (uniqueClusterForEdgePoint[i] == std::numeric_limits<size_t>::max()-1)
 			{
+				assert(parent[j] == parent[parent[j]]);
 				uniqueClusterForEdgePoint[i] = parent[j];
 				parent[i] = parent[j];
 			}
@@ -3072,6 +3078,7 @@ std::vector<std::vector<OntLoop>> densityClusterLoops(const std::vector<std::vec
 			for (size_t j = 0; j < i; j++)
 			{
 				size_t edits = getEditDistance(clusters[clusteri][i].path, i, clusters[clusteri][j].path, j, graph, pathStartClip, pathEndClip, maxEdits, coreNodes, nodeCountIndex, nodePosIndex, memoizedEditDistances);
+				assert(edits == getEditDistance(clusters[clusteri][j].path, j, clusters[clusteri][i].path, i, graph, pathStartClip, pathEndClip, maxEdits, coreNodes, nodeCountIndex, nodePosIndex, memoizedEditDistances));
 				if (edits >= maxEdits) edits = maxEdits-1;
 				editDistanceMatrices[clusteri][i][j] = edits;
 				editHistogram[edits] += 1;
