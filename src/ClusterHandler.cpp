@@ -3863,6 +3863,7 @@ std::vector<std::vector<size_t>> tryBiallelicPhasing(const std::vector<std::vect
 		for (size_t j = 0; j < coveredSiteIndices.size(); j++)
 		{
 			if (i == j) continue;
+			if (coveredSiteIndices[i]+50 < coveredSiteIndices[j] && coveredSiteIndices[j]+50 < coveredSiteIndices[i]) continue;
 			if (sitesApproximatelyBiallelicallyMatch(readSNPMSA, coveredSiteIndices[i], coveredSiteIndices[j]))
 			{
 				matchers.emplace_back(j);
