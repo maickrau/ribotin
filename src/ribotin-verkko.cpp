@@ -518,7 +518,8 @@ int main(int argc, char** argv)
 		getKmers(outputPrefix, numTangles, ulTmpFolder + "/rdna_kmers.fa");
 		std::cerr << "extracting ultralong ONT reads" << std::endl;
 		auto fileNames = getRawReadFilenames(verkkoBasePath + "/verkko.yml", "ONT_READS");
-		std::string selectedONTPath = ulTmpFolder + "/ont-alns.gaf";
+		std::string selectedONTPath = ulTmpFolder + "/ont_reads.fa";
+		std::string ONTalignmentsPath = ulTmpFolder + "/ont-alns.gaf";
 		size_t consensusLength = medianConsensusLength(outputPrefix, numTangles);
 		{
 			std::ofstream readsfile { selectedONTPath };
@@ -534,7 +535,7 @@ int main(int argc, char** argv)
 		std::cerr << "aligning ONT reads" << std::endl;
 		AlignONTReads(ulTmpFolder, GraphAlignerPath, ulTmpFolder + "/ont_reads.fa", ulTmpFolder + "/merged-allele-graph.gfa", ulTmpFolder + "/ont-alns.gaf", numThreads);
 		std::cerr << "splitting ONTs per tangle" << std::endl;
-		splitAlignmentsPerTangle(outputPrefix, numTangles, selectedONTPath);
+		splitAlignmentsPerTangle(outputPrefix, numTangles, ONTalignmentsPath);
 		for (size_t i = 0; i < numTangles; i++)
 		{
 			if (reads[i].size() == 0)
