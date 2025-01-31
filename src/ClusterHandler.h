@@ -12,6 +12,8 @@ public:
 	std::string ontReadPath;
 	std::string MBGPath;
 	std::string GraphAlignerPath;
+	std::string winnowmapPath;
+	std::string samtoolsPath;
 	size_t k;
 	std::string orientReferencePath;
 	std::string annotationFasta;

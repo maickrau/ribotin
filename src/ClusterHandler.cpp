@@ -15,6 +15,7 @@
 #include <phmap.h>
 #include <thread>
 #include <chrono>
+#include <filesystem>
 #include "ReadExtractor.h"
 #include "fastqloader.h"
 #include "ClusterHandler.h"
@@ -2529,7 +2530,7 @@ std::vector<OntLoop> extractLoopSequences(const std::vector<ReadPath>& corrected
 				result.emplace_back();
 				result.back().originalReadLength = read.readLength;
 				result.back().path = looppath;
-				result.back().readName = read.readName;
+				result.back().readName = nameWithoutTags(read.readName);
 				result.back().approxStart = approxReadStartPoses[lastBreak] + pathStartClip.at(read.path[lastBreak]);
 				result.back().approxEnd = approxReadEndPoses[i] - pathEndClip.at(read.path[i]);
 				if (read.reverse)
@@ -4444,7 +4445,7 @@ std::vector<std::vector<OntLoop>> SNPsplitClusters(const std::vector<std::vector
 	return result;
 }
 
-void writeRawOntLoopSequences(const std::string outputFile, const std::vector<MorphConsensus>& morphConsensuses, const std::string rawOntPath)
+std::vector<std::vector<std::pair<std::string, std::string>>> getRawOntLoops(const std::vector<MorphConsensus>& morphConsensuses, const std::string rawOntPath)
 {
 	std::vector<std::vector<OntLoop>> loops;
 	loops.resize(morphConsensuses.size());
@@ -4453,20 +4454,85 @@ void writeRawOntLoopSequences(const std::string outputFile, const std::vector<Mo
 		loops[i] = morphConsensuses[i].ontLoops;
 	}
 	std::vector<std::vector<std::string>> sequences = getRawLoopSequences(loops, rawOntPath);
-	assert(sequences.size() == morphConsensuses.size());
-	std::ofstream file { outputFile };
-	for (size_t i = 0; i < morphConsensuses.size(); i++)
+	std::vector<std::vector<std::pair<std::string, std::string>>> result;
+	result.resize(sequences.size());
+	for (size_t i = 0; i < sequences.size(); i++)
 	{
+		result[i].resize(sequences[i].size());
 		for (size_t j = 0; j < sequences[i].size(); j++)
 		{
-			file << ">morph_" << i << "_rawloop_" << j << "_" << loops[i][j].readName << "_" << loops[i][j].approxStart << "_" << loops[i][j].approxEnd << std::endl;
-			file << sequences[i][j] << std::endl;
+			std::swap(result[i][j].first, sequences[i][j]);
+			result[i][j].second = "morph_" + std::to_string(i) + "_rawloop_" + std::to_string(j) + "_" + loops[i][j].readName + "_" + std::to_string(loops[i][j].approxStart) + "_" + std::to_string(loops[i][j].approxEnd);
 		}
+	}
+	return result;
+}
+
+void writeRawOntLoopSequences(const std::string outputFile, const std::vector<std::vector<std::pair<std::string, std::string>>>& loopSequences)
+{
+	std::ofstream file { outputFile };
+	for (size_t i = 0; i < loopSequences.size(); i++)
+	{
+		for (size_t j = 0; j < loopSequences[i].size(); j++)
+		{
+			file << ">" << loopSequences[i][j].second << std::endl;
+			file << loopSequences[i][j].first << std::endl;
+		}
+	}
+}
+
+void alignRawOntLoopsToMorphConsensuses(const std::vector<std::vector<std::pair<std::string, std::string>>>& loopSequences, std::string outputFile, std::string tmppath, const size_t numThreads, const std::vector<MorphConsensus>& morphConsensuses, const std::string& winnowmapPath, const std::string& samtoolsPath)
+{
+	for (size_t i = 0; i < morphConsensuses.size(); i++)
+	{
+		{
+			std::ofstream tmpReadsFile { tmppath + "/tmpreads.fa" };
+			std::ofstream tmpConsensusFile { tmppath + "/tmpconsensus.fa" };
+			for (size_t j = 0; j < loopSequences[i].size(); j++)
+			{
+				tmpReadsFile << ">" << loopSequences[i][j].second << std::endl;
+				tmpReadsFile << loopSequences[i][j].first << std::endl;
+			}
+			tmpConsensusFile << ">" << morphConsensuses[i].name << std::endl;
+			tmpConsensusFile << morphConsensuses[i].sequence << std::endl;
+		}
+		std::string winnowmapCommand = winnowmapPath + " -x map-ont -a -t " + std::to_string(numThreads) + " " + tmppath + "/tmpconsensus.fa " + tmppath + "/tmpreads.fa | " + samtoolsPath + " view -b | " + samtoolsPath + " sort > " + tmppath + "/tmpalns_" + std::to_string(i) + ".bam";
+		std::cerr << "winnowmap command:" << std::endl;
+		std::cerr << winnowmapCommand << std::endl;
+		int result = system(winnowmapCommand.c_str());
+		if (result != 0)
+		{
+			std::cerr << "alignment did not run successfully" << std::endl;
+			std::abort();
+		}
+	}
+	std::string mergeCommand = samtoolsPath + " merge -o " + outputFile;
+	for (size_t i = 0; i < morphConsensuses.size(); i++)
+	{
+		mergeCommand += " " + tmppath + "/tmpalns_" + std::to_string(i) + ".bam";
+	}
+	std::cerr << "samtools command:" << std::endl;
+	std::cerr << mergeCommand << std::endl;
+	int result = system(mergeCommand.c_str());
+	if (result != 0)
+	{
+		std::cerr << "samtools merge did not run successfully" << std::endl;
+		std::abort();
+	}
+	std::string indexCommand = samtoolsPath + " index -b " + outputFile;
+	std::cerr << "samtools command:" << std::endl;
+	std::cerr << indexCommand << std::endl;
+	result = system(indexCommand.c_str());
+	if (result != 0)
+	{
+		std::cerr << "samtools index did not run successfully" << std::endl;
+		std::abort();
 	}
 }
 
 void DoClusterONTAnalysis(const ClusterParams& params)
 {
+	std::filesystem::create_directories(params.basePath + "/tmp");
 	std::cerr << "reading allele graph" << std::endl;
 	GfaGraph graph;
 	graph.loadFromFile(params.basePath + "/allele-graph.gfa");
@@ -4520,8 +4586,28 @@ void DoClusterONTAnalysis(const ClusterParams& params)
 	writeMorphConsensuses(params.basePath + "/morphs.fa", morphConsensuses);
 	std::cerr << "write morph paths" << std::endl;
 	writeMorphPaths(params.basePath + "/morphs.gaf", morphConsensuses, graph, pathStartClip, pathEndClip);
-	std::cerr << "write raw ONT loop sequences" << std::endl;
-	writeRawOntLoopSequences(params.basePath + "/raw_loops.fa", morphConsensuses, params.ontReadPath);
+	{
+		auto ontLoopSequences = getRawOntLoops(morphConsensuses, params.ontReadPath);
+		std::cerr << "write raw ONT loop sequences" << std::endl;
+		writeRawOntLoopSequences(params.basePath + "/raw_loops.fa", ontLoopSequences);
+		if (params.winnowmapPath != "" && params.samtoolsPath != "")
+		{
+			std::cerr << "realign raw ONT loop sequences to morph consensuses" << std::endl;
+			alignRawOntLoopsToMorphConsensuses(ontLoopSequences, params.basePath + "/raw_loop_to_morphs_alignments.bam", params.basePath + "/tmp", params.numThreads, morphConsensuses, params.winnowmapPath, params.samtoolsPath);
+		}
+		else
+		{
+			if (params.winnowmapPath == "")
+			{
+				std::cerr << "winnowmap not found, ";
+			}
+			if (params.samtoolsPath != "")
+			{
+				std::cerr << "bamtools not found, ";
+			}
+			std::cerr << "skipping alignment of raw ONT loop sequences to morph consensuses" << std::endl;
+		}
+	}
 	std::cerr << "write morph graph and read paths" << std::endl;
 	writeMorphGraphAndReadPaths(params.basePath + "/morphgraph.gfa", params.basePath + "/readpaths-morphgraph.gaf", morphConsensuses);
 	if (params.annotationFasta.size() > 0)

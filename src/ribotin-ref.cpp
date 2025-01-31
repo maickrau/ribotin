@@ -53,9 +53,13 @@ int main(int argc, char** argv)
 		("morph-recluster-minedit", "Minimum edit distance to recluster morphs", cxxopts::value<size_t>()->default_value("5"))
 		("mbg", "MBG path", cxxopts::value<std::string>())
 		("graphaligner", "GraphAligner path", cxxopts::value<std::string>())
+		("winnowmap", "winnowmap/minimap path", cxxopts::value<std::string>())
+		("samtools", "samtools path", cxxopts::value<std::string>())
 	;
 	std::string MBGPath;
 	std::string GraphAlignerPath;
+	std::string winnowmapPath;
+	std::string samtoolsPath;
 	auto params = options.parse(argc, argv);
 	if (params.count("v") == 1)
 	{
@@ -113,6 +117,40 @@ int main(int argc, char** argv)
 		else
 		{
 			GraphAlignerPath = "GraphAligner";
+		}
+	}
+	if (params.count("winnowmap") == 1)
+	{
+		winnowmapPath = params["winnowmap"].as<std::string>();
+	}
+	if (params.count("winnowmap") == 0 && params.count("nano") >= 1)
+	{
+		std::cerr << "checking for winnowmap" << std::endl;
+		int foundWinnowmap = system("which winnowmap");
+		if (foundWinnowmap != 0)
+		{
+			std::cerr << "winnowmap not found, will not perform realignment of raw ONT loops to morph consensuses" << std::endl;
+		}
+		else
+		{
+			winnowmapPath = "winnowmap";
+		}
+	}
+	if (params.count("samtools") == 1)
+	{
+		samtoolsPath = params["samtools"].as<std::string>();
+	}
+	if (params.count("samtools") == 0 && params.count("nano") >= 1)
+	{
+		std::cerr << "checking for samtools" << std::endl;
+		int foundSamtools = system("which samtools");
+		if (foundSamtools != 0)
+		{
+			std::cerr << "samtools not found, will not perform realignment of raw ONT loops to morph consensuses" << std::endl;
+		}
+		else
+		{
+			samtoolsPath = "samtools";
 		}
 	}
 	if (params.count("i") == 0)
@@ -205,6 +243,8 @@ int main(int argc, char** argv)
 	if (params.count("annotation-reference-fasta") == 1) clusterParams.annotationFasta = params["annotation-reference-fasta"].as<std::string>();
 	if (params.count("annotation-gff3") == 1) clusterParams.annotationGff3 = params["annotation-gff3"].as<std::string>();
 	clusterParams.GraphAlignerPath = GraphAlignerPath;
+	clusterParams.winnowmapPath = winnowmapPath;
+	clusterParams.samtoolsPath = samtoolsPath;
 	std::cerr << "using reference from " << refPath << std::endl;
 	std::cerr << "output folder: " << clusterParams.basePath << std::endl;
 	std::filesystem::create_directories(clusterParams.basePath);
