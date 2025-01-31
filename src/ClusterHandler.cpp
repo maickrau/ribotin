@@ -1994,10 +1994,10 @@ void writeVariantVCF(std::string filename, const Path& heavyPath, const GfaGraph
 	}
 }
 
-void liftoverAnnotationsToMorphs(const std::string& basePath, const std::vector<MorphConsensus>& morphConsensuses, const std::string& annotationFasta, const std::string& annotationGff3)
+void liftoverAnnotationsToMorphs(const std::string& basePath, const std::vector<MorphConsensus>& morphConsensuses, const std::string& annotationFasta, const std::string& annotationGff3, const std::string& tmpPath)
 {
 	{
-		std::ofstream typefile { basePath + "/liftoff_types.txt" };
+		std::ofstream typefile { tmpPath + "/liftoff_types.txt" };
 		typefile << "rRNA" << std::endl;
 		typefile << "misc_RNA" << std::endl;
 		typefile << "repeat_region" << std::endl;
@@ -2009,13 +2009,13 @@ void liftoverAnnotationsToMorphs(const std::string& basePath, const std::vector<
 	}
 	for (size_t i = 0; i < morphConsensuses.size(); i++)
 	{
-		std::string tmpfilepath { basePath + "/tmp_seq.fa" };
+		std::string tmpfilepath { tmpPath + "/tmp_seq.fa" };
 		{
 			std::ofstream tmpfile { tmpfilepath };
 			tmpfile << ">" << morphConsensuses[i].name << std::endl;
 			tmpfile << morphConsensuses[i].sequence << std::endl;
 		}
-		std::string command = "liftoff -f " + basePath + "/liftoff_types.txt -g " + annotationGff3 + " -o " + basePath + "/tmp-morph-annotations-part" + std::to_string(i) + ".gff3 -u "+ basePath + "/morph-unmapped_features" + std::to_string(i) + ".txt -dir " + basePath + "/liftoff_intermediate_files/ " + tmpfilepath + " " + annotationFasta + " 1> " + basePath + "/liftoff_morphs_stdout" + std::to_string(i) + ".txt 2> " + basePath + "/liftoff_morphs_stderr" + std::to_string(i) + ".txt";
+		std::string command = "liftoff -f " + tmpPath + "/liftoff_types.txt -g " + annotationGff3 + " -o " + tmpPath + "/tmp-morph-annotations-part" + std::to_string(i) + ".gff3 -u "+ tmpPath + "/morph-unmapped_features" + std::to_string(i) + ".txt -dir " + tmpPath + "/liftoff_intermediate_files/ " + tmpfilepath + " " + annotationFasta + " 1> " + tmpPath + "/liftoff_morphs_stdout" + std::to_string(i) + ".txt 2> " + tmpPath + "/liftoff_morphs_stderr" + std::to_string(i) + ".txt";
 		std::cerr << "running liftoff with command:" << std::endl;
 		std::cerr << command << std::endl;
 		int result = system(command.c_str());
@@ -2024,13 +2024,13 @@ void liftoverAnnotationsToMorphs(const std::string& basePath, const std::vector<
 			std::cerr << "liftoff did not run successfully" << std::endl;
 			std::abort();
 		}
-		command = "rm -r " + basePath + "/liftoff_intermediate_files/ " + tmpfilepath + ".fai " + tmpfilepath + ".mmi";
+		command = "rm -r " + tmpPath + "/liftoff_intermediate_files/ " + tmpfilepath + ".fai " + tmpfilepath + ".mmi";
 		std::cerr << command << std::endl;
 		result = system(command.c_str());
 	}
 	std::cerr << "combining liftoff results" << std::endl;
 	std::string outputFile = basePath + "/morph-annotations.gff3";
-	std::string command = "echo \"##gff-version 3\" > " + outputFile + "\ncat " + basePath + "/tmp-morph-annotations-part*.gff3 | grep -v '#' >> " + outputFile;
+	std::string command = "echo \"##gff-version 3\" > " + outputFile + "\ncat " + tmpPath + "/tmp-morph-annotations-part*.gff3 | grep -v '#' >> " + outputFile;
 	std::cerr << command << std::endl;
 	int result = system(command.c_str());
 	if (result != 0)
@@ -2040,10 +2040,10 @@ void liftoverAnnotationsToMorphs(const std::string& basePath, const std::vector<
 	}
 }
 
-void liftoverAnnotationsToConsensus(const std::string& basePath, const std::string& consensusPath, const std::string& annotationFasta, const std::string& annotationGff3)
+void liftoverAnnotationsToConsensus(const std::string& basePath, const std::string& consensusPath, const std::string& annotationFasta, const std::string& annotationGff3, const std::string& tmpPath)
 {
 	{
-		std::ofstream typefile { basePath + "/liftoff_types.txt" };
+		std::ofstream typefile { tmpPath + "/liftoff_types.txt" };
 		typefile << "rRNA" << std::endl;
 		typefile << "misc_RNA" << std::endl;
 		typefile << "repeat_region" << std::endl;
@@ -2053,7 +2053,7 @@ void liftoverAnnotationsToConsensus(const std::string& basePath, const std::stri
 		typefile << "pseudogene" << std::endl;
 		typefile << "tandem_repeat" << std::endl;
 	}
-	std::string command = "liftoff -f " + basePath + "/liftoff_types.txt -g " + annotationGff3 + " -o " + basePath + "/consensus-annotation.gff3 -u " + basePath + "/consensus-unmapped_features.txt -dir " + basePath + "/liftoff_intermediate_files/ " + consensusPath + " " + annotationFasta + " 1> " + basePath + "/liftoff_consensus_stdout.txt 2> " + basePath + "/liftoff_consensus_stderr.txt";
+	std::string command = "liftoff -f " + tmpPath + "/liftoff_types.txt -g " + annotationGff3 + " -o " + basePath + "/consensus-annotation.gff3 -u " + tmpPath + "/consensus-unmapped_features.txt -dir " + tmpPath + "/liftoff_intermediate_files/ " + consensusPath + " " + annotationFasta + " 1> " + tmpPath + "/liftoff_consensus_stdout.txt 2> " + tmpPath + "/liftoff_consensus_stderr.txt";
 	std::cerr << "running liftoff with command:" << std::endl;
 	std::cerr << command << std::endl;
 	int result = system(command.c_str());
@@ -3527,6 +3527,7 @@ void orderLoopsByLength(std::vector<OntLoop>& loops, const GfaGraph& graph, cons
 
 void HandleCluster(const ClusterParams& params)
 {
+	std::filesystem::create_directories(params.basePath + "/tmp");
 	std::cerr << "running MBG" << std::endl;
 	runMBG(params.basePath, params.hifiReadPath, params.MBGPath, params.k, params.maxResolveLength, params.numThreads);
 	std::cerr << "reading graph" << std::endl;
@@ -3560,7 +3561,7 @@ void HandleCluster(const ClusterParams& params)
 	if (params.annotationFasta.size() > 0)
 	{
 		std::cerr << "lifting over annotations to consensus" << std::endl;
-		liftoverAnnotationsToConsensus(params.basePath, params.basePath + "/consensus.fa", params.annotationFasta, params.annotationGff3);
+		liftoverAnnotationsToConsensus(params.basePath, params.basePath + "/consensus.fa", params.annotationFasta, params.annotationGff3, params.basePath + "/tmp");
 	}
 }
 
@@ -4532,7 +4533,6 @@ void alignRawOntLoopsToMorphConsensuses(const std::vector<std::vector<std::pair<
 
 void DoClusterONTAnalysis(const ClusterParams& params)
 {
-	std::filesystem::create_directories(params.basePath + "/tmp");
 	std::cerr << "reading allele graph" << std::endl;
 	GfaGraph graph;
 	graph.loadFromFile(params.basePath + "/allele-graph.gfa");
@@ -4613,6 +4613,6 @@ void DoClusterONTAnalysis(const ClusterParams& params)
 	if (params.annotationFasta.size() > 0)
 	{
 		std::cerr << "lifting over annotations to morphs" << std::endl;
-		liftoverAnnotationsToMorphs(params.basePath, morphConsensuses, params.annotationFasta, params.annotationGff3);
+		liftoverAnnotationsToMorphs(params.basePath, morphConsensuses, params.annotationFasta, params.annotationGff3, params.basePath + "/tmp");
 	}
 }
