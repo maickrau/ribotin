@@ -4576,8 +4576,8 @@ void DoClusterONTAnalysis(const ClusterParams& params)
 	std::cerr << "phase clusters" << std::endl;
 	clusters = phaseClusters(clusters);
 	std::cerr << clusters.size() << " phased clusters" << std::endl;
-	std::cerr << "SNP-split clusters" << std::endl;
-	clusters = SNPsplitClusters(clusters, params.ontReadPath, graph, pathStartClip, pathEndClip, params.numThreads);
+//	std::cerr << "SNP-split clusters" << std::endl;
+//	clusters = SNPsplitClusters(clusters, params.ontReadPath, graph, pathStartClip, pathEndClip, params.numThreads);
 	std::cerr << clusters.size() << " phased clusters" << std::endl;
 	std::sort(clusters.begin(), clusters.end(), [](const auto& left, const auto& right) { return left.size() > right.size(); });
 	std::cerr << "getting morph consensuses" << std::endl;
