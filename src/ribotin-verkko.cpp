@@ -13,6 +13,7 @@
 #include "VerkkoTangleGuesser.h"
 #include "KmerMatcher.h"
 #include "RibotinUtils.h"
+#include "CommonParams.h"
 
 std::vector<std::string> getNodesFromFile(std::string filename)
 {
@@ -248,8 +249,8 @@ int main(int argc, char** argv)
 		("mbg", "MBG path", cxxopts::value<std::string>())
 		("graphaligner", "GraphAligner path", cxxopts::value<std::string>())
 	;
-	std::string MBGPath;
-	std::string GraphAlignerPath;
+	CommonParams commonParams;
+	commonParams.addParamsToOptions(options);
 	auto params = options.parse(argc, argv);
 	if (params.count("v") == 1)
 	{
@@ -263,56 +264,17 @@ int main(int argc, char** argv)
 		std::exit(0);
 	}
 	bool paramError = false;
-	if (params.count("x") == 1)
-	{
-		if (params["x"].as<std::string>() != "human")
-		{
-			std::cerr << "No preset \"" << params["x"].as<std::string>() << "\"" << std::endl;
-			paramError = true;
-		}
-	}
+	bool commonParamsParseSuccessful = commonParams.parseParamsAndPrintErrors(params);
+	if (!commonParamsParseSuccessful) paramError = true;
 	if (params.count("do-ul") == 1 && (params["do-ul"].as<std::string>() != "no" && params["do-ul"].as<std::string>() != "yes" && params["do-ul"].as<std::string>() != "as_verkko"))
 	{
 		std::cerr << "Unknown option for --do-ul: \"" << params["do-ul"].as<std::string>() << "\"" << std::endl;
 		paramError = true;
 	}
-	if (params.count("mbg") == 0)
+	if ((params["do-ul"].as<std::string>() == "yes" || params["do-ul"].as<std::string>() == "as_verkko") && !commonParams.hasGraphAligner())
 	{
-		std::cerr << "checking for MBG" << std::endl;
-		int foundMBG = system("which MBG");
-		if (foundMBG != 0)
-		{
-			std::cerr << "MBG not found" << std::endl;
-			std::cerr << "MBG path (--mbg) is required" << std::endl;
-			paramError = true;
-		}
-		else
-		{
-			MBGPath = "MBG";
-		}
-	}
-	else
-	{
-		MBGPath = params["mbg"].as<std::string>();
-	}
-	if (params.count("graphaligner") == 1)
-	{
-		GraphAlignerPath = params["graphaligner"].as<std::string>();
-	}
-	if ((params["do-ul"].as<std::string>() == "yes" || params["do-ul"].as<std::string>() == "as_verkko") && params.count("graphaligner") == 0)
-	{
-		std::cerr << "checking for GraphAligner" << std::endl;
-		int foundGraphAligner = system("which GraphAligner");
-		if (foundGraphAligner != 0)
-		{
-			std::cerr << "GraphAligner not found" << std::endl;
-			std::cerr << "--graphaligner is required when using --do-ul=yes or --do-ul=as_verkko" << std::endl;
-			paramError = true;
-		}
-		else
-		{
-			GraphAlignerPath = "GraphAligner";
-		}
+		std::cerr << "--graphaligner is required when using --do-ul=yes or --do-ul=as_verkko" << std::endl;
+		paramError = true;
 	}
 	if (params.count("i") == 0)
 	{
@@ -327,41 +289,6 @@ int main(int argc, char** argv)
 	if (params.count("c") == 1 && params.count("guess-tangles-using-reference") == 1)
 	{
 		std::cerr << "Only one of node tangles (-c) or reference used for guessing (--guess-tangles-using-reference) can be used" << std::endl;
-		paramError = true;
-	}
-	if (params.count("k") == 1 && params["k"].as<size_t>() < 31)
-	{
-		std::cerr << "k must be at least 31" << std::endl;
-		paramError = true;
-	}
-	if (params.count("k") == 1 && params["k"].as<size_t>() % 2 == 0)
-	{
-		std::cerr << "k must be odd" << std::endl;
-		paramError = true;
-	}
-	if (params.count("annotation-gff3") == 1 && params.count("annotation-reference-fasta") == 0)
-	{
-		std::cerr << "--annotation-reference-fasta is missing while --annotation-gff3 is used" << std::endl;
-		paramError = true;
-	}
-	if (params.count("annotation-gff3") == 0 && params.count("annotation-reference-fasta") == 1)
-	{
-		std::cerr << "--annotation-gff3 is missing while --annotation-reference-fasta is used" << std::endl;
-		paramError = true;
-	}
-	if (params.count("annotation-gff3") == 1 || params.count("annotation-reference-fasta") == 1 || (params.count("x") == 1 && params["x"].as<std::string>() == "human"))
-	{
-		std::cerr << "checking for liftoff" << std::endl;
-		int foundLiftoff = system("which liftoff");
-		if (foundLiftoff != 0)
-		{
-			std::cerr << "liftoff not found" << std::endl;
-			paramError = true;
-		}
-	}
-	if (params.count("approx-morphsize") == 0 && params.count("x") == 0)
-	{
-		std::cerr << "Approximate size of one morph (--approx-morphsize) is required" << std::endl;
 		paramError = true;
 	}
 	if (paramError)
@@ -390,29 +317,14 @@ int main(int argc, char** argv)
 		std::abort();
 	}
 	std::string outputPrefix = params["o"].as<std::string>();
-	size_t k;
 	std::cerr << "do UL analysis: " << (doUL ? "yes" : "no") << std::endl;
 	std::cerr << "output prefix: " << outputPrefix << std::endl;
-	std::string orientReferencePath;
-	std::string annotationFasta;
-	std::string annotationGff3;
 	std::string ulTmpFolder = params["ul-tmp-folder"].as<std::string>();
-	std::string sampleName;
-	size_t maxClusterDifference;
-	size_t minReclusterDistance;
-	size_t maxResolveLength;
 	std::vector<std::vector<std::string>> tangleNodes;
-	k = params["k"].as<size_t>();
-	maxClusterDifference = params["morph-cluster-maxedit"].as<size_t>();
-	minReclusterDistance = params["morph-recluster-minedit"].as<size_t>();
 	if (params.count("x") == 1)
 	{
 		if (params["x"].as<std::string>() == "human")
 		{
-			k = 101;
-			maxClusterDifference = 200;
-			minReclusterDistance = 5;
-			maxResolveLength = 45000/5;
 			if (params.count("c") == 0 && params.count("guess-tangles-using-reference") == 0)
 			{
 				std::cerr << "guessing tangles" << std::endl;
@@ -421,20 +333,8 @@ int main(int argc, char** argv)
 				tangleNodes = guessVerkkoRDNATangles(verkkoBasePath, std::vector<std::string>{refPath});
 				std::cerr << "resulted in " << tangleNodes.size() << " tangles" << std::endl;
 			}
-			orientReferencePath = std::string{RIBOTIN_TEMPLATE_PATH} + "/rDNA_one_unit.fasta";
-			annotationFasta = std::string{RIBOTIN_TEMPLATE_PATH} + "/rDNA_one_unit.fasta";
-			annotationGff3 = std::string{RIBOTIN_TEMPLATE_PATH} + "/rDNA_annotation.gff3";
 		}
-		if (params.count("k") == 1) k = params["k"].as<size_t>();
-		if (params.count("morph-cluster-maxedit") == 1) maxClusterDifference = params["morph-cluster-maxedit"].as<size_t>();
-		if (params.count("morph-recluster-minedit") == 1) minReclusterDistance = params["morph-recluster-minedit"].as<size_t>();
 	}
-	size_t numThreads = params["t"].as<size_t>();
-	if (params.count("approx-morphsize") == 1) maxResolveLength = params["approx-morphsize"].as<size_t>()/5;
-	if (params.count("sample-name") == 1) sampleName = params["sample-name"].as<std::string>();
-	if (params.count("orient-by-reference") == 1) orientReferencePath = params["orient-by-reference"].as<std::string>();
-	if (params.count("annotation-reference-fasta") == 1) annotationFasta = params["annotation-reference-fasta"].as<std::string>();
-	if (params.count("annotation-gff3") == 1) annotationGff3 = params["annotation-gff3"].as<std::string>();
 	if (params.count("c") >= 1)
 	{
 		std::vector<std::string> tangleNodeFiles = params["c"].as<std::vector<std::string>>();
@@ -490,24 +390,14 @@ int main(int argc, char** argv)
 			continue;
 		}
 		ClusterParams clusterParams;
-		clusterParams.numThreads = numThreads;
-		clusterParams.maxClusterDifference = maxClusterDifference;
-		clusterParams.minReclusterDistance = minReclusterDistance;
-		clusterParams.namePrefix = "tangle" + std::to_string(i);
-		if (sampleName != "") clusterParams.namePrefix = sampleName + "_" + clusterParams.namePrefix;
+		commonParams.addToClusterOptions(clusterParams);
+		clusterParams.namePrefix = "tangle" + std::to_string(i) + (clusterParams.namePrefix.size() > 0 ? "_" : "_") + clusterParams.namePrefix;
 		clusterParams.basePath = outputPrefix + std::to_string(i);
 		clusterParams.hifiReadPath = outputPrefix + std::to_string(i) + "/hifi_reads.fa";
 		if (doUL)
 		{
 			clusterParams.ontReadPath = outputPrefix + std::to_string(i) + "/ont_reads.fa";
 		}
-		clusterParams.MBGPath = MBGPath;
-		clusterParams.GraphAlignerPath = GraphAlignerPath;
-		clusterParams.k = k;
-		clusterParams.orientReferencePath = orientReferencePath;
-		clusterParams.annotationFasta = annotationFasta;
-		clusterParams.annotationGff3 = annotationGff3;
-		clusterParams.maxResolveLength = maxResolveLength;
 		std::cerr << "running tangle " << i << " in folder " << outputPrefix + std::to_string(i) << std::endl;
 		HandleCluster(clusterParams);
 	}
@@ -533,7 +423,7 @@ int main(int argc, char** argv)
 		std::cerr << "merging allele graphs" << std::endl;
 		mergeGraphs(outputPrefix, numTangles, ulTmpFolder + "/merged-allele-graph.gfa");
 		std::cerr << "aligning ONT reads" << std::endl;
-		AlignONTReads(ulTmpFolder, GraphAlignerPath, ulTmpFolder + "/ont_reads.fa", ulTmpFolder + "/merged-allele-graph.gfa", ulTmpFolder + "/ont-alns.gaf", numThreads);
+		AlignONTReads(ulTmpFolder, commonParams.GraphAlignerPath(), ulTmpFolder + "/ont_reads.fa", ulTmpFolder + "/merged-allele-graph.gfa", ulTmpFolder + "/ont-alns.gaf", commonParams.numThreads());
 		std::cerr << "splitting ONTs per tangle" << std::endl;
 		splitAlignmentsPerTangle(outputPrefix, numTangles, ONTalignmentsPath);
 		for (size_t i = 0; i < numTangles; i++)
@@ -544,23 +434,14 @@ int main(int argc, char** argv)
 			}
 			std::cerr << "running tangle " << i << std::endl;
 			ClusterParams clusterParams;
-			clusterParams.numThreads = numThreads;
-			clusterParams.maxClusterDifference = maxClusterDifference;
-			clusterParams.minReclusterDistance = minReclusterDistance;
-			clusterParams.namePrefix = "tangle" + std::to_string(i);
-			if (sampleName != "") clusterParams.namePrefix = sampleName + "_" + clusterParams.namePrefix;
+			commonParams.addToClusterOptions(clusterParams);
+			clusterParams.namePrefix = "tangle" + std::to_string(i) + (clusterParams.namePrefix.size() > 0 ? "_" : "_") + clusterParams.namePrefix;
 			clusterParams.basePath = outputPrefix + std::to_string(i);
 			clusterParams.hifiReadPath = outputPrefix + std::to_string(i) + "/hifi_reads.fa";
 			if (doUL)
 			{
 				clusterParams.ontReadPath = selectedONTPath;
 			}
-			clusterParams.MBGPath = MBGPath;
-			clusterParams.GraphAlignerPath = GraphAlignerPath;
-			clusterParams.k = k;
-			clusterParams.orientReferencePath = orientReferencePath;
-			clusterParams.annotationFasta = annotationFasta;
-			clusterParams.annotationGff3 = annotationGff3;
 			DoClusterONTAnalysis(clusterParams);
 		}
 	}

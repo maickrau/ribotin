@@ -10,10 +10,10 @@ SRCDIR=src
 
 LIBS=`pkg-config --libs zlib` -lbamtools
 
-_DEPS = fastqloader.h FastHasher.h VerkkoReadAssignment.h ReadExtractor.h KmerMatcher.h ClusterHandler.h VerkkoTangleGuesser.h RibotinUtils.h WfaHelper.h TwobitString.h TangleGuesser.h HifiasmIntegration.h
+_DEPS = fastqloader.h FastHasher.h VerkkoReadAssignment.h ReadExtractor.h KmerMatcher.h ClusterHandler.h VerkkoTangleGuesser.h RibotinUtils.h WfaHelper.h TwobitString.h TangleGuesser.h HifiasmIntegration.h CommonParams.h
 DEPS = $(patsubst %, $(SRCDIR)/%, $(_DEPS))
 
-_OBJ = fastqloader.o FastHasher.o VerkkoReadAssignment.o ReadExtractor.o KmerMatcher.o ClusterHandler.o VerkkoTangleGuesser.o RibotinUtils.o WfaHelper.o TwobitString.o TangleGuesser.o HifiasmIntegration.o
+_OBJ = fastqloader.o FastHasher.o VerkkoReadAssignment.o ReadExtractor.o KmerMatcher.o ClusterHandler.o VerkkoTangleGuesser.o RibotinUtils.o WfaHelper.o TwobitString.o TangleGuesser.o HifiasmIntegration.o CommonParams.o
 OBJ = $(patsubst %, $(ODIR)/%, $(_OBJ))
 
 LINKFLAGS = $(CPPFLAGS) $(LIBS) -lpthread -pthread -static-libstdc++
@@ -34,6 +34,9 @@ $(BINDIR)/ribotin-hifiasm: $(OBJ) $(ODIR)/ribotin-hifiasm.o edlib/edlib/src/edli
 
 $(BINDIR)/ribotin-ref: $(OBJ) $(ODIR)/ribotin-ref.o edlib/edlib/src/edlib.cpp
 	$(GPP) -o $@ $^ $(LINKFLAGS)
+
+$(ODIR)/CommonParams.o: $(SRCDIR)/CommonParams.cpp $(DEPS) $(OBJ)
+	$(GPP) -c -o $@ $< $(CPPFLAGS) -DVERSION="\"$(VERSION)\"" -DRIBOTIN_TEMPLATE_PATH="\"$(TEMPLATEPATH)\""
 
 $(ODIR)/ribotin-verkko.o: $(SRCDIR)/ribotin-verkko.cpp $(DEPS) $(OBJ)
 	$(GPP) -c -o $@ $< $(CPPFLAGS) -DVERSION="\"$(VERSION)\"" -DRIBOTIN_TEMPLATE_PATH="\"$(TEMPLATEPATH)\""

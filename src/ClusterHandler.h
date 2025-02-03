@@ -14,6 +14,7 @@ public:
 	std::string GraphAlignerPath;
 	std::string winnowmapPath;
 	std::string samtoolsPath;
+	std::string liftoffPath;
 	size_t k;
 	std::string orientReferencePath;
 	std::string annotationFasta;

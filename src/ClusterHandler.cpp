@@ -1994,7 +1994,7 @@ void writeVariantVCF(std::string filename, const Path& heavyPath, const GfaGraph
 	}
 }
 
-void liftoverAnnotationsToMorphs(const std::string& basePath, const std::vector<MorphConsensus>& morphConsensuses, const std::string& annotationFasta, const std::string& annotationGff3, const std::string& tmpPath)
+void liftoverAnnotationsToMorphs(const std::string& basePath, const std::vector<MorphConsensus>& morphConsensuses, const std::string& annotationFasta, const std::string& annotationGff3, const std::string& tmpPath, const std::string& liftoffPath)
 {
 	{
 		std::ofstream typefile { tmpPath + "/liftoff_types.txt" };
@@ -2015,7 +2015,7 @@ void liftoverAnnotationsToMorphs(const std::string& basePath, const std::vector<
 			tmpfile << ">" << morphConsensuses[i].name << std::endl;
 			tmpfile << morphConsensuses[i].sequence << std::endl;
 		}
-		std::string command = "liftoff -f " + tmpPath + "/liftoff_types.txt -g " + annotationGff3 + " -o " + tmpPath + "/tmp-morph-annotations-part" + std::to_string(i) + ".gff3 -u "+ tmpPath + "/morph-unmapped_features" + std::to_string(i) + ".txt -dir " + tmpPath + "/liftoff_intermediate_files/ " + tmpfilepath + " " + annotationFasta + " 1> " + tmpPath + "/liftoff_morphs_stdout" + std::to_string(i) + ".txt 2> " + tmpPath + "/liftoff_morphs_stderr" + std::to_string(i) + ".txt";
+		std::string command = liftoffPath + " -f " + tmpPath + "/liftoff_types.txt -g " + annotationGff3 + " -o " + tmpPath + "/tmp-morph-annotations-part" + std::to_string(i) + ".gff3 -u "+ tmpPath + "/morph-unmapped_features" + std::to_string(i) + ".txt -dir " + tmpPath + "/liftoff_intermediate_files/ " + tmpfilepath + " " + annotationFasta + " 1> " + tmpPath + "/liftoff_morphs_stdout" + std::to_string(i) + ".txt 2> " + tmpPath + "/liftoff_morphs_stderr" + std::to_string(i) + ".txt";
 		std::cerr << "running liftoff with command:" << std::endl;
 		std::cerr << command << std::endl;
 		int result = system(command.c_str());
@@ -2040,7 +2040,7 @@ void liftoverAnnotationsToMorphs(const std::string& basePath, const std::vector<
 	}
 }
 
-void liftoverAnnotationsToConsensus(const std::string& basePath, const std::string& consensusPath, const std::string& annotationFasta, const std::string& annotationGff3, const std::string& tmpPath)
+void liftoverAnnotationsToConsensus(const std::string& basePath, const std::string& consensusPath, const std::string& annotationFasta, const std::string& annotationGff3, const std::string& tmpPath, const std::string& liftoffPath)
 {
 	{
 		std::ofstream typefile { tmpPath + "/liftoff_types.txt" };
@@ -2053,7 +2053,7 @@ void liftoverAnnotationsToConsensus(const std::string& basePath, const std::stri
 		typefile << "pseudogene" << std::endl;
 		typefile << "tandem_repeat" << std::endl;
 	}
-	std::string command = "liftoff -f " + tmpPath + "/liftoff_types.txt -g " + annotationGff3 + " -o " + basePath + "/consensus-annotation.gff3 -u " + tmpPath + "/consensus-unmapped_features.txt -dir " + tmpPath + "/liftoff_intermediate_files/ " + consensusPath + " " + annotationFasta + " 1> " + tmpPath + "/liftoff_consensus_stdout.txt 2> " + tmpPath + "/liftoff_consensus_stderr.txt";
+	std::string command = liftoffPath + " -f " + tmpPath + "/liftoff_types.txt -g " + annotationGff3 + " -o " + basePath + "/consensus-annotation.gff3 -u " + tmpPath + "/consensus-unmapped_features.txt -dir " + tmpPath + "/liftoff_intermediate_files/ " + consensusPath + " " + annotationFasta + " 1> " + tmpPath + "/liftoff_consensus_stdout.txt 2> " + tmpPath + "/liftoff_consensus_stderr.txt";
 	std::cerr << "running liftoff with command:" << std::endl;
 	std::cerr << command << std::endl;
 	int result = system(command.c_str());
@@ -3561,7 +3561,7 @@ void HandleCluster(const ClusterParams& params)
 	if (params.annotationFasta.size() > 0)
 	{
 		std::cerr << "lifting over annotations to consensus" << std::endl;
-		liftoverAnnotationsToConsensus(params.basePath, params.basePath + "/consensus.fa", params.annotationFasta, params.annotationGff3, params.basePath + "/tmp");
+		liftoverAnnotationsToConsensus(params.basePath, params.basePath + "/consensus.fa", params.annotationFasta, params.annotationGff3, params.basePath + "/tmp", params.liftoffPath);
 	}
 }
 
@@ -4613,6 +4613,6 @@ void DoClusterONTAnalysis(const ClusterParams& params)
 	if (params.annotationFasta.size() > 0)
 	{
 		std::cerr << "lifting over annotations to morphs" << std::endl;
-		liftoverAnnotationsToMorphs(params.basePath, morphConsensuses, params.annotationFasta, params.annotationGff3, params.basePath + "/tmp");
+		liftoverAnnotationsToMorphs(params.basePath, morphConsensuses, params.annotationFasta, params.annotationGff3, params.basePath + "/tmp", params.liftoffPath);
 	}
 }
