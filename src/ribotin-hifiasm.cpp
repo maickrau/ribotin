@@ -416,7 +416,7 @@ int main(int argc, char** argv)
 			std::cerr << "running tangle " << i << std::endl;
 			ClusterParams clusterParams;
 			commonParams.addToClusterOptions(clusterParams);
-			clusterParams.namePrefix = "tangle" + std::to_string(i) + (clusterParams.namePrefix.size() > 0 ? "_" : "") + clusterParams.namePrefix;
+			clusterParams.namePrefix = clusterParams.namePrefix + (clusterParams.namePrefix.size() > 0 ? "_" : "") + "tangle" + std::to_string(i);
 			clusterParams.basePath = outputPrefix + std::to_string(i);
 			clusterParams.hifiReadPath = outputPrefix + std::to_string(i) + "/hifi_reads.fa";
 			if (doUL)
