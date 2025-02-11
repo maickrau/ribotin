@@ -366,7 +366,7 @@ int main(int argc, char** argv)
 		std::cerr << "WARNING: some HiFi reads were not found in the input read files. Double check that all HiFi reads given to hifiasm are inputed with -i" << std::endl;
 	}
 	std::vector<size_t> tanglesWithoutReads;
-	std::string selectedONTPath = ulTmpFolder + "/ont-alns.gaf";
+	std::string selectedONTPath = ulTmpFolder + "/ont_reads.fa";
 	for (size_t i = 0; i < numTangles; i++)
 	{
 		if (reads[i].size() == 0)
@@ -393,7 +393,7 @@ int main(int argc, char** argv)
 		std::cerr << "getting kmers from tangles" << std::endl;
 		getKmers(outputPrefix, numTangles, ulTmpFolder + "/rdna_kmers.fa");
 		std::cerr << "extracting ultralong ONT reads" << std::endl;
-		std::ofstream readsfile { ulTmpFolder + "/ont_reads.fa" };
+		std::ofstream readsfile { selectedONTPath };
 		size_t consensusLength = medianConsensusLength(outputPrefix, numTangles);
 		std::cerr << "median consensus length " << consensusLength << ", using " << consensusLength/2 << " as minimum ONT match length" << std::endl;
 		iterateMatchingReads(ulTmpFolder + "/rdna_kmers.fa", ontReadPaths, 21, consensusLength/2, [&readsfile](const FastQ& seq)
