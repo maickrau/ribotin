@@ -26,6 +26,10 @@
 
 const size_t minPhaseCoverage = 10;
 
+class CyclicGraphException : public std::exception
+{
+};
+
 class Node
 {
 public:
@@ -894,6 +898,10 @@ Path getRecWidestPath(const std::unordered_set<size_t>& coveredNodes, const std:
 			}
 		}
 	}
+	if (predecessor.count(start) == 0)
+	{
+		throw CyclicGraphException {};
+	}
 	assert(predecessor.count(start) == 1);
 	assert(predecessor.count(reverse(start)) == 0);
 	Path result;
@@ -1160,6 +1168,85 @@ void filterOutDefinitelyNonConsensusNodes(std::unordered_set<size_t>& nodes, std
 	}
 }
 
+std::vector<Node> getShortestPath(const phmap::flat_hash_map<Node, Node>& shortestPathPredecessor, const Node startNode, const size_t endNode)
+{
+	std::vector<Node> result;
+	result.emplace_back(startNode);
+	while (true)
+	{
+		assert(shortestPathPredecessor.count(result.back()) == 1);
+		result.emplace_back(shortestPathPredecessor.at(result.back()));
+		if (result.back().id() == endNode) return result;
+		assert(result.size() < shortestPathPredecessor.size() + 5);
+	}
+	assert(false);
+	return result;
+}
+
+void filterOutLocalCycles(std::unordered_set<size_t>& coveredNodes, std::unordered_map<Node, std::unordered_set<Node>>& coveredEdges, const size_t topCoverageNode, const GfaGraph& graph)
+{
+	phmap::flat_hash_map<Node, Node> shortestPathPredecessor;
+	std::vector<std::tuple<size_t, Node, Node>> checkStack;
+	shortestPathPredecessor[Node { topCoverageNode, true }] = Node { topCoverageNode, true };
+	shortestPathPredecessor[Node { topCoverageNode, false }] = Node { topCoverageNode, false };
+	for (auto node : coveredEdges.at(Node { topCoverageNode, true }))
+	{
+		assert(coveredNodes.count(node.id()) == 1);
+		size_t overlap = getOverlap(Node { topCoverageNode, true }, node, graph.edges);
+		checkStack.emplace_back(graph.nodeSeqs[node.id()].size() - overlap, Node { topCoverageNode, true }, node);
+	}
+	for (auto node : coveredEdges.at(Node { topCoverageNode, false }))
+	{
+		assert(coveredNodes.count(node.id()) == 1);
+		size_t overlap = getOverlap(Node { topCoverageNode, false }, node, graph.edges);
+		checkStack.emplace_back(graph.nodeSeqs[node.id()].size() - overlap, Node { topCoverageNode, false }, node);
+	}
+	std::sort(checkStack.begin(), checkStack.end(), [](auto left, auto right) { return std::get<0>(left) > std::get<0>(right); });
+	while (checkStack.size() >= 1)
+	{
+		auto top = checkStack.back();
+		checkStack.pop_back();
+		if (shortestPathPredecessor.count(std::get<2>(top)) == 1) continue;
+		shortestPathPredecessor[std::get<2>(top)] = std::get<1>(top);
+		assert(coveredNodes.count(std::get<2>(top).id()) == 1);
+		assert(coveredEdges.count(std::get<2>(top)) == 1);
+		for (auto edge : coveredEdges.at(std::get<2>(top)))
+		{
+			size_t overlap = getOverlap(std::get<2>(top), edge, graph.edges);
+			checkStack.emplace_back(graph.nodeSeqs[edge.id()].size() - overlap, std::get<2>(top), edge);
+		}
+	}
+	std::unordered_set<size_t> repeatNodes;
+	for (size_t node : coveredNodes)
+	{
+		assert(shortestPathPredecessor.count(Node { node, true }) == 1);
+		assert(shortestPathPredecessor.count(Node { node, false }) == 1);
+		std::vector<Node> shortestPathToHere = getShortestPath(shortestPathPredecessor, Node { node, true }, topCoverageNode);
+		std::vector<Node> shortestPathFromHere = getShortestPath(shortestPathPredecessor, Node { node, false }, topCoverageNode);
+		phmap::flat_hash_set<size_t> nodesInPath;
+		for (Node pathnode : shortestPathToHere)
+		{
+			if (pathnode.id() == node) continue;
+			if (pathnode.id() == topCoverageNode) continue;
+			assert(nodesInPath.count(pathnode.id()) == 0);
+			nodesInPath.emplace(pathnode.id());
+		}
+		for (Node pathnode : shortestPathFromHere)
+		{
+			if (pathnode.id() == node) continue;
+			if (pathnode.id() == topCoverageNode) continue;
+			if (nodesInPath.count(pathnode.id()) == 1)
+			{
+				repeatNodes.emplace(node);
+				break;
+			}
+		}
+	}
+	std::cerr << "filter out " << repeatNodes.size() << " local repeat nodes" << std::endl;
+	filterOut(coveredNodes, repeatNodes);
+	filterOut(coveredEdges, repeatNodes);
+}
+
 Path getHeavyPath(const GfaGraph& graph, const size_t localResolveLength)
 {
 	std::unordered_set<size_t> coveredNodes;
@@ -1211,7 +1298,24 @@ Path getHeavyPath(const GfaGraph& graph, const size_t localResolveLength)
 		filterOutNonCircularParts(coveredNodes, coveredEdges, topCoverageNode);
 		if (coveredNodes.size() == sizeBeforeFilter) break;
 	}
-	Path result = getRecWidestPath(coveredNodes, coveredEdges, graph, Node { topCoverageNode, true });
+	Path result;
+	try
+	{
+		result = getRecWidestPath(coveredNodes, coveredEdges, graph, Node { topCoverageNode, true });
+	}
+	catch (CyclicGraphException& e)
+	{
+		std::cerr << "cyclic heavy path, remove local cycles and retry" << std::endl;
+		filterOutLocalCycles(coveredNodes, coveredEdges, topCoverageNode, graph);
+		while (true)
+		{
+			size_t sizeBeforeFilter = coveredNodes.size();
+			filterOutDefinitelyNonConsensusNodes(coveredNodes, coveredEdges, topCoverageNode, graph, localResolveLength);
+			filterOutNonCircularParts(coveredNodes, coveredEdges, topCoverageNode);
+			if (coveredNodes.size() == sizeBeforeFilter) break;
+		}
+		result = getRecWidestPath(coveredNodes, coveredEdges, graph, Node { topCoverageNode, true });
+	}
 	for (size_t i = 0; i < result.nodes.size(); i++)
 	{
 		Node prev;
