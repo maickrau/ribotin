@@ -3890,18 +3890,17 @@ std::vector<std::tuple<size_t, size_t, std::string>> getEditsRec(const std::stri
 	return result;
 }
 
-std::string getPolishedSequence(const std::string& rawConsensus, const std::vector<std::pair<std::string, std::string>>& rawLoops, const size_t numThreads)
+template <typename F>
+void iterateEdits(const std::string& rawConsensus, const std::vector<std::pair<std::string, std::string>>& rawLoops, const size_t numThreads, F callback)
 {
 	const size_t k = 31;
 	auto refKmers = getRefKmers(std::string_view { rawConsensus }, k);
-	std::map<std::tuple<size_t, size_t, std::string>, size_t> editCounts;
-	std::mutex resultMutex;
 	std::atomic<size_t> nextIndex;
 	nextIndex = 0;
 	std::vector<std::thread> threads;
-	for (size_t i = 0; i < numThreads; i++)
+	for (size_t threadindex = 0; threadindex < numThreads; threadindex++)
 	{
-		threads.emplace_back([&resultMutex, &rawConsensus, &rawLoops, &nextIndex, &refKmers, &editCounts]()
+		threads.emplace_back([&rawConsensus, &rawLoops, &nextIndex, &refKmers, threadindex, callback]()
 		{
 			while (true)
 			{
@@ -3921,21 +3920,15 @@ std::string getPolishedSequence(const std::string& rawConsensus, const std::vect
 					if (anchors[i].first - anchors[i-1].first == anchors[i].second - anchors[i-1].second && anchors[i].first - anchors[i-1].first < k) continue;
 					std::string_view refSubstr { rawConsensus.data()+anchors[i-1].first, anchors[i].first - anchors[i-1].first + k };
 					std::string_view querySubstr { path.first.data()+anchors[i-1].second, anchors[i].second - anchors[i-1].second + k };
-//					std::string refSubstr = rawConsensus.substr(anchors[i-1].first, anchors[i].first - anchors[i-1].first + k);
-//					std::string querySubstr = path.first.substr(anchors[i-1].second, anchors[i].second - anchors[i-1].second + k);
 					auto edits = getEditsRec(refSubstr, querySubstr, 21);
-					if (edits.size() >= 1)
+					for (auto edit : edits)
 					{
-						std::lock_guard<std::mutex> lock { resultMutex };
-						for (auto edit : edits)
-						{
-							assert(std::get<1>(edit) >= std::get<0>(edit));
-							assert(std::get<1>(edit) < refSubstr.size());
-							std::get<0>(edit) += anchors[i-1].first;
-							std::get<1>(edit) += anchors[i-1].first;
-							assert(std::get<1>(edit) < rawConsensus.size());
-							editCounts[edit] += 1;
-						}
+						assert(std::get<1>(edit) >= std::get<0>(edit));
+						assert(std::get<1>(edit) < refSubstr.size());
+						std::get<0>(edit) += anchors[i-1].first;
+						std::get<1>(edit) += anchors[i-1].first;
+						assert(std::get<1>(edit) < rawConsensus.size());
+						callback(threadindex, pickedIndex, edit);
 					}
 				}
 			}
@@ -3944,6 +3937,25 @@ std::string getPolishedSequence(const std::string& rawConsensus, const std::vect
 	for (size_t i = 0; i < threads.size(); i++)
 	{
 		threads[i].join();
+	}
+}
+
+std::string getPolishedSequence(const std::string& rawConsensus, const std::vector<std::pair<std::string, std::string>>& rawLoops, const size_t numThreads)
+{
+	std::vector<std::map<std::tuple<size_t, size_t, std::string>, size_t>> editCountsPerThread;
+	editCountsPerThread.resize(numThreads);
+	iterateEdits(rawConsensus, rawLoops, numThreads, [&editCountsPerThread](const size_t threadIndex, const size_t readIndex, const std::tuple<size_t, size_t, std::string>& edit)
+	{
+		assert(threadIndex < editCountsPerThread.size());
+		editCountsPerThread[threadIndex][edit] += 1;
+	});
+	std::map<std::tuple<size_t, size_t, std::string>, size_t> editCounts;
+	for (size_t i = 0; i < editCountsPerThread.size(); i++)
+	{
+		for (const auto& pair : editCountsPerThread[i])
+		{
+			editCounts[pair.first] += pair.second;
+		}
 	}
 	std::vector<std::tuple<size_t, size_t, std::string>> pickedEdits;
 	for (const auto& pair : editCounts)
