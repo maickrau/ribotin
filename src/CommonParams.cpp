@@ -185,7 +185,7 @@ bool CommonParams::parseParamsAndPrintErrors(const cxxopts::ParseResult& params)
 			k = 101;
 			morphClusterMaxDistance = 200;
 			morphReclusterMinDistance = 5;
-			maxResolveLength = 45000/5;
+			maxResolveLength = 1000;
 			orientReferencePath = std::string{RIBOTIN_TEMPLATE_PATH} + "/rDNA_one_unit.fasta";
 			annotationReferenceFastaAndGff3 = std::make_pair(std::string{RIBOTIN_TEMPLATE_PATH} + "/rDNA_one_unit.fasta", std::string{RIBOTIN_TEMPLATE_PATH} + "/rDNA_annotation.gff3");
 		}
@@ -194,7 +194,7 @@ bool CommonParams::parseParamsAndPrintErrors(const cxxopts::ParseResult& params)
 		if (params.count("morph-recluster-minedit") == 1) morphReclusterMinDistance = params["morph-recluster-minedit"].as<size_t>();
 	}
 	numThreadspriv = params["t"].as<size_t>();
-	if (params.count("approx-morphsize") == 1) maxResolveLength = params["approx-morphsize"].as<size_t>()/5;
+	if (params.count("approx-morphsize") == 1) maxResolveLength = 100 + params["approx-morphsize"].as<size_t>()/50;
 	if (params.count("sample-name") == 1) sampleName = params["sample-name"].as<std::string>();
 	if (params.count("orient-by-reference") == 1) orientReferencePath = params["orient-by-reference"].as<std::string>();
 	if (params.count("annotation-reference-fasta") == 1)
