@@ -272,6 +272,7 @@ public:
 	size_t referenceEndPos;
 	std::string variantSeq;
 	std::string referenceSeq;
+	bool nonrDNAAnchorVariant;
 };
 
 class GfaGraph
@@ -1534,6 +1535,7 @@ std::vector<Variant> getVariants(const GfaGraph& graph, const Path& heavyPath, c
 		result.back().coverage = pair.second;
 		result.back().referencePath = referenceAllele;
 		result.back().referenceCoverage = getReferenceCoverage(readPaths, result.back().referencePath);
+		result.back().nonrDNAAnchorVariant = false;
 	}
 	return result;
 }
@@ -1543,6 +1545,7 @@ void writeVariants(const Path& heavyPath, const GfaGraph& graph, const std::vect
 	std::ofstream file { filename };
 	for (const auto& variant : variants)
 	{
+		if (variant.nonrDNAAnchorVariant) continue;
 		file << variant.name << "\t";
 		for (const auto& node : variant.path)
 		{
@@ -1658,7 +1661,7 @@ void writeAlleleGraph(const GfaGraph& fullGraph, const Path& heavyPath, const st
 	std::map<std::pair<size_t, size_t>, size_t> nodeCoverage;
 	for (size_t i = 0; i < variants.size(); i++)
 	{
-		for (size_t j = 1; j < variants[i].path.size()-1; j++)
+		for (size_t j = 1; j < variants[i].path.size() - (variants[i].nonrDNAAnchorVariant ? 0 : 1); j++)
 		{
 			auto key = parent[i][j];
 			while (parent[key.first][key.second] != key) key = parent[key.first][key.second];
@@ -1678,7 +1681,7 @@ void writeAlleleGraph(const GfaGraph& fullGraph, const Path& heavyPath, const st
 				fromname += "_" + std::to_string(key.first) + "_" + std::to_string(key.second);
 			}
 			std::string toname = fullGraph.nodeNames[variants[i].path[j].id()];
-			if (j != variants[i].path.size()-1)
+			if (j != variants[i].path.size()-1 || variants[i].nonrDNAAnchorVariant)
 			{
 				auto key = parent[i][j];
 				while (parent[key.first][key.second] != key) key = parent[key.first][key.second];
@@ -1690,7 +1693,7 @@ void writeAlleleGraph(const GfaGraph& fullGraph, const Path& heavyPath, const st
 	for (size_t i = 0; i < variants.size(); i++)
 	{
 		assert(variants[i].path.size() >= 2);
-		if (variants[i].path.size() == 2)
+		if (variants[i].path.size() == 2 && !variants[i].nonrDNAAnchorVariant)
 		{
 			Node prev = variants[i].path[0];
 			Node curr = variants[i].path[1];
@@ -1706,9 +1709,34 @@ void writeAlleleGraph(const GfaGraph& fullGraph, const Path& heavyPath, const st
 			out << "L\t" << fullGraph.nodeNames[prev.id()] << "\t" << (prev.forward() ? "+" : "-") << "\t" << fullGraph.nodeNames[curr.id()] << "\t" << (curr.forward() ? "+" : "-") << "\t" << overlap << "M" << "\tec:i:" << variants[i].coverage << std::endl;
 			continue;
 		}
+		if (variants[i].path.size() == 2 && variants[i].nonrDNAAnchorVariant)
+		{
+			Node prev = variants[i].path[0];
+			Node curr = variants[i].path[1];
+			std::pair<size_t, size_t> key = parent[i][1];
+			while (parent[key.first][key.second] != key)
+			{
+				key = parent[key.first][key.second];
+			}
+			assert(fullGraph.edges.count(prev) == 1);
+			size_t overlap = std::numeric_limits<size_t>::max();
+			for (auto edge : fullGraph.edges.at(prev))
+			{
+				if (std::get<0>(edge) != curr) continue;
+				assert(overlap == std::numeric_limits<size_t>::max());
+				overlap = std::get<1>(edge);
+			}
+			assert(overlap != std::numeric_limits<size_t>::max());
+			std::string fromname = fullGraph.nodeNames[prev.id()];
+			std::string toname = fullGraph.nodeNames[curr.id()] + "_" + std::to_string(key.first) + "_" + std::to_string(key.second);
+			assert(edgeCoverage.count(std::make_pair(fromname, toname)) == 1);
+			out << "S\t" << toname << "\t" << fullGraph.nodeSeqs[variants[i].path[1].id()] << "\tll:f:" << nodeCoverage.at(key) << "\tFC:f:" << (nodeCoverage.at(key) * fullGraph.nodeSeqs[variants[i].path[1].id()].size()) << std::endl;
+			out << "L\t" << fromname << "\t" << (prev.forward() ? "+" : "-") << "\t" << toname << "\t" << (curr.forward() ? "+" : "-") << "\t" << overlap << "M" << "\tec:i:" << edgeCoverage.at(std::make_pair(fromname, toname)) << std::endl;
+			continue;
+		}
 		assert(referenceNode[variants[i].path[0].id()]);
-		assert(referenceNode[variants[i].path.back().id()]);
-		for (size_t j = 1; j < variants[i].path.size()-1; j++)
+		assert(referenceNode[variants[i].path.back().id()] || variants[i].nonrDNAAnchorVariant);
+		for (size_t j = 1; j < variants[i].path.size() - (variants[i].nonrDNAAnchorVariant ? 0 : 1); j++)
 		{
 			std::pair<size_t, size_t> key = parent[i][j];
 			while (parent[key.first][key.second] != key)
@@ -1739,27 +1767,7 @@ void writeAlleleGraph(const GfaGraph& fullGraph, const Path& heavyPath, const st
 			assert(overlap != std::numeric_limits<size_t>::max());
 			std::string fromname = fullGraph.nodeNames[prev.id()];
 			std::string toname = fullGraph.nodeNames[curr.id()] + "_" + std::to_string(key.first) + "_" + std::to_string(key.second);
-			out << "L\t" << fromname << "\t" << (prev.forward() ? "+" : "-") << "\t" << toname << "\t" << (curr.forward() ? "+" : "-") << "\t" << overlap << "M" << "\tec:i:" << edgeCoverage.at(std::make_pair(fromname, toname)) << std::endl;
-		}
-		{
-			Node prev = variants[i].path[variants[i].path.size()-2];
-			Node curr = variants[i].path[variants[i].path.size()-1];
-			std::pair<size_t, size_t> key = parent[i][variants[i].path.size()-2];
-			while (parent[key.first][key.second] != key)
-			{
-				key = parent[key.first][key.second];
-			}
-			assert(fullGraph.edges.count(prev) == 1);
-			size_t overlap = std::numeric_limits<size_t>::max();
-			for (auto edge : fullGraph.edges.at(prev))
-			{
-				if (std::get<0>(edge) != curr) continue;
-				assert(overlap == std::numeric_limits<size_t>::max());
-				overlap = std::get<1>(edge);
-			}
-			assert(overlap != std::numeric_limits<size_t>::max());
-			std::string fromname = fullGraph.nodeNames[prev.id()] + "_" + std::to_string(key.first) + "_" + std::to_string(key.second);
-			std::string toname = fullGraph.nodeNames[curr.id()];
+			assert(edgeCoverage.count(std::make_pair(fromname, toname)) == 1);
 			out << "L\t" << fromname << "\t" << (prev.forward() ? "+" : "-") << "\t" << toname << "\t" << (curr.forward() ? "+" : "-") << "\t" << overlap << "M" << "\tec:i:" << edgeCoverage.at(std::make_pair(fromname, toname)) << std::endl;
 		}
 		for (size_t j = 2; j < variants[i].path.size()-1; j++)
@@ -1787,6 +1795,38 @@ void writeAlleleGraph(const GfaGraph& fullGraph, const Path& heavyPath, const st
 			assert(overlap != std::numeric_limits<size_t>::max());
 			std::string fromname = fullGraph.nodeNames[prev.id()] + "_" + std::to_string(fromkey.first) + "_" + std::to_string(fromkey.second);
 			std::string toname = fullGraph.nodeNames[curr.id()] + "_" + std::to_string(tokey.first) + "_" + std::to_string(tokey.second);
+			assert(edgeCoverage.count(std::make_pair(fromname, toname)) == 1);
+			out << "L\t" << fromname << "\t" << (prev.forward() ? "+" : "-") << "\t" << toname << "\t" << (curr.forward() ? "+" : "-") << "\t" << overlap << "M" << "\tec:i:" << edgeCoverage.at(std::make_pair(fromname, toname)) << std::endl;
+		}
+		{
+			Node prev = variants[i].path[variants[i].path.size()-2];
+			Node curr = variants[i].path[variants[i].path.size()-1];
+			std::pair<size_t, size_t> key = parent[i][variants[i].path.size()-2];
+			while (parent[key.first][key.second] != key)
+			{
+				key = parent[key.first][key.second];
+			}
+			assert(fullGraph.edges.count(prev) == 1);
+			size_t overlap = std::numeric_limits<size_t>::max();
+			for (auto edge : fullGraph.edges.at(prev))
+			{
+				if (std::get<0>(edge) != curr) continue;
+				assert(overlap == std::numeric_limits<size_t>::max());
+				overlap = std::get<1>(edge);
+			}
+			assert(overlap != std::numeric_limits<size_t>::max());
+			std::string fromname = fullGraph.nodeNames[prev.id()] + "_" + std::to_string(key.first) + "_" + std::to_string(key.second);
+			std::string toname = fullGraph.nodeNames[curr.id()];
+			if (variants[i].nonrDNAAnchorVariant)
+			{
+				std::pair<size_t, size_t> tokey = parent[i][variants[i].path.size()-1];
+				while (parent[tokey.first][tokey.second] != tokey)
+				{
+					tokey = parent[tokey.first][tokey.second];
+				}
+				toname = fullGraph.nodeNames[curr.id()] + "_" + std::to_string(tokey.first) + "_" + std::to_string(tokey.second);
+			}
+			assert(edgeCoverage.count(std::make_pair(fromname, toname)) == 1);
 			out << "L\t" << fromname << "\t" << (prev.forward() ? "+" : "-") << "\t" << toname << "\t" << (curr.forward() ? "+" : "-") << "\t" << overlap << "M" << "\tec:i:" << edgeCoverage.at(std::make_pair(fromname, toname)) << std::endl;
 		}
 	}
@@ -1989,6 +2029,7 @@ void nameVariants(std::vector<Variant>& variants, const GfaGraph& graph, const P
 	size_t pathLength = heavyPath.getSequence(graph.nodeSeqs).size();
 	for (size_t variant = 0; variant < variants.size(); variant++)
 	{
+		if (variants[variant].nonrDNAAnchorVariant) continue;
 		Node startNode = variants[variant].referencePath[0];
 		Node endNode = variants[variant].referencePath.back();
 		size_t startIndex = std::numeric_limits<size_t>::max();
@@ -2095,6 +2136,7 @@ void writeVariantVCF(std::string filename, const Path& heavyPath, const GfaGraph
 	file << "#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO" << std::endl;
 	for (size_t i = 0; i < variants.size(); i++)
 	{
+		if (variants[i].nonrDNAAnchorVariant) continue;
 		file << "heavy_path\t" << variants[i].referenceStartPos+1 << "\t" << variants[i].name << "\t" << variants[i].referenceSeq << "\t" << variants[i].variantSeq << "\t" << "." << "\tPASS\t" << "AD=" << variants[i].referenceCoverage << "," << variants[i].coverage << std::endl;
 	}
 }
@@ -2466,7 +2508,7 @@ size_t getExactBreakPos(const std::string& nodeseq, const std::string& consensus
 	return exactMatchPos;
 }
 
-std::tuple<std::unordered_set<size_t>, std::unordered_map<Node, size_t>, std::unordered_map<Node, size_t>> getBorderNodes(const Path& heavyPath, const GfaGraph& graph)
+std::tuple<std::unordered_set<size_t>, std::unordered_set<size_t>, std::unordered_map<Node, size_t>, std::unordered_map<Node, size_t>> getBorderNodes(const Path& heavyPath, const GfaGraph& graph)
 {
 	const size_t k = 101;
 	const size_t borderSize = 200;
@@ -2506,8 +2548,26 @@ std::tuple<std::unordered_set<size_t>, std::unordered_map<Node, size_t>, std::un
 		}
 	}
 	std::unordered_set<size_t> borderNodes;
+	std::unordered_set<size_t> anchorNodes;
 	std::unordered_map<Node, size_t> pathStartClip;
 	std::unordered_map<Node, size_t> pathEndClip;
+	for (size_t nodeid = 0; nodeid < graph.nodeSeqs.size(); nodeid++)
+	{
+		if (graph.edges.count(Node { nodeid, true }) == 0)
+		{
+			pathStartClip[Node { nodeid, false }] = 0;
+			pathEndClip[Node { nodeid, true }] = graph.nodeSeqs[nodeid].size();
+			anchorNodes.emplace(nodeid);
+			borderNodes.emplace(nodeid);
+		}
+		if (graph.edges.count(Node { nodeid, false }) == 0)
+		{
+			pathStartClip[Node { nodeid, true }] = 0;
+			pathEndClip[Node { nodeid, false }] = graph.nodeSeqs[nodeid].size();
+			anchorNodes.emplace(nodeid);
+			borderNodes.emplace(nodeid);
+		}
+	}
 	for (size_t nodeid = 0; nodeid < graph.nodeSeqs.size(); nodeid++)
 	{
 		std::vector<size_t> fwBreaks;
@@ -2576,10 +2636,10 @@ std::tuple<std::unordered_set<size_t>, std::unordered_map<Node, size_t>, std::un
 			borderNodes.insert(nodeid);
 		}
 	}
-	return std::make_tuple(borderNodes, pathStartClip, pathEndClip);
+	return std::make_tuple(borderNodes, anchorNodes, pathStartClip, pathEndClip);
 }
 
-std::vector<OntLoop> extractLoopSequences(const std::vector<ReadPath>& correctedPaths, const Path& heavyPath, const size_t minLength, const GfaGraph& graph, const std::unordered_set<size_t>& borderNodes, const std::unordered_map<Node, size_t>& pathStartClip, const std::unordered_map<Node, size_t>& pathEndClip)
+std::vector<OntLoop> extractLoopSequences(const std::vector<ReadPath>& correctedPaths, const Path& heavyPath, const size_t minLength, const GfaGraph& graph, const std::unordered_set<size_t>& borderNodes, const std::unordered_set<size_t>& anchorNodes, const std::unordered_map<Node, size_t>& pathStartClip, const std::unordered_map<Node, size_t>& pathEndClip)
 {
 	std::vector<OntLoop> result;
 	for (const auto& read : correctedPaths)
@@ -2630,7 +2690,8 @@ std::vector<OntLoop> extractLoopSequences(const std::vector<ReadPath>& corrected
 			std::vector<Node> looppath { read.path.begin()+lastBreak, read.path.begin()+i+1 };
 			size_t len = getPathLength(looppath, graph.nodeSeqs, graph.edges);
 			size_t clip = pathStartClip.at(read.path[lastBreak]) + pathEndClip.at(read.path[i]);
-			if (len > clip && len - clip >= minLength)
+			bool anchored = anchorNodes.count(read.path[lastBreak].id()) == 1 || anchorNodes.count(read.path[i].id()) == 1;
+			if (len > clip && (len - clip >= minLength || anchored))
 			{
 				result.emplace_back();
 				result.back().originalReadLength = read.readLength;
@@ -4048,6 +4109,123 @@ void orderLoopsByLength(std::vector<OntLoop>& loops, const GfaGraph& graph, cons
 	std::swap(result, loops);
 }
 
+void addNonrDNAAnchorsAsVariants(std::vector<Variant>& variants, const GfaGraph& graph, const Path& heavyPath, const std::vector<ReadPath>& readPaths)
+{
+	const size_t minAnchorLength = 5000;
+	phmap::flat_hash_set<size_t> nodesInHeavyPath;
+	for (auto node : heavyPath.nodes)
+	{
+		nodesInHeavyPath.emplace(node.id());
+	}
+	size_t separatorNode = heavyPath.nodes[0].id();
+	phmap::flat_hash_set<Node> reachableFromSeparator;
+	std::vector<Node> checkStack;
+	checkStack.emplace_back(separatorNode, true);
+	checkStack.emplace_back(separatorNode, false);
+	while (checkStack.size() > 0)
+	{
+		auto top = checkStack.back();
+		checkStack.pop_back();
+		if (reachableFromSeparator.count(top) == 1) continue;
+		reachableFromSeparator.insert(top);
+		if (graph.edges.count(top) == 1)
+		{
+			for (auto edge : graph.edges.at(top))
+			{
+				checkStack.emplace_back(std::get<0>(edge));
+			}
+		}
+	}
+	std::map<std::vector<Node>, size_t> danglerCount;
+	for (const ReadPath& path : readPaths)
+	{
+		size_t prefixDanglerLength = 0;
+		for (size_t i = 0; i < path.path.size(); i++)
+		{
+			if (reachableFromSeparator.count(path.path[i]) == 0)
+			{
+				prefixDanglerLength += 1;
+			}
+			else
+			{
+				break;
+			}
+		}
+		size_t firstHeavyPathIndex = std::numeric_limits<size_t>::max();
+		size_t lastHeavyPathIndex = std::numeric_limits<size_t>::max();
+		for (size_t i = 0; i < path.path.size(); i++)
+		{
+			if (nodesInHeavyPath.count(path.path[i].id()) == 1)
+			{
+				if (firstHeavyPathIndex == std::numeric_limits<size_t>::max()) firstHeavyPathIndex = i;
+				lastHeavyPathIndex = i;
+			}
+		}
+		if (prefixDanglerLength > 0 && prefixDanglerLength < path.path.size() && firstHeavyPathIndex != std::numeric_limits<size_t>::max())
+		{
+			assert(firstHeavyPathIndex >= prefixDanglerLength);
+			std::vector<Node> danglerPath { path.path.begin(), path.path.begin() + prefixDanglerLength };
+			size_t danglerPathLength = getPathLength(danglerPath, graph.nodeSeqs, graph.edges);
+			if (danglerPathLength >= minAnchorLength)
+			{
+				danglerPath = reverse(danglerPath);
+				while (danglerPath.size() >= 2 && getPathLength(std::vector<Node> { danglerPath.begin(), danglerPath.end()-1 }, graph.nodeSeqs, graph.edges) >= minAnchorLength) danglerPath.pop_back();
+				std::vector<Node> pathFromHeavyPathUntilDangler = reverse(std::vector<Node> { path.path.begin() + prefixDanglerLength, path.path.begin() + firstHeavyPathIndex + 1});
+				danglerPath.insert(danglerPath.begin(), pathFromHeavyPathUntilDangler.begin(), pathFromHeavyPathUntilDangler.end());
+				assert(danglerPath.size() >= 2);
+				assert(nodesInHeavyPath.count(danglerPath[0].id()) == 1);
+				assert(nodesInHeavyPath.count(danglerPath[1].id()) == 0);
+				danglerCount[danglerPath] += 1;
+			}
+		}
+		size_t suffixDanglerLength = 0;
+		for (size_t i = path.path.size()-1; i < path.path.size(); i--)
+		{
+			if (reachableFromSeparator.count(reverse(path.path[i])) == 0)
+			{
+				suffixDanglerLength += 1;
+			}
+			else
+			{
+				break;
+			}
+		}
+		if (suffixDanglerLength > 0 && suffixDanglerLength < path.path.size() && lastHeavyPathIndex != std::numeric_limits<size_t>::max())
+		{
+			assert(lastHeavyPathIndex <= path.path.size() - suffixDanglerLength);
+			std::vector<Node> danglerPath { path.path.end() - suffixDanglerLength, path.path.end() };
+			size_t danglerPathLength = getPathLength(danglerPath, graph.nodeSeqs, graph.edges);
+			if (danglerPathLength >= minAnchorLength)
+			{
+				while (danglerPath.size() >= 2 && getPathLength(std::vector<Node> { danglerPath.begin(), danglerPath.end()-1 }, graph.nodeSeqs, graph.edges) >= minAnchorLength) danglerPath.pop_back();
+				std::vector<Node> pathFromHeavyPathUntilDangler = std::vector<Node> { path.path.begin() + lastHeavyPathIndex, path.path.end() - suffixDanglerLength };
+				danglerPath.insert(danglerPath.begin(), pathFromHeavyPathUntilDangler.begin(), pathFromHeavyPathUntilDangler.end());
+				assert(danglerPath.size() >= 2);
+				assert(nodesInHeavyPath.count(danglerPath[0].id()) == 1);
+				assert(nodesInHeavyPath.count(danglerPath[1].id()) == 0);
+				danglerCount[danglerPath] += 1;
+			}
+		}
+	}
+	for (const auto& pair : danglerCount)
+	{
+		if (pair.second < 3) continue;
+		assert(pair.first.size() >= 2);
+		assert(nodesInHeavyPath.count(pair.first[0].id()) == 1);
+		for (size_t j = 1; j < pair.first.size(); j++)
+		{
+			assert(nodesInHeavyPath.count(pair.first[j].id()) == 0);
+		}
+		assert(reachableFromSeparator.count(reverse(pair.first.back())) == 0);
+		variants.emplace_back();
+		variants.back().path = pair.first;
+		variants.back().coverage = pair.second;
+		variants.back().referencePath = std::vector<Node> { pair.first.begin(), pair.first.begin()+1 };
+		variants.back().referenceCoverage = 0;
+		variants.back().nonrDNAAnchorVariant = true;
+	}
+}
+
 void HandleCluster(const ClusterParams& params)
 {
 	std::filesystem::create_directories(params.basePath + "/tmp");
@@ -4071,6 +4249,7 @@ void HandleCluster(const ClusterParams& params)
 	std::vector<ReadPath> readPaths = loadReadPaths(params.basePath + "/paths.gaf", graph);
 	std::cerr << "getting variants" << std::endl;
 	std::vector<Variant> variants = getVariants(graph, heavyPath, readPaths, 3);
+	addNonrDNAAnchorsAsVariants(variants, graph, heavyPath, readPaths);
 	nameVariants(variants, graph, heavyPath);
 	std::cerr << variants.size() << " variants" << std::endl;
 	std::cerr << "writing variants" << std::endl;
@@ -5065,9 +5244,10 @@ void DoClusterONTAnalysis(const ClusterParams& params)
 	std::unordered_map<Node, size_t> pathStartClip;
 	std::unordered_map<Node, size_t> pathEndClip;
 	std::unordered_set<size_t> borderNodes;
-	std::tie(borderNodes, pathStartClip, pathEndClip) = getBorderNodes(heavyPath, graph);
+	std::unordered_set<size_t> anchorNodes;
+	std::tie(borderNodes, anchorNodes, pathStartClip, pathEndClip) = getBorderNodes(heavyPath, graph);
 	assert(borderNodes.size() > 0);
-	auto loopSequences = extractLoopSequences(ontPaths, heavyPath, minLength, graph, borderNodes, pathStartClip, pathEndClip);
+	auto loopSequences = extractLoopSequences(ontPaths, heavyPath, minLength, graph, borderNodes, anchorNodes, pathStartClip, pathEndClip);
 	auto coreNodes = getCoreNodes(loopSequences);
 	std::cerr << loopSequences.size() << " loops in ONTs" << std::endl;
 	{
