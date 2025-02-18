@@ -98,7 +98,7 @@ void getKmers(std::string outputPrefix, size_t numTangles, std::string outputFil
 			file << ">consensus" << i << std::endl;
 			file << fastq.sequence << std::endl;
 		});
-		std::ifstream variantgraph { outputPrefix + std::to_string(i) + "/variant-graph.gfa" };
+		std::ifstream variantgraph { outputPrefix + std::to_string(i) + "/processed-graph.gfa" };
 		while (variantgraph.good())
 		{
 			std::string line;
@@ -118,7 +118,7 @@ void mergeGraphs(std::string outputPrefix, size_t numTangles, std::string output
 	std::ofstream file { outputFile };
 	for (size_t i = 0; i < numTangles; i++)
 	{
-		std::ifstream variantgraph { outputPrefix + std::to_string(i) + "/allele-graph.gfa" };
+		std::ifstream variantgraph { outputPrefix + std::to_string(i) + "/processed-graph.gfa" };
 		while (variantgraph.good())
 		{
 			std::string line;
@@ -402,9 +402,9 @@ int main(int argc, char** argv)
 			readsfile << seq.sequence << std::endl;
 		});
 		std::cerr << "merging allele graphs" << std::endl;
-		mergeGraphs(outputPrefix, numTangles, ulTmpFolder + "/merged-allele-graph.gfa");
+		mergeGraphs(outputPrefix, numTangles, ulTmpFolder + "/merged-processed-graph.gfa");
 		std::cerr << "aligning ONT reads" << std::endl;
-		AlignONTReads(ulTmpFolder, commonParams.GraphAlignerPath(), ulTmpFolder + "/ont_reads.fa", ulTmpFolder + "/merged-allele-graph.gfa", ulTmpFolder + "/ont-alns.gaf", commonParams.numThreads());
+		AlignONTReads(ulTmpFolder, commonParams.GraphAlignerPath(), ulTmpFolder + "/ont_reads.fa", ulTmpFolder + "/merged-processed-graph.gfa", ulTmpFolder + "/ont-alns.gaf", commonParams.numThreads());
 		std::cerr << "splitting ONTs per tangle" << std::endl;
 		splitAlignmentsPerTangle(outputPrefix, numTangles, ulTmpFolder + "/ont-alns.gaf");
 		for (size_t i = 0; i < numTangles; i++)
