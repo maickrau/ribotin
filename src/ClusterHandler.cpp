@@ -26,6 +26,17 @@
 
 const size_t minPhaseCoverage = 10;
 
+std::chrono::time_point<std::chrono::steady_clock> getTime()
+{
+	return std::chrono::steady_clock::now();
+}
+
+std::string formatTime(std::chrono::steady_clock::time_point start, std::chrono::steady_clock::time_point end)
+{
+	size_t milliseconds = std::chrono::duration_cast<std::chrono::milliseconds>(end-start).count();
+	return std::to_string(milliseconds / 1000) + "," + std::to_string(milliseconds % 1000) + " s";
+}
+
 class CyclicGraphException : public std::exception
 {
 };
@@ -3902,7 +3913,7 @@ std::vector<std::tuple<size_t, size_t, std::string, size_t>> getEditsRec(const s
 	assert(refSeq.substr(0, k) == querySeq.substr(0, k));
 	assert(refSeq.substr(refSeq.size()-k) == querySeq.substr(querySeq.size()-k));
 	const double maxErrorRate = 0.1;
-	if (k < 11)
+	if (k <= 11 || k > 31)
 	{
 		return getEdits(refSeq, querySeq, refSeq.size()*2);
 	}
@@ -3992,7 +4003,7 @@ void iterateEdits(const std::string& rawConsensus, const std::vector<std::pair<s
 					if (anchors[i].first - anchors[i-1].first == anchors[i].second - anchors[i-1].second && anchors[i].first - anchors[i-1].first < k) continue;
 					std::string_view refSubstr { rawConsensus.data()+anchors[i-1].first, anchors[i].first - anchors[i-1].first + k };
 					std::string_view querySubstr { path.first.data()+anchors[i-1].second, anchors[i].second - anchors[i-1].second + k };
-					auto edits = getEditsRec(refSubstr, querySubstr, 21);
+					auto edits = getEditsRec(refSubstr, querySubstr, 25);
 					for (auto edit : edits)
 					{
 						assert(std::get<1>(edit) >= std::get<0>(edit));
@@ -5375,83 +5386,140 @@ void alignRawOntLoopsToMorphConsensuses(const std::vector<std::vector<std::pair<
 	}
 }
 
-std::vector<std::pair<std::vector<std::vector<size_t>>, size_t>> getPhasableVariantInfoBiallelicAltRefSNPsBigIndels(const std::vector<OntLoop>& loops, const std::vector<std::pair<std::string, std::string>>& rawLoops, const GfaGraph& graph, const std::unordered_map<Node, size_t>& pathStartClip, const std::unordered_map<Node, size_t>& pathEndClip, const size_t numThreads)
+bool isSNP(const std::tuple<size_t, size_t, std::string>& variant)
 {
-	const size_t minCoverage = 3;
-	if (loops.size() < minCoverage) return std::vector<std::pair<std::vector<std::vector<size_t>>, size_t>> {};
+	if (std::get<1>(variant)-std::get<0>(variant) == 1 && std::get<2>(variant).size() == 1) return true;
+	return false;
+}
+
+bool isBigIndel(const std::tuple<size_t, size_t, std::string>& variant)
+{
+	if (std::get<1>(variant)-std::get<0>(variant) >= 10) return true;
+	if (std::get<2>(variant).size() >= 10) return true;
+	return false;
+}
+
+std::vector<std::vector<std::tuple<size_t, size_t, std::string>>> getEditsForPhasing(const std::vector<OntLoop>& loops, const std::vector<std::pair<std::string, std::string>>& rawLoops, const GfaGraph& graph, const std::unordered_map<Node, size_t>& pathStartClip, const std::unordered_map<Node, size_t>& pathEndClip, const size_t numThreads)
+{
 	auto path = getConsensusPath(loops, graph);
 	std::string consensusSeq = getConsensusSequence(path, graph, pathStartClip, pathEndClip);
 	size_t firstMatchPos = 0;
 	size_t lastMatchPos = consensusSeq.size();;
-	std::map<std::tuple<size_t, size_t, std::string>, size_t> editCounts;
 	std::vector<std::vector<std::tuple<size_t, size_t, std::string>>> editsPerRead;
 	editsPerRead.resize(loops.size());
 	std::mutex resultMutex;
-	iterateEdits(consensusSeq, rawLoops, numThreads, [&firstMatchPos, &lastMatchPos, &resultMutex, &editCounts, &editsPerRead](const size_t threadId, const size_t readId, const size_t firstMatchRef, const size_t lastMatchRef, const size_t firstMatchRead, const size_t lastMatchRead, const std::tuple<size_t, size_t, std::string, size_t>& edit)
+	auto startTime = getTime();
+	iterateEdits(consensusSeq, rawLoops, numThreads, [&firstMatchPos, &lastMatchPos, &resultMutex, &editsPerRead](const size_t threadId, const size_t readId, const size_t firstMatchRef, const size_t lastMatchRef, const size_t firstMatchRead, const size_t lastMatchRead, const std::tuple<size_t, size_t, std::string, size_t>& edit)
 	{
 		auto filterEdit = std::make_tuple(std::get<0>(edit), std::get<1>(edit), std::get<2>(edit));
 		editsPerRead[readId].emplace_back(filterEdit);
 		std::lock_guard<std::mutex> lock { resultMutex };
 		firstMatchPos = std::max(firstMatchPos, firstMatchRef);
 		lastMatchPos = std::min(lastMatchPos, lastMatchRef);
-		editCounts[filterEdit] += 1;
 	});
-	std::set<std::tuple<size_t, size_t, std::string>> editsInConflict;
-	for (const auto& t : editCounts)
+	auto endTime = getTime();
+	for (size_t i = 0; i < editsPerRead.size(); i++)
 	{
-		if (t.second < minCoverage) continue;
-		if (t.second+minCoverage > loops.size()) continue;
-		for (const auto& t2 : editCounts)
+		for (size_t j = editsPerRead[i].size()-1; j < editsPerRead[i].size(); j++)
 		{
-			if (t.first == t2.first) continue;
-			if (std::get<0>(t.first) <= std::get<1>(t2.first) && std::get<1>(t.first) >= std::get<0>(t2.first))
+			if (std::get<0>(editsPerRead[i][j]) < firstMatchPos || std::get<1>(editsPerRead[i][j]) > lastMatchPos)
 			{
-				editsInConflict.emplace(t.first);
-				editsInConflict.emplace(t2.first);
+				std::swap(editsPerRead[i][j], editsPerRead[i].back());
+				editsPerRead[i].pop_back();
 			}
 		}
 	}
-	std::vector<std::pair<std::vector<std::vector<size_t>>, size_t>> result;
-	std::map<std::tuple<size_t, size_t, std::string>, size_t> validEditIndices;
-	for (const auto& t : editCounts)
+	return editsPerRead;
+}
+
+std::vector<std::pair<std::vector<std::vector<size_t>>, size_t>> getPhasableVariantInfoBiallelicAltRefSNPsBigIndels(const std::vector<std::vector<std::tuple<size_t, size_t, std::string>>>& editsPerRead)
+{
+	const size_t minCoverage = 3;
+	std::map<std::tuple<size_t, size_t, std::string>, size_t> editCounts;
+	for (size_t i = 0; i < editsPerRead.size(); i++)
 	{
-		if (std::get<1>(t.first) != std::get<0>(t.first)+1 || std::get<2>(t.first).size() != 1)
+		for (size_t j = 0; j < editsPerRead[i].size(); j++)
 		{
-			// not SNP
-			if (std::get<1>(t.first)-std::get<0>(t.first) < 10)
+			editCounts[editsPerRead[i][j]] += 1;
+		}
+	}
+	std::vector<std::tuple<size_t, size_t, std::string>> distinctEdits;
+	for (auto pair : editCounts)
+	{
+		distinctEdits.emplace_back(pair.first);
+	}
+	std::sort(distinctEdits.begin(), distinctEdits.end());
+	std::set<std::tuple<size_t, size_t, std::string>> discardedEdits;
+	size_t currentClusterStart = 0;
+	size_t currentClusterLastPos = std::get<1>(distinctEdits[0]);
+	std::vector<std::pair<std::vector<std::vector<size_t>>, size_t>> result;
+	std::map<std::tuple<size_t, size_t, std::string>, std::pair<size_t, size_t>> validEditIndices;
+	for (size_t i = 1; i <= distinctEdits.size(); i++)
+	{
+		if (i == distinctEdits.size() || std::get<0>(distinctEdits[i]) > currentClusterLastPos)
+		{
+			if (i-currentClusterStart <= 1)
 			{
-				// not big del
-				if (std::get<2>(t.first).size() < 10)
+				size_t countSNPs = 0;
+				size_t countBigIndels = 0;
+				for (size_t j = currentClusterStart; j < i; j++)
 				{
-					// not big ins
-					continue;
+					if (isSNP(distinctEdits[j])) countSNPs += 1;
+					if (isBigIndel(distinctEdits[j])) countBigIndels += 1;
+				}
+				if (countSNPs >= 1 || countBigIndels >= 1)
+				{
+					result.emplace_back();
+					result.back().first.emplace_back(); // ref allele
+					size_t minPos = std::get<0>(distinctEdits[currentClusterStart]);
+					size_t maxPos = std::get<1>(distinctEdits[currentClusterStart]);
+					for (size_t j = currentClusterStart; j < i; j++)
+					{
+						result.back().first.emplace_back();
+						validEditIndices[distinctEdits[j]] = std::make_pair(result.size()-1, result.back().first.size()-1);
+						minPos = std::min(minPos, std::get<0>(distinctEdits[j]));
+						maxPos = std::max(maxPos, std::get<1>(distinctEdits[j]));
+					}
+					assert(result.back().first.size() >= 2);
+					result.back().second = (minPos+maxPos)/2;
 				}
 			}
+			currentClusterStart = i;
 		}
-		if (editsInConflict.count(t.first) == 1) continue;
-		if (t.second < minCoverage) continue;
-		if (t.second + minCoverage > loops.size()) continue;
-		if (validEditIndices.count(t.first) == 1) continue;
-		validEditIndices[t.first] = result.size();
-		result.emplace_back();
-		result.back().second = (std::get<0>(t.first) + std::get<1>(t.first)) / 2;
-		result.back().first.resize(2);
+		if (i != distinctEdits.size()) currentClusterLastPos = std::max(currentClusterLastPos, std::get<1>(distinctEdits[i]));
 	}
 	for (size_t i = 0; i < editsPerRead.size(); i++)
 	{
 		for (const auto& t : editsPerRead[i])
 		{
 			if (validEditIndices.count(t) == 0) continue;
-			result[validEditIndices.at(t)].first[1].emplace_back(i);
+			auto index = validEditIndices.at(t);
+			result[index.first].first[index.second].emplace_back(i);
 		}
 	}
-	for (size_t i = 0; i < result.size(); i++)
+	for (size_t i = result.size()-1; i < result.size(); i--)
 	{
+		bool hasMultipleAllelesFromSameRead = false;
 		std::vector<bool> hasAlt;
-		hasAlt.resize(loops.size(), false);
-		for (size_t j : result[i].first[1])
+		hasAlt.resize(editsPerRead.size(), false);
+		for (size_t allele = 1; allele < result[i].first.size(); allele++)
 		{
-			hasAlt[j] = true;
+			for (size_t j : result[i].first[allele])
+			{
+				if (hasAlt[j])
+				{
+					hasMultipleAllelesFromSameRead = true;
+					break;
+				}
+				hasAlt[j] = true;
+			}
+			if (hasMultipleAllelesFromSameRead) break;
+		}
+		if (hasMultipleAllelesFromSameRead)
+		{
+			std::swap(result[i], result.back());
+			result.pop_back();
+			continue;
 		}
 		for (size_t j = 0; j < hasAlt.size(); j++)
 		{
@@ -5633,48 +5701,7 @@ std::vector<std::vector<size_t>> trySplitTwoSites(const std::vector<std::pair<st
 	}
 	return result;
 }
-/*
-std::vector<std::vector<size_t>> trySplitTwoSites(const std::vector<std::pair<std::vector<std::vector<size_t>>, size_t>>& phasableVariantInfo)
-{
-	const size_t minDistance = 100;
-	const size_t minCoverage = 3;
-	for (size_t i = 0; i < phasableVariantInfo.size(); i++)
-	{
-		if (phasableVariantInfo[i].first.size() != 2) continue;
-		if (phasableVariantInfo[i].first[0].size() < minCoverage) continue;
-		if (phasableVariantInfo[i].first[1].size() < minCoverage) continue;
-		for (size_t j = i+1; j < phasableVariantInfo.size(); j++)
-		{
-			if (phasableVariantInfo[j].first.size() != 2) continue;
-			if (phasableVariantInfo[j].first[0].size() < minCoverage) continue;
-			if (phasableVariantInfo[j].first[1].size() < minCoverage) continue;
-			assert(phasableVariantInfo[i].second < phasableVariantInfo[j].second);
-			if (phasableVariantInfo[j].second < phasableVariantInfo[i].second + minDistance) continue;
-			if (vectorsMatch(phasableVariantInfo[i].first[0], phasableVariantInfo[j].first[0]))
-			{
-				std::cerr << "split two sites " << phasableVariantInfo[i].second << " " << phasableVariantInfo[j].second << " same" << std::endl;
-				assert(vectorsMatch(phasableVariantInfo[i].first[1], phasableVariantInfo[j].first[1]));
-				std::vector<std::vector<size_t>> result;
-				result.resize(2);
-				for (size_t k : phasableVariantInfo[i].first[0]) result[0].emplace_back(k);
-				for (size_t k : phasableVariantInfo[i].first[1]) result[1].emplace_back(k);
-				return result;
-			}
-			if (vectorsMatch(phasableVariantInfo[i].first[0], phasableVariantInfo[j].first[1]))
-			{
-				std::cerr << "split two sites " << phasableVariantInfo[i].second << " " << phasableVariantInfo[j].second << " different" << std::endl;
-				assert(vectorsMatch(phasableVariantInfo[i].first[1], phasableVariantInfo[j].first[0]));
-				std::vector<std::vector<size_t>> result;
-				result.resize(2);
-				for (size_t k : phasableVariantInfo[i].first[0]) result[0].emplace_back(k);
-				for (size_t k : phasableVariantInfo[i].first[1]) result[1].emplace_back(k);
-				return result;
-			}
-		}
-	}
-	return std::vector<std::vector<size_t>> {};
-}
-*/
+
 std::vector<std::vector<size_t>> trySplitThreeSites(const std::vector<std::pair<std::vector<std::vector<size_t>>, size_t>>& phasableVariantInfo)
 {
 	const size_t minDistance = 100;
@@ -5764,10 +5791,15 @@ std::vector<std::vector<size_t>> trySplitThreeSites(const std::vector<std::pair<
 	return std::vector<std::vector<size_t>> {};
 }
 
-void splitAndAddRecursively(std::vector<std::vector<OntLoop>>& result, const std::vector<OntLoop>& previous, const std::vector<std::pair<std::vector<std::vector<size_t>>, size_t>>& phasableVariantInfo)
+void splitAndAddRecursively(std::vector<std::vector<size_t>>& result, const std::vector<OntLoop>& previous, const std::vector<std::pair<std::vector<std::vector<size_t>>, size_t>>& phasableVariantInfo, const std::vector<size_t>& indicesHere)
 {
 	std::cerr << "recurse phase of cluster with size " << previous.size() << std::endl;
+	std::cerr << "count sites " << phasableVariantInfo.size() << std::endl;
+	std::cerr << "try split two sites" << std::endl;
+	auto startTime = getTime();
 	std::vector<std::vector<size_t>> splitted = trySplitTwoSites(phasableVariantInfo, previous.size());
+	auto endTime = getTime();
+	std::cerr << "two sites took " << formatTime(startTime, endTime) << std::endl;
 	if (splitted.size() >= 2)
 	{
 		std::cerr << "two sites splitted to clusters of sizes";
@@ -5781,12 +5813,17 @@ void splitAndAddRecursively(std::vector<std::vector<OntLoop>>& result, const std
 		std::tie(splittedLoops, splittedPhasableVariantInfo) = splitLoopsAndPhaseInfoToClusters(previous, phasableVariantInfo, splitted);
 		for (size_t i = 0; i < splitted.size(); i++)
 		{
-//			result.emplace_back(splittedLoops[i]);
-			splitAndAddRecursively(result, splittedLoops[i], splittedPhasableVariantInfo[i]);
+			std::vector<size_t> splittedIndices;
+			for (size_t j : splitted[i]) splittedIndices.emplace_back(indicesHere[j]);
+			splitAndAddRecursively(result, splittedLoops[i], splittedPhasableVariantInfo[i], splittedIndices);
 		}
 		return;
 	}
+/*	std::cerr << "try split three sites" << std::endl;
+	startTime = getTime();
 	splitted = trySplitThreeSites(phasableVariantInfo);
+	endTime = getTime();
+	std::cerr << "three sites took " << formatTime(startTime, endTime) << std::endl;
 	if (splitted.size() >= 2)
 	{
 		std::cerr << "three sites splitted to clusters of sizes";
@@ -5800,13 +5837,12 @@ void splitAndAddRecursively(std::vector<std::vector<OntLoop>>& result, const std
 		std::tie(splittedLoops, splittedPhasableVariantInfo) = splitLoopsAndPhaseInfoToClusters(previous, phasableVariantInfo, splitted);
 		for (size_t i = 0; i < splitted.size(); i++)
 		{
-//			result.emplace_back(splittedLoops[i]);
 			splitAndAddRecursively(result, splittedLoops[i], splittedPhasableVariantInfo[i]);
 		}
 		return;
-	}
+	}*/
 	std::cerr << "add cluster of size " << previous.size() << std::endl;
-	result.emplace_back(previous);
+	result.emplace_back(indicesHere);
 }
 
 template <typename F>
@@ -6207,16 +6243,463 @@ std::vector<std::vector<OntLoop>> splitClustersByLength(const std::vector<std::v
 	return result;
 }
 
+bool vectorsSomewhatMatch(const std::vector<size_t>& leftVec, const std::vector<size_t>& rightVec, const size_t maxMismatches)
+{
+	size_t mismatches = 0;
+	size_t leftIndex = 0;
+	size_t rightIndex = 0;
+	while (leftIndex < leftVec.size() || rightIndex < rightVec.size())
+	{
+		if (mismatches > maxMismatches) return false;
+		if (leftIndex == leftVec.size())
+		{
+			mismatches += 1;
+			rightIndex += 1;
+			continue;
+		}
+		if (rightIndex == rightVec.size())
+		{
+			mismatches += 1;
+			leftIndex += 1;
+			continue;
+		}
+		if (leftVec[leftIndex] == rightVec[rightIndex])
+		{
+			leftIndex += 1;
+			rightIndex += 1;
+			continue;
+		}
+		if (leftVec[leftIndex] < rightVec[rightIndex])
+		{
+			leftIndex += 1;
+			mismatches += 1;
+			continue;
+		}
+		else
+		{
+			assert(leftVec[leftIndex] > rightVec[rightIndex]);
+			rightIndex += 1;
+			mismatches += 1;
+		}
+	}
+	if (mismatches > maxMismatches) return false;
+	return true;
+}
+
+bool vectorsSomewhatMatchOppositely(const std::vector<size_t>& leftVec, const std::vector<size_t>& rightVec, const size_t countReads, const size_t maxMismatches)
+{
+	size_t mismatches = 0;
+	size_t leftIndex = 0;
+	size_t rightIndex = 0;
+	while (leftIndex < leftVec.size() || rightIndex < rightVec.size())
+	{
+		if (mismatches > maxMismatches) return false;
+		if (leftIndex == leftVec.size())
+		{
+			rightIndex += 1;
+			continue;
+		}
+		if (rightIndex == rightVec.size())
+		{
+			leftIndex += 1;
+			continue;
+		}
+		if (leftVec[leftIndex] == rightVec[rightIndex])
+		{
+			mismatches += 1;
+			leftIndex += 1;
+			rightIndex += 1;
+			continue;
+		}
+		if (leftVec[leftIndex] < rightVec[rightIndex])
+		{
+			leftIndex += 1;
+			continue;
+		}
+		else
+		{
+			assert(leftVec[leftIndex] > rightVec[rightIndex]);
+			rightIndex += 1;
+		}
+	}
+	if (mismatches > maxMismatches) return false;
+	return true;
+}
+
+template <typename T>
+T find(std::map<T, T>& parent, const T& key)
+{
+	while (parent.at(key) != parent.at(parent.at(key)))
+	{
+		parent[key] = parent.at(parent.at(key));
+	}
+	return parent.at(key);
+}
+
+template <typename T>
+void merge(std::map<T, T>& parent, const T& left, const T& right)
+{
+	auto leftp = find(parent, left);
+	auto rightp = find(parent, right);
+	parent[rightp] = leftp;
+}
+
+std::vector<std::vector<size_t>> phaseApproxEdits(const std::vector<std::vector<std::tuple<size_t, size_t, std::string>>>& edits)
+{
+	const size_t maxMismatchingReads = 3;
+	std::map<std::tuple<size_t, size_t, std::string>, size_t> editIndex;
+	std::vector<size_t> editPos;
+	std::vector<std::vector<size_t>> readsWithEdit;
+	std::vector<size_t> editOrder;
+	std::vector<std::tuple<size_t, size_t, std::string>> editSequences;
+	for (size_t i = 0; i < edits.size(); i++)
+	{
+		for (auto t : edits[i])
+		{
+			if (editIndex.count(t) == 0)
+			{
+				editIndex[t] = readsWithEdit.size();
+				readsWithEdit.emplace_back();
+				editPos.emplace_back((std::get<0>(t) + std::get<1>(t)) / 2);
+				editSequences.emplace_back(t);
+			}
+			readsWithEdit[editIndex.at(t)].emplace_back(i);
+		}
+	}
+	for (size_t i = readsWithEdit.size()-1; i < readsWithEdit.size(); i--)
+	{
+		if (readsWithEdit[i].size() < 3 || readsWithEdit[i].size()+3 >= edits.size())
+		{
+			std::swap(readsWithEdit[i], readsWithEdit.back());
+			readsWithEdit.pop_back();
+			std::swap(editPos[i], editPos.back());
+			editPos.pop_back();
+			std::swap(editSequences[i], editSequences.back());
+			editSequences.pop_back();
+			continue;
+		}
+		std::cerr << "edit at " << editPos[i] << " with " << readsWithEdit[i].size() << " reads: " << std::get<0>(editSequences[i]) << " " << std::get<1>(editSequences[i]) << " \"" << std::get<2>(editSequences[i]) << "\"" << std::endl;
+		readsWithEdit.emplace_back();
+		editPos.emplace_back(editPos[i]);
+		std::vector<bool> hasEdit;
+		hasEdit.resize(edits.size(), false);
+		for (size_t j : readsWithEdit[i]) hasEdit[j] = true;
+		for (size_t j = 0; j < edits.size(); j++)
+		{
+			if (hasEdit[j]) continue;
+			readsWithEdit.back().emplace_back(j);
+		}
+	}
+	for (size_t i = 0; i < readsWithEdit.size(); i++)
+	{
+		std::sort(readsWithEdit[i].begin(), readsWithEdit[i].end());
+	}
+	for (size_t i = 0; i < readsWithEdit.size(); i++)
+	{
+		editOrder.emplace_back(i);
+	}
+	std::sort(editOrder.begin(), editOrder.end(), [&readsWithEdit](size_t leftIndex, size_t rightIndex) { return readsWithEdit[leftIndex].size() < readsWithEdit[rightIndex].size(); });
+	std::vector<std::vector<size_t>> phasesPerRead;
+	phasesPerRead.resize(edits.size());
+	for (size_t i = 0; i < editOrder.size(); i++)
+	{
+		std::vector<size_t> matchIndices;
+		for (size_t j = i+1; j < editOrder.size(); j++)
+		{
+			if (readsWithEdit[editOrder[j]].size() > readsWithEdit[editOrder[i]].size() + maxMismatchingReads) break;
+			std::cerr << "check match " << editPos[editOrder[i]] << " to " << editPos[editOrder[j]] << std::endl;
+			if (vectorsSomewhatMatch(readsWithEdit[editOrder[i]], readsWithEdit[editOrder[j]], maxMismatchingReads))
+			{
+				std::cerr << "match edit at " << editPos[editOrder[i]] << " to " << editPos[editOrder[j]] << std::endl;
+				matchIndices.emplace_back(j);
+			}
+		}
+		for (size_t j = matchIndices.size()-1; j < matchIndices.size(); j--)
+		{
+			std::cerr << "match " << editPos[editOrder[i]] << " to " << editPos[editOrder[matchIndices[j]]] << std::endl;
+			if (editPos[editOrder[matchIndices[j]]]+100 < editPos[editOrder[i]]) continue;
+			if (editPos[editOrder[matchIndices[j]]] > editPos[editOrder[i]]+100) continue;
+			std::swap(matchIndices[j], matchIndices.back());
+			matchIndices.pop_back();
+		}
+		if (matchIndices.size() < 2) continue;
+		std::vector<std::vector<size_t>> allelesPerRead;
+		allelesPerRead.resize(edits.size());
+		for (size_t j = 0; j < edits.size(); j++)
+		{
+			allelesPerRead[j].resize(matchIndices.size()+1);
+		}
+		for (size_t j = 0; j < matchIndices.size(); j++)
+		{
+			for (size_t read : readsWithEdit[editOrder[matchIndices[j]]])
+			{
+				assert(allelesPerRead[read][j+1] == 0);
+				allelesPerRead[read][j+1] = 1;
+			}
+		}
+		for (size_t read : readsWithEdit[editOrder[i]])
+		{
+			assert(allelesPerRead[read][0] == 0);
+			allelesPerRead[read][0] = 1;
+		}
+		std::set<std::vector<size_t>> alleles;
+		std::map<std::vector<size_t>, std::vector<size_t>> parent;
+		for (size_t j = 0; j < allelesPerRead.size(); j++)
+		{
+			parent[allelesPerRead[j]] = allelesPerRead[j];
+			alleles.emplace(allelesPerRead[j]);
+		}
+		for (const auto& t1 : alleles)
+		{
+			for (const auto& t2 : alleles)
+			{
+				if (t2 == t1) continue;
+				size_t mismatches = 0;
+				for (size_t j = 0; j < t1.size(); j++)
+				{
+					if (t1[j] != t2[j]) mismatches += 1;
+				}
+				assert(mismatches >= 1);
+				if (mismatches == 1) merge(parent, t1, t2);
+			}
+		}
+		std::map<std::vector<size_t>, size_t> clusterToIndex;
+		for (const auto& t : parent)
+		{
+			if (t.first != t.second) continue;
+			size_t index = clusterToIndex.size();
+			clusterToIndex[t.first] = index;
+		}
+		if (clusterToIndex.size() != 2) continue;
+		for (size_t j = 0; j < allelesPerRead.size(); j++)
+		{
+			size_t index = clusterToIndex.at(find(parent, allelesPerRead[j]));
+			assert(index == 0 || index == 1);
+			phasesPerRead[j].emplace_back(index);
+		}
+	}
+	if (phasesPerRead[0].size() == 0)
+	{
+		std::vector<std::vector<size_t>> result;
+		result.emplace_back();
+		for (size_t i = 0; i < edits.size(); i++)
+		{
+			result.back().emplace_back(i);
+		}
+		return result;
+	}
+	std::map<std::vector<size_t>, size_t> phasesToCluster;
+	std::vector<std::vector<size_t>> result;
+	for (size_t i = 0; i < phasesPerRead.size(); i++)
+	{
+		if (phasesToCluster.count(phasesPerRead[i]) == 0)
+		{
+			phasesToCluster[phasesPerRead[i]] = result.size();
+			result.emplace_back();
+		}
+		result[phasesToCluster.at(phasesPerRead[i])].emplace_back(i);
+	}
+	assert(result.size() >= 2);
+	return result;
+}
+
+std::vector<std::vector<size_t>> splitByBigIndels(const std::vector<std::vector<std::tuple<size_t, size_t, std::string>>>& editsPerRead)
+{
+	const size_t minLengthClusterCoverage = 10;
+	if (editsPerRead.size() <= 10)
+	{
+		std::vector<std::vector<size_t>> result;
+		result.emplace_back();
+		for (size_t i = 0; i < editsPerRead.size(); i++)
+		{
+			result.back().emplace_back(i);
+		}
+		return result;
+	}
+	std::set<std::pair<size_t, size_t>> closeToIndelSpans;
+	for (size_t i = 0; i < editsPerRead.size(); i++)
+	{
+		for (auto t : editsPerRead[i])
+		{
+			if (isSNP(t)) continue;
+			if (std::get<1>(t)-std::get<0>(t) == std::get<2>(t).size()) continue;
+			closeToIndelSpans.emplace(std::get<0>(t), std::get<1>(t));
+		}
+	}
+	std::vector<std::pair<size_t, size_t>> closeToIndelSpansVec { closeToIndelSpans.begin(), closeToIndelSpans.end() };
+	std::sort(closeToIndelSpansVec.begin(), closeToIndelSpansVec.end());
+	std::vector<std::pair<size_t, size_t>> nonIndelSpans;
+	size_t currentIndelSpanEnd = 0;
+	for (auto pair : closeToIndelSpansVec)
+	{
+		if (pair.first > currentIndelSpanEnd + 10)
+		{
+			nonIndelSpans.emplace_back(currentIndelSpanEnd, pair.first);
+			std::cerr << "non-indel span " << nonIndelSpans.back().first << " " << nonIndelSpans.back().second << std::endl;
+		}
+		currentIndelSpanEnd = std::max(currentIndelSpanEnd, pair.second);
+	}
+	nonIndelSpans.emplace_back(currentIndelSpanEnd, currentIndelSpanEnd+2);
+	assert(nonIndelSpans.size() >= 1);
+	std::vector<size_t> indelSpanSeparators;
+	for (size_t i = 1; i < nonIndelSpans.size(); i++)
+	{
+		indelSpanSeparators.emplace_back((nonIndelSpans[i].first + nonIndelSpans[i].second)/2);
+		std::cerr << "indel span separator " << indelSpanSeparators.back() << std::endl;
+	}
+	std::vector<std::vector<int>> indelLengthSums;
+	indelLengthSums.resize(editsPerRead.size());
+	for (size_t i = 0; i < editsPerRead.size(); i++)
+	{
+		indelLengthSums[i].resize(indelSpanSeparators.size(), 0);
+		for (auto t : editsPerRead[i])
+		{
+			if (isSNP(t)) continue;
+			if (std::get<1>(t)-std::get<0>(t) == std::get<2>(t).size()) continue;
+			size_t index = std::upper_bound(indelSpanSeparators.begin(), indelSpanSeparators.end(), std::get<0>(t)) - indelSpanSeparators.begin();
+			assert(index < indelLengthSums[i].size());
+			indelLengthSums[i][index] += std::get<2>(t).size();
+			indelLengthSums[i][index] -= std::get<1>(t);
+			indelLengthSums[i][index] += std::get<0>(t);
+		}
+	}
+	std::vector<std::vector<size_t>> indelAllelesPerRead;
+	indelAllelesPerRead.resize(editsPerRead.size());
+	for (size_t j = 0; j < indelSpanSeparators.size(); j++)
+	{
+		std::vector<int> indelsPerReads;
+		for (size_t i = 0; i < editsPerRead.size(); i++)
+		{
+			indelsPerReads.emplace_back(indelLengthSums[i][j]);
+		}
+		std::sort(indelsPerReads.begin(), indelsPerReads.end());
+		assert(j+1 < nonIndelSpans.size());
+		assert(nonIndelSpans[j+1].first >= nonIndelSpans[j].second);
+		std::vector<int> separators;
+		int requiredLengthDifference = std::max<int>(15, (nonIndelSpans[j+1].first - nonIndelSpans[j].second) * 0.05);
+		std::cerr << "span " << indelSpanSeparators[j] << " min " << indelsPerReads[0] << " max " << indelsPerReads.back() << " required length difference " << requiredLengthDifference << std::endl;
+		if (indelsPerReads.back() - indelsPerReads[0] < requiredLengthDifference) continue;
+		bool hasSmallSeparator = false;
+		for (size_t i = 1; i < indelsPerReads.size(); i++)
+		{
+			if (indelsPerReads[i] < indelsPerReads[i-1] + requiredLengthDifference) continue;
+			size_t lastSeparatorIndex = 0;
+			if (separators.size() > 0) lastSeparatorIndex = separators.back();
+			separators.emplace_back((indelsPerReads[i] + indelsPerReads[i-1]) / 2);
+			if (i - lastSeparatorIndex < minLengthClusterCoverage || i+minLengthClusterCoverage > indelsPerReads.size())
+			{
+				std::cerr << "small separator before span " << indelSpanSeparators[j] << " length " << separators.back() << " break" << std::endl;
+				hasSmallSeparator = true;
+				break;
+			}
+			for (size_t j = lastSeparatorIndex+1; j < i; j++)
+			{
+				if (indelsPerReads[j] > indelsPerReads[j-1]+10)
+				{
+					hasSmallSeparator = true;
+					break;
+				}
+			}
+			if (hasSmallSeparator) break;
+			std::cerr << "separator before span " << indelSpanSeparators[j] << " length " << separators.back() << std::endl;
+		}
+		if (hasSmallSeparator) continue;
+		if (separators.size() == 0) continue;
+		for (size_t i = 0; i < editsPerRead.size(); i++)
+		{
+			size_t allele = std::upper_bound(separators.begin(), separators.end(), indelLengthSums[i][j]) - separators.begin();
+			assert(allele <= separators.size());
+			indelAllelesPerRead[i].emplace_back(allele);
+		}
+	}
+	std::cerr << "indel sites " << indelAllelesPerRead[0].size() << std::endl;
+	std::map<std::vector<size_t>, size_t> allelesToCluster;
+	std::vector<std::vector<size_t>> result;
+	for (size_t i = 0; i < indelAllelesPerRead.size(); i++)
+	{
+		if (allelesToCluster.count(indelAllelesPerRead[i]) == 0)
+		{
+			allelesToCluster[indelAllelesPerRead[i]] = result.size();
+			result.emplace_back();
+		}
+		result[allelesToCluster.at(indelAllelesPerRead[i])].emplace_back(i);
+	}
+	return result;
+}
+
+void callVariantsAndSplitRecursively(std::vector<std::vector<OntLoop>>& result, const std::vector<OntLoop>& cluster, const std::vector<std::pair<std::string, std::string>>& rawLoops, const GfaGraph& graph, const std::unordered_map<Node, size_t>& pathStartClip, const std::unordered_map<Node, size_t>& pathEndClip, const size_t numThreads)
+{
+	if (cluster.size() <= 5)
+	{
+		std::cerr << "skip small cluster with size " << cluster.size() << std::endl;
+		result.emplace_back(cluster);
+		return;
+	}
+	std::cerr << "begin phasing cluster with size " << cluster.size() << std::endl;
+	auto startTime = getTime();
+	auto edits = getEditsForPhasing(cluster, rawLoops, graph, pathStartClip, pathEndClip, numThreads);
+	auto phasableVariantInfo = getPhasableVariantInfoBiallelicAltRefSNPsBigIndels(edits);
+	auto endTime = getTime();
+	std::cerr << "getting variants took " << formatTime(startTime, endTime) << std::endl;
+	std::cerr << "got variant info of cluster with size " << cluster.size() << std::endl;
+	std::vector<std::vector<size_t>> resultHere;
+	std::vector<size_t> allIndices;
+	for (size_t i = 0; i < cluster.size(); i++) allIndices.emplace_back(i);
+	splitAndAddRecursively(resultHere, cluster, phasableVariantInfo, allIndices);
+	assert(resultHere.size() >= 1);
+	if (resultHere.size() == 1)
+	{
+		std::cerr << "split by big indels size " << cluster.size() << std::endl;
+		resultHere = splitByBigIndels(edits);
+		std::cerr << "big indels splitted to " << resultHere.size() << " clusters:";
+		for (size_t i = 0; i < resultHere.size(); i++)
+		{
+			std::cerr << " " << resultHere[i].size();
+		}
+		std::cerr << std::endl;
+	}
+/*	if (resultHere.size() == 1)
+	{
+		std::cerr << "phase approx edits size " << cluster.size() << std::endl;
+		resultHere = phaseApproxEdits(edits);
+		std::cerr << "approx edits resulted in " << resultHere.size() << " clusters:";
+		for (size_t i = 0; i < resultHere.size(); i++)
+		{
+			std::cerr << " " << resultHere[i].size();
+		}
+		std::cerr << std::endl;
+	}*/
+	if (resultHere.size() == 1)
+	{
+		result.emplace_back(cluster);
+		return;
+	}
+	for (size_t i = 0; i < resultHere.size(); i++)
+	{
+		std::vector<OntLoop> filteredClusters;
+		std::vector<std::pair<std::string, std::string>> filteredRawLoops;
+		for (size_t j : resultHere[i])
+		{
+			filteredClusters.emplace_back(cluster[j]);
+			filteredRawLoops.emplace_back(rawLoops[j]);
+		}
+		callVariantsAndSplitRecursively(result, filteredClusters, filteredRawLoops, graph, pathStartClip, pathEndClip, numThreads);
+	}
+}
+
 std::vector<std::vector<OntLoop>> editSplitClusters(const std::vector<std::vector<OntLoop>>& clusters, const GfaGraph& graph, const std::unordered_map<Node, size_t>& pathStartClip, const std::unordered_map<Node, size_t>& pathEndClip, const std::string ontReadPath, const size_t numThreads)
 {
 	auto rawLoops = getRawOntLoops(clusters, ontReadPath);
 	std::vector<std::vector<OntLoop>> result;
 	for (size_t i = 0; i < clusters.size(); i++)
 	{
-		std::cerr << "begin phasing cluster with size " << clusters[i].size() << std::endl;
-		auto phasableVariantInfo = getPhasableVariantInfoBiallelicAltRefSNPsBigIndels(clusters[i], rawLoops[i], graph, pathStartClip, pathEndClip, numThreads);
-		std::cerr << "got variant info of cluster with size " << clusters[i].size() << std::endl;
-		splitAndAddRecursively(result, clusters[i], phasableVariantInfo);
+		if (clusters[i].size() <= 5)
+		{
+			std::cerr << "skip low coverage cluster with size " << clusters[i].size() << std::endl;
+			result.emplace_back(clusters[i]);
+			continue;
+		}
+		callVariantsAndSplitRecursively(result, clusters[i], rawLoops[i], graph, pathStartClip, pathEndClip, numThreads);
 	}
 	return result;
 }
@@ -6288,6 +6771,8 @@ void DoClusterONTAnalysis(const ClusterParams& params)
 	writeMorphConsensuses(params.basePath + "/morphs.fa", params.basePath + "/morphs_preconsensus.fa", morphConsensuses);
 	std::cerr << "write morph paths" << std::endl;
 	writeMorphPaths(params.basePath + "/morphs.gaf", morphConsensuses, graph, pathStartClip, pathEndClip);
+	std::cerr << "write morph graph and read paths" << std::endl;
+	writeMorphGraphAndReadPaths(params.basePath + "/morphgraph.gfa", params.basePath + "/readpaths-morphgraph.gaf", morphConsensuses);
 	std::cerr << "write raw ONT loop sequences" << std::endl;
 	writeRawOntLoopSequences(params.basePath + "/raw_loops.fa", ontLoopSequences);
 	if (params.winnowmapPath != "" && params.samtoolsPath != "")
@@ -6307,8 +6792,6 @@ void DoClusterONTAnalysis(const ClusterParams& params)
 		}
 		std::cerr << "skipping alignment of raw ONT loop sequences to morph consensuses" << std::endl;
 	}
-	std::cerr << "write morph graph and read paths" << std::endl;
-	writeMorphGraphAndReadPaths(params.basePath + "/morphgraph.gfa", params.basePath + "/readpaths-morphgraph.gaf", morphConsensuses);
 	if (params.annotationFasta.size() > 0)
 	{
 		std::cerr << "lifting over annotations to morphs" << std::endl;
