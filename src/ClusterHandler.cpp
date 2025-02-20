@@ -5730,60 +5730,113 @@ std::vector<std::vector<size_t>> trySplitThreeSites(const std::vector<std::pair<
 			assert(allelesPerRead[i][j] != std::numeric_limits<size_t>::max());
 		}
 	}
-	for (size_t i = 0; i < phasableVariantInfo.size(); i++)
+	for (size_t blocki = 0; blocki*10 < (phasableVariantInfo.size()+9)/10; blocki++)
 	{
-		for (size_t j = i+1; j < phasableVariantInfo.size(); j++)
+		for (size_t blockj = blocki; blockj*10 < (phasableVariantInfo.size()+9)/10; blockj++)
 		{
-			if (phasableVariantInfo[j].second < phasableVariantInfo[i].second + minDistance) continue;
-			for (size_t k = j+1; k < phasableVariantInfo.size(); k++)
+			for (size_t blockk = blockj; blockk*10 < (phasableVariantInfo.size()+9)/10; blockk++)
 			{
-				if (phasableVariantInfo[k].second < phasableVariantInfo[j].second + minDistance) continue;
-				std::set<std::tuple<size_t, size_t, size_t>> alleles;
-				for (size_t m = 0; m < allelesPerRead.size(); m++)
+				std::set<std::vector<size_t>> distinctBlocks;
+				for (size_t i = 0; i < allelesPerRead.size(); i++)
 				{
-					alleles.emplace(allelesPerRead[m][i], allelesPerRead[m][j], allelesPerRead[m][k]);
-				}
-				std::map<std::tuple<size_t, size_t, size_t>, std::tuple<size_t, size_t, size_t>> parent;
-				for (auto t : alleles)
-				{
-					if (parent.count(t) == 0) parent[t] = t;
-					for (auto t2 : alleles)
+					std::vector<size_t> thisBlock;
+					for (size_t j = 0; j < 10; j++)
 					{
-						if (t == t2) continue;
-						size_t matches = 0;
-						if (std::get<0>(t) == std::get<0>(t2)) matches += 1;
-						if (std::get<1>(t) == std::get<1>(t2)) matches += 1;
-						if (std::get<2>(t) == std::get<2>(t2)) matches += 1;
-						if (matches < 2) continue;
-						while (parent[parent[t]] != parent[t]) parent[t] = parent[parent[t]];
-						while (parent[parent[t2]] != parent[t2]) parent[t2] = parent[parent[t2]];
-						parent[parent[t2]] = parent[t];
+						if (blocki*10+j < phasableVariantInfo.size())
+						{
+							thisBlock.emplace_back(allelesPerRead[i][blocki*10+j]);
+						}
+						else
+						{
+							thisBlock.emplace_back(std::numeric_limits<size_t>::max());
+						}
 					}
+					for (size_t j = 0; j < 10; j++)
+					{
+						if (blockj*10+j < phasableVariantInfo.size())
+						{
+							thisBlock.emplace_back(allelesPerRead[i][blockj*10+j]);
+						}
+						else
+						{
+							thisBlock.emplace_back(std::numeric_limits<size_t>::max());
+						}
+					}
+					for (size_t j = 0; j < 10; j++)
+					{
+						if (blockk*10+j < phasableVariantInfo.size())
+						{
+							thisBlock.emplace_back(allelesPerRead[i][blockk*10+j]);
+						}
+						else
+						{
+							thisBlock.emplace_back(std::numeric_limits<size_t>::max());
+						}
+					}
+					assert(thisBlock.size() == 30);
+					distinctBlocks.emplace(thisBlock);
 				}
-				std::map<std::tuple<size_t, size_t, size_t>, size_t> newClusters;
-				for (auto t : alleles)
+				for (size_t offi = 0; offi < 10 && blocki*10+offi < phasableVariantInfo.size(); offi++)
 				{
-					while (parent[parent[t]] != parent[t]) parent[t] = parent[parent[t]];
-					if (newClusters.count(parent[t]) == 1) continue;
-					size_t cluster = newClusters.size();
-					newClusters[parent[t]] = cluster;
-				}
-				if (newClusters.size() < 2) continue;
-				std::vector<std::vector<size_t>> result;
-				result.resize(newClusters.size());
-				for (size_t m = 0; m < allelesPerRead.size(); m++)
-				{
-					result[newClusters.at(parent.at(std::make_tuple(allelesPerRead[m][i], allelesPerRead[m][j], allelesPerRead[m][k])))].emplace_back(m);
-				}
-				bool allClustersCovered = true;
-				for (size_t m = 0; m < result.size(); m++)
-				{
-					if (result[m].size() < minCoverage) allClustersCovered = false;
-				}
-				if (allClustersCovered)
-				{
-					std::cerr << "split three sites " << phasableVariantInfo[i].second << " " << phasableVariantInfo[j].second << " " << phasableVariantInfo[k].second << std::endl;
-					return result;
+					for (size_t offj = (blocki == blockj ? offi+1 : 0); offj < 10 && blockj*10+offj < phasableVariantInfo.size(); offj++)
+					{
+						for (size_t offk = (blockj == blockk ? offj+1 : 0); offk < 10 && blockk*10+offk < phasableVariantInfo.size(); offk++)
+						{
+							std::set<std::tuple<size_t, size_t, size_t>> alleles;
+							for (const auto& block : distinctBlocks)
+							{
+								alleles.emplace(block[offi], block[10+offj], block[20+offk]);
+							}
+							std::map<std::tuple<size_t, size_t, size_t>, std::tuple<size_t, size_t, size_t>> parent;
+							for (auto t : alleles)
+							{
+								if (parent.count(t) == 0) parent[t] = t;
+								for (auto t2 : alleles)
+								{
+									if (t == t2) continue;
+									size_t matches = 0;
+									if (std::get<0>(t) == std::get<0>(t2)) matches += 1;
+									if (std::get<1>(t) == std::get<1>(t2)) matches += 1;
+									if (std::get<2>(t) == std::get<2>(t2)) matches += 1;
+									if (matches < 2) continue;
+									while (parent[parent[t]] != parent[t]) parent[t] = parent[parent[t]];
+									while (parent[parent[t2]] != parent[t2]) parent[t2] = parent[parent[t2]];
+									parent[parent[t2]] = parent[t];
+								}
+							}
+							std::map<std::tuple<size_t, size_t, size_t>, size_t> newClusters;
+							for (auto t : alleles)
+							{
+								while (parent[parent[t]] != parent[t]) parent[t] = parent[parent[t]];
+								if (newClusters.count(parent[t]) == 1) continue;
+								size_t cluster = newClusters.size();
+								newClusters[parent[t]] = cluster;
+							}
+							if (newClusters.size() < 2) continue;
+							size_t i = blocki*10+offi;
+							size_t j = blockj*10+offj;
+							size_t k = blockk*10+offk;
+							assert(i < phasableVariantInfo.size());
+							assert(j < phasableVariantInfo.size());
+							assert(k < phasableVariantInfo.size());
+							std::vector<std::vector<size_t>> result;
+							result.resize(newClusters.size());
+							for (size_t m = 0; m < allelesPerRead.size(); m++)
+							{
+								result[newClusters.at(parent.at(std::make_tuple(allelesPerRead[m][i], allelesPerRead[m][j], allelesPerRead[m][k])))].emplace_back(m);
+							}
+							bool allClustersCovered = true;
+							for (size_t m = 0; m < result.size(); m++)
+							{
+								if (result[m].size() < minCoverage) allClustersCovered = false;
+							}
+							if (allClustersCovered)
+							{
+								std::cerr << "split three sites " << phasableVariantInfo[i].second << " " << phasableVariantInfo[j].second << " " << phasableVariantInfo[k].second << std::endl;
+								return result;
+							}
+						}
+					}
 				}
 			}
 		}
@@ -5819,7 +5872,7 @@ void splitAndAddRecursively(std::vector<std::vector<size_t>>& result, const std:
 		}
 		return;
 	}
-/*	std::cerr << "try split three sites" << std::endl;
+	std::cerr << "try split three sites" << std::endl;
 	startTime = getTime();
 	splitted = trySplitThreeSites(phasableVariantInfo);
 	endTime = getTime();
@@ -5837,10 +5890,12 @@ void splitAndAddRecursively(std::vector<std::vector<size_t>>& result, const std:
 		std::tie(splittedLoops, splittedPhasableVariantInfo) = splitLoopsAndPhaseInfoToClusters(previous, phasableVariantInfo, splitted);
 		for (size_t i = 0; i < splitted.size(); i++)
 		{
-			splitAndAddRecursively(result, splittedLoops[i], splittedPhasableVariantInfo[i]);
+			std::vector<size_t> splittedIndices;
+			for (size_t j : splitted[i]) splittedIndices.emplace_back(indicesHere[j]);
+			splitAndAddRecursively(result, splittedLoops[i], splittedPhasableVariantInfo[i], splittedIndices);
 		}
 		return;
-	}*/
+	}
 	std::cerr << "add cluster of size " << previous.size() << std::endl;
 	result.emplace_back(indicesHere);
 }
