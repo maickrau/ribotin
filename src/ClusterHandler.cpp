@@ -3753,6 +3753,29 @@ void removeRepeatKmers(std::vector<std::pair<uint64_t, uint64_t>>& matches)
 	std::sort(matches.begin(), matches.end());
 }
 
+void removeRepeatKmersEitherRepeat(std::vector<std::pair<uint64_t, uint64_t>>& matches)
+{
+	phmap::flat_hash_set<size_t> foundOnceFirst;
+	phmap::flat_hash_set<size_t> foundTwiceFirst;
+	phmap::flat_hash_set<size_t> foundOnceSecond;
+	phmap::flat_hash_set<size_t> foundTwiceSecond;
+	for (const auto& pair : matches)
+	{
+		if (foundOnceFirst.count(pair.first) == 1) foundTwiceFirst.emplace(pair.first);
+		foundOnceFirst.emplace(pair.first);
+		if (foundOnceSecond.count(pair.second) == 1) foundTwiceSecond.emplace(pair.second);
+		foundOnceSecond.emplace(pair.second);
+	}
+	if (foundTwiceFirst.size() == 0 && foundTwiceSecond.size() == 0) return;
+	for (size_t i = matches.size()-1; i < matches.size(); i--)
+	{
+		if (foundTwiceFirst.count(matches[i].first) == 0 && foundTwiceSecond.count(matches[i].second) == 0) continue;
+		std::swap(matches[i], matches.back());
+		matches.pop_back();
+	}
+	std::sort(matches.begin(), matches.end());
+}
+
 std::vector<std::pair<size_t, size_t>> getIncreasingChain(const std::vector<std::pair<size_t, size_t>>& kmerMatches)
 {
 	if (kmerMatches.size() == 0) return kmerMatches;
@@ -5123,9 +5146,190 @@ std::vector<std::vector<size_t>> SNPSplitAndAppend(const std::vector<OntLoop>& p
 	return result;
 }
 
-std::vector<std::vector<std::string>> getRawLoopSequences(const std::vector<std::vector<OntLoop>>& clusters, const std::string& rawOntPath)
+phmap::flat_hash_map<uint64_t, size_t> getConsensusKmerPositions(const std::string& consensusSeq, const size_t refiningK)
 {
+	const uint64_t mask = (1ull << (2ull*refiningK))-1;
+	phmap::flat_hash_map<uint64_t, size_t> result;
+	assert(consensusSeq.size() > refiningK);
+	uint64_t kmer = 0;
+	for (size_t i = 0; i < refiningK; i++)
+	{
+		kmer <<= 2;
+		switch(consensusSeq[i])
+		{
+			case 'A':
+				kmer += 0;
+				break;
+			case 'C':
+				kmer += 1;
+				break;
+			case 'G':
+				kmer += 2;
+				break;
+			case 'T':
+				kmer += 3;
+				break;
+			default:
+				assert(false);
+				break;
+		}
+	}
+	result[kmer] = 0;
+	for (size_t i = refiningK; i < consensusSeq.size(); i++)
+	{
+		kmer <<= 2;
+		kmer &= mask;
+		switch(consensusSeq[i])
+		{
+			case 'A':
+				kmer += 0;
+				break;
+			case 'C':
+				kmer += 1;
+				break;
+			case 'G':
+				kmer += 2;
+				break;
+			case 'T':
+				kmer += 3;
+				break;
+			default:
+				assert(false);
+				break;
+		}
+		if (result.count(kmer) == 1)
+		{
+			result[kmer] = std::numeric_limits<size_t>::max();
+		}
+		else
+		{
+			result[kmer] = i-refiningK+1;
+		}
+	}
+	phmap::flat_hash_set<uint64_t> removeThese;
+	for (auto pair : result)
+	{
+		if (pair.second != std::numeric_limits<size_t>::max()) continue;
+		removeThese.emplace(pair.first);
+	}
+	for (uint64_t kmer : removeThese)
+	{
+		assert(result.count(kmer) == 1);
+		result.erase(kmer);
+	}
+	return result;
+}
+
+std::pair<size_t, size_t> refineStartEndPoses(const std::string& readSequence, const std::string& consensusSequence, const phmap::flat_hash_map<uint64_t, size_t>& consensusKmerPositions, const size_t refiningK, const size_t initialStartPos, const size_t initialEndPos)
+{
+	const uint64_t mask = (1ull << (2ull*refiningK)) - 1ull;
+	size_t checkAreaStart = initialStartPos;
+	if (checkAreaStart > 5000)
+	{
+		checkAreaStart -= 5000;
+	}
+	else
+	{
+		checkAreaStart = 0;
+	}
+	size_t checkAreaEnd = std::min(initialEndPos + 5000, readSequence.size());
+	uint64_t kmer = 0;
+	for (size_t i = 0; i < refiningK; i++)
+	{
+		kmer <<= 2;
+		switch(readSequence[checkAreaStart+i])
+		{
+			case 'A':
+				kmer += 0;
+				break;
+			case 'C':
+				kmer += 1;
+				break;
+			case 'G':
+				kmer += 2;
+				break;
+			case 'T':
+				kmer += 3;
+				break;
+			default:
+				assert(false);
+				break;
+		}
+	}
+	std::vector<std::pair<size_t, size_t>> matches;
+	if (consensusKmerPositions.count(kmer) == 1)
+	{
+		matches.emplace_back(checkAreaStart, consensusKmerPositions.at(kmer));
+	}
+	for (size_t i = refiningK; checkAreaStart+i < checkAreaEnd; i++)
+	{
+		kmer <<= 2;
+		kmer &= mask;
+		switch(readSequence[checkAreaStart+i])
+		{
+			case 'A':
+				kmer += 0;
+				break;
+			case 'C':
+				kmer += 1;
+				break;
+			case 'G':
+				kmer += 2;
+				break;
+			case 'T':
+				kmer += 3;
+				break;
+			default:
+				assert(false);
+				break;
+		}
+		if (consensusKmerPositions.count(kmer) == 1)
+		{
+			matches.emplace_back(checkAreaStart+i-refiningK+1, consensusKmerPositions.at(kmer));
+		}
+	}
+	removeNonDiagonalKmers(matches);
+	removeRepeatKmersEitherRepeat(matches);
+	matches = getIncreasingChain(matches);
+	if (matches.size() < 100)
+	{
+		return std::make_pair(initialStartPos, initialEndPos);
+	}
+	if (matches[0].second > 200)
+	{
+		return std::make_pair(initialStartPos, initialEndPos);
+	}
+	if (matches.back().second+200 < consensusSequence.size())
+	{
+		return std::make_pair(initialStartPos, initialEndPos);
+	}
+	size_t approxStart = matches[0].first;
+	if (matches[0].second < approxStart)
+	{
+		approxStart -= matches[0].second;
+	}
+	else
+	{
+		approxStart = 0;
+	}
+	size_t approxEnd = std::min(matches.back().first + (consensusSequence.size() - matches.back().second), readSequence.size());
+	approxStart = getExactBreakPos(readSequence, consensusSequence, approxStart);
+	approxEnd = getExactBreakPos(readSequence, consensusSequence, approxEnd);
+	return std::make_pair(approxStart, approxEnd);
+}
+
+std::vector<std::vector<std::string>> getRawLoopSequences(const std::vector<std::vector<OntLoop>>& clusters, const std::string& rawOntPath, const GfaGraph& graph, const std::unordered_map<Node, size_t>& pathStartClip, const std::unordered_map<Node, size_t>& pathEndClip, const size_t numThreads)
+{
+	const size_t refiningK = 15;
 	phmap::flat_hash_map<std::string, std::vector<std::tuple<size_t, size_t, size_t, size_t>>> loopPositionsInReads;
+	std::vector<phmap::flat_hash_map<uint64_t, size_t>> clusterConsensusKmerPositions;
+	std::vector<std::string> clusterConsensuses;
+	for (size_t i = 0; i < clusters.size(); i++)
+	{
+		auto path = getConsensusPath(clusters[i], graph);
+		clusterConsensuses.emplace_back(getConsensusSequence(path, graph, pathStartClip, pathEndClip));
+		clusterConsensusKmerPositions.emplace_back(getConsensusKmerPositions(clusterConsensuses.back(), refiningK));
+	}
 	std::vector<std::vector<std::string>> result;
 	result.resize(clusters.size());
 	for (size_t i = 0; i < clusters.size(); i++)
@@ -5136,46 +5340,100 @@ std::vector<std::vector<std::string>> getRawLoopSequences(const std::vector<std:
 			loopPositionsInReads[clusters[i][j].readName].emplace_back(i, j, clusters[i][j].approxStart, clusters[i][j].approxEnd);
 		}
 	}
-	FastQ::streamFastqFromFile(rawOntPath, false, [&result, &loopPositionsInReads](FastQ& fastq)
+	std::vector<std::thread> threads;
+	std::atomic<bool> readDone;
+	readDone = false;
+	std::mutex stackMutex;
+	std::vector<FastQ> readStack;
+	for (size_t i = 0; i < numThreads; i++)
 	{
-		std::string readname = nameWithoutTags(fastq.seq_id);
-		if (loopPositionsInReads.count(readname) == 0) return;
-		for (auto t : loopPositionsInReads.at(readname))
+		threads.emplace_back([&readDone, &stackMutex, &readStack, &result, &clusterConsensusKmerPositions, &clusterConsensuses, &loopPositionsInReads]()
 		{
-			size_t startPos = std::get<2>(t);
-			size_t endPos = std::get<3>(t);
-			bool reverse = false;
-			if (startPos > endPos)
+			while (true)
 			{
-				std::swap(startPos, endPos);
-				reverse = true;
+				FastQ fastq;
+				{
+					std::lock_guard<std::mutex> lock { stackMutex };
+					if (readStack.size() == 0)
+					{
+						if (readDone)
+						{
+							if (readStack.size() == 0)
+							{
+								break;
+							}
+						}
+						continue;
+					}
+					std::swap(readStack.back(), fastq);
+					readStack.pop_back();
+				}
+				std::string readname = nameWithoutTags(fastq.seq_id);
+				if (loopPositionsInReads.count(readname) == 0) continue;
+				std::string revcompRead = revcomp(fastq.sequence);
+				for (auto t : loopPositionsInReads.at(readname))
+				{
+					size_t startPos = std::get<2>(t);
+					size_t endPos = std::get<3>(t);
+					bool reverse = false;
+					if (startPos > endPos)
+					{
+						reverse = true;
+					}
+					if (reverse)
+					{
+						startPos = fastq.sequence.size() - startPos;
+						endPos = fastq.sequence.size() - endPos;
+						assert(endPos > startPos);
+						std::tie(startPos, endPos) = refineStartEndPoses(revcompRead, clusterConsensuses[std::get<0>(t)], clusterConsensusKmerPositions[std::get<0>(t)], refiningK, startPos, endPos);
+						startPos = fastq.sequence.size() - startPos;
+						endPos = fastq.sequence.size() - endPos;
+						std::swap(startPos, endPos);
+						assert(endPos > startPos);
+					}
+					else
+					{
+						std::tie(startPos, endPos) = refineStartEndPoses(fastq.sequence, clusterConsensuses[std::get<0>(t)], clusterConsensusKmerPositions[std::get<0>(t)], refiningK, startPos, endPos);
+					}
+					if (startPos > 500)
+					{
+						startPos -= 500;
+					}
+					else
+					{
+						startPos = 0;
+					}
+					if (endPos+500 < fastq.sequence.size())
+					{
+						endPos += 500;
+					}
+					else
+					{
+						endPos = fastq.sequence.size();
+					}
+					std::string str = fastq.sequence.substr(startPos, endPos-startPos);
+					if (reverse)
+					{
+						str = revcomp(str);
+					}
+					assert(result[std::get<0>(t)][std::get<1>(t)] == "");
+					assert(str.size() >= 1);
+					result[std::get<0>(t)][std::get<1>(t)] = str;
+				}
 			}
-			if (startPos > 500)
-			{
-				startPos -= 500;
-			}
-			else
-			{
-				startPos = 0;
-			}
-			if (endPos+500 < fastq.sequence.size())
-			{
-				endPos += 500;
-			}
-			else
-			{
-				endPos = fastq.sequence.size();
-			}
-			std::string str = fastq.sequence.substr(startPos, endPos-startPos);
-			if (reverse)
-			{
-				str = revcomp(str);
-			}
-			assert(result[std::get<0>(t)][std::get<1>(t)] == "");
-			assert(str.size() >= 1);
-			result[std::get<0>(t)][std::get<1>(t)] = str;
-		}
+		});
+	}
+	FastQ::streamFastqFromFile(rawOntPath, false, [&readStack, &stackMutex](FastQ& fastq)
+	{
+		std::lock_guard<std::mutex> lock { stackMutex };
+		readStack.emplace_back();
+		std::swap(readStack.back(), fastq);
 	});
+	readDone = true;
+	for (size_t i = 0; i < threads.size(); i++)
+	{
+		threads[i].join();
+	}
 	for (size_t i = 0; i < result.size(); i++)
 	{
 		for (size_t j = 0; j < result[i].size(); j++)
@@ -5195,7 +5453,7 @@ std::vector<std::vector<OntLoop>> SNPsplitClusters(const std::vector<std::vector
 		checkStack[i].first = unphasedClusters[i];
 	}
 	{
-		auto rawSequences = getRawLoopSequences(unphasedClusters, rawOntPath);
+		auto rawSequences = getRawLoopSequences(unphasedClusters, rawOntPath, graph, pathStartClip, pathEndClip, numThreads);
 		assert(rawSequences.size() == unphasedClusters.size());
 		assert(rawSequences.size() == checkStack.size());
 		for (size_t i = 0; i < unphasedClusters.size(); i++)
@@ -5307,9 +5565,9 @@ std::vector<std::vector<OntLoop>> SNPsplitClusters(const std::vector<std::vector
 	return result;
 }
 
-std::vector<std::vector<std::pair<std::string, std::string>>> getRawOntLoops(const std::vector<std::vector<OntLoop>>& loops, const std::string rawOntPath)
+std::vector<std::vector<std::pair<std::string, std::string>>> getRawOntLoops(const std::vector<std::vector<OntLoop>>& loops, const std::string rawOntPath, const GfaGraph& graph, const std::unordered_map<Node, size_t>& pathStartClip, const std::unordered_map<Node, size_t>& pathEndClip, const size_t numThreads)
 {
-	std::vector<std::vector<std::string>> sequences = getRawLoopSequences(loops, rawOntPath);
+	std::vector<std::vector<std::string>> sequences = getRawLoopSequences(loops, rawOntPath, graph, pathStartClip, pathEndClip, numThreads);
 	std::vector<std::vector<std::pair<std::string, std::string>>> result;
 	result.resize(sequences.size());
 	for (size_t i = 0; i < sequences.size(); i++)
@@ -6277,7 +6535,7 @@ std::vector<std::vector<OntLoop>> splitClusterByLength(const std::vector<OntLoop
 
 std::vector<std::vector<OntLoop>> splitClustersByLength(const std::vector<std::vector<OntLoop>>& clusters, const GfaGraph& graph, const std::unordered_map<Node, size_t>& pathStartClip, const std::unordered_map<Node, size_t>& pathEndClip, const std::string ontReadPath, const size_t numThreads)
 {
-	auto rawLoops = getRawOntLoops(clusters, ontReadPath);
+	auto rawLoops = getRawOntLoops(clusters, ontReadPath, graph, pathStartClip, pathEndClip, numThreads);
 	std::vector<std::vector<OntLoop>> result;
 	for (size_t i = 0; i < clusters.size(); i++)
 	{
@@ -6744,7 +7002,7 @@ void callVariantsAndSplitRecursively(std::vector<std::vector<OntLoop>>& result, 
 
 std::vector<std::vector<OntLoop>> editSplitClusters(const std::vector<std::vector<OntLoop>>& clusters, const GfaGraph& graph, const std::unordered_map<Node, size_t>& pathStartClip, const std::unordered_map<Node, size_t>& pathEndClip, const std::string ontReadPath, const size_t numThreads)
 {
-	auto rawLoops = getRawOntLoops(clusters, ontReadPath);
+	auto rawLoops = getRawOntLoops(clusters, ontReadPath, graph, pathStartClip, pathEndClip, numThreads);
 	std::vector<std::vector<OntLoop>> result;
 	for (size_t i = 0; i < clusters.size(); i++)
 	{
@@ -6817,7 +7075,7 @@ void DoClusterONTAnalysis(const ClusterParams& params)
 //	clusters = SNPsplitClusters(clusters, params.ontReadPath, graph, pathStartClip, pathEndClip, params.numThreads);
 	std::cerr << clusters.size() << " phased clusters" << std::endl;
 	std::sort(clusters.begin(), clusters.end(), [](const auto& left, const auto& right) { return left.size() > right.size(); });
-	auto ontLoopSequences = getRawOntLoops(clusters, params.ontReadPath);
+	auto ontLoopSequences = getRawOntLoops(clusters, params.ontReadPath, graph, pathStartClip, pathEndClip, params.numThreads);
 	std::cerr << "getting morph consensuses" << std::endl;
 	auto morphConsensuses = getMorphConsensuses(clusters, graph, pathStartClip, pathEndClip, params.namePrefix);
 	// std::cerr << "polishing morph consensuses" << std::endl;
