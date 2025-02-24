@@ -482,7 +482,7 @@ private:
 	friend size_t getMatchLength(const PathSequenceView& left, const PathSequenceView& right, const size_t leftStart, const size_t rightStart);
 };
 
-__attribute__((always_inline)) size_t getBitvectorMatchLength(uint64_t leftFirst, uint64_t leftSecond, uint64_t rightFirst, uint64_t rightSecond)
+__attribute__((always_inline)) inline size_t getBitvectorMatchLength(uint64_t leftFirst, uint64_t leftSecond, uint64_t rightFirst, uint64_t rightSecond)
 {
 	uint64_t mismatch = (leftFirst ^ rightFirst) | (leftSecond ^ rightSecond);
 	uint64_t prefixZerosPlusOneOne = (mismatch-1) ^ mismatch;
@@ -491,7 +491,7 @@ __attribute__((always_inline)) size_t getBitvectorMatchLength(uint64_t leftFirst
 	return prefixMatchPlusOne-1;
 }
 
-__attribute__((always_inline)) size_t getMatchLength(const TwobitString& left, const TwobitString& right, const size_t leftStart, const size_t rightStart)
+__attribute__((always_inline)) inline size_t getMatchLength(const TwobitString& left, const TwobitString& right, const size_t leftStart, const size_t rightStart)
 {
 	size_t result = 0;
 	while (true)
@@ -3937,14 +3937,12 @@ std::vector<std::tuple<size_t, size_t, std::string, size_t>> getEditsRec(const s
 	assert(querySeq.size() >= k);
 	assert(refSeq.substr(0, k) == querySeq.substr(0, k));
 	assert(refSeq.substr(refSeq.size()-k) == querySeq.substr(querySeq.size()-k));
-	const double maxErrorRate = 0.1;
 	if (k <= 11 || k > 31)
 	{
 		return getEdits(refSeq, querySeq, refSeq.size()*2);
 	}
 	auto refKmers = getRefKmers(refSeq, k);
 	auto anchors = getKmerAnchors(refSeq, refKmers, querySeq, k);
-	size_t edgeAnchors = anchors.size();
 	if (anchors.size() >= 1 && anchors.back().first+k == refSeq.size() && anchors.back().second+k == querySeq.size())
 	{
 		anchors.pop_back();
@@ -4959,7 +4957,6 @@ std::vector<std::vector<std::tuple<size_t, size_t, std::string>>> getEditsForPha
 	std::vector<std::vector<std::tuple<size_t, size_t, std::string>>> editsPerRead;
 	editsPerRead.resize(loops.size());
 	std::mutex resultMutex;
-	auto startTime = getTime();
 	iterateEdits(consensusSeq, loops, numThreads, [&firstMatchPos, &lastMatchPos, &resultMutex, &editsPerRead](const size_t threadId, const size_t readId, const size_t firstMatchRef, const size_t lastMatchRef, const size_t firstMatchRead, const size_t lastMatchRead, const std::tuple<size_t, size_t, std::string, size_t>& edit)
 	{
 		auto filterEdit = std::make_tuple(std::get<0>(edit), std::get<1>(edit), std::get<2>(edit));
@@ -4968,7 +4965,6 @@ std::vector<std::vector<std::tuple<size_t, size_t, std::string>>> getEditsForPha
 		firstMatchPos = std::max(firstMatchPos, firstMatchRef);
 		lastMatchPos = std::min(lastMatchPos, lastMatchRef);
 	});
-	auto endTime = getTime();
 	for (size_t i = 0; i < editsPerRead.size(); i++)
 	{
 		for (size_t j = editsPerRead[i].size()-1; j < editsPerRead[i].size(); j++)
@@ -5076,6 +5072,21 @@ std::vector<std::pair<std::vector<std::vector<size_t>>, size_t>> getPhasableVari
 		{
 			if (hasAlt[j]) continue;
 			result[i].first[0].emplace_back(j);
+		}
+	}
+	for (size_t i = result.size()-1; i < result.size(); i--)
+	{
+		bool hasLowCoverage = false;
+		for (size_t j = 0; j < result[i].first.size(); j++)
+		{
+			if (result[i].first[j].size() >= minCoverage) continue;
+			hasLowCoverage = true;
+			break;
+		}
+		if (hasLowCoverage)
+		{
+			std::swap(result[i], result.back());
+			result.pop_back();
 		}
 	}
 	std::sort(result.begin(), result.end(), [](const auto& left, const auto& right) { return left.second < right.second; });
@@ -5333,6 +5344,15 @@ std::vector<std::vector<size_t>> trySplitThreeSites(const std::vector<std::pair<
 					{
 						for (size_t offk = (blockj == blockk ? offj+1 : 0); offk < 10 && blockk*10+offk < phasableVariantInfo.size(); offk++)
 						{
+							size_t i = blocki*10+offi;
+							size_t j = blockj*10+offj;
+							size_t k = blockk*10+offk;
+							assert(i < j);
+							assert(j < k);
+							assert(phasableVariantInfo[i].second < phasableVariantInfo[j].second);
+							assert(phasableVariantInfo[j].second < phasableVariantInfo[k].second);
+							if (phasableVariantInfo[j].second < phasableVariantInfo[i].second + minDistance) continue;
+							if (phasableVariantInfo[k].second < phasableVariantInfo[j].second + minDistance) continue;
 							std::set<std::tuple<size_t, size_t, size_t>> alleles;
 							for (const auto& block : distinctBlocks)
 							{
@@ -5364,9 +5384,6 @@ std::vector<std::vector<size_t>> trySplitThreeSites(const std::vector<std::pair<
 								newClusters[parent[t]] = cluster;
 							}
 							if (newClusters.size() < 2) continue;
-							size_t i = blocki*10+offi;
-							size_t j = blockj*10+offj;
-							size_t k = blockk*10+offk;
 							assert(i < phasableVariantInfo.size());
 							assert(j < phasableVariantInfo.size());
 							assert(k < phasableVariantInfo.size());
@@ -6075,7 +6092,6 @@ std::vector<std::vector<size_t>> splitByBigIndels(const std::vector<std::vector<
 		if (pair.first > currentIndelSpanEnd + 10)
 		{
 			nonIndelSpans.emplace_back(currentIndelSpanEnd, pair.first);
-			std::cerr << "non-indel span " << nonIndelSpans.back().first << " " << nonIndelSpans.back().second << std::endl;
 		}
 		currentIndelSpanEnd = std::max(currentIndelSpanEnd, pair.second);
 	}
@@ -6085,7 +6101,6 @@ std::vector<std::vector<size_t>> splitByBigIndels(const std::vector<std::vector<
 	for (size_t i = 1; i < nonIndelSpans.size(); i++)
 	{
 		indelSpanSeparators.emplace_back((nonIndelSpans[i].first + nonIndelSpans[i].second)/2);
-		std::cerr << "indel span separator " << indelSpanSeparators.back() << std::endl;
 	}
 	std::vector<std::vector<int>> indelLengthSums;
 	indelLengthSums.resize(editsPerRead.size());
@@ -6117,7 +6132,6 @@ std::vector<std::vector<size_t>> splitByBigIndels(const std::vector<std::vector<
 		assert(nonIndelSpans[j+1].first >= nonIndelSpans[j].second);
 		std::vector<int> separators;
 		int requiredLengthDifference = std::max<int>(15, (nonIndelSpans[j+1].first - nonIndelSpans[j].second) * 0.05);
-		std::cerr << "span " << indelSpanSeparators[j] << " min " << indelsPerReads[0] << " max " << indelsPerReads.back() << " required length difference " << requiredLengthDifference << std::endl;
 		if (indelsPerReads.back() - indelsPerReads[0] < requiredLengthDifference) continue;
 		bool hasSmallSeparator = false;
 		for (size_t i = 1; i < indelsPerReads.size(); i++)
@@ -6128,7 +6142,6 @@ std::vector<std::vector<size_t>> splitByBigIndels(const std::vector<std::vector<
 			separators.emplace_back((indelsPerReads[i] + indelsPerReads[i-1]) / 2);
 			if (i - lastSeparatorIndex < minLengthClusterCoverage || i+minLengthClusterCoverage > indelsPerReads.size())
 			{
-				std::cerr << "small separator before span " << indelSpanSeparators[j] << " length " << separators.back() << " break" << std::endl;
 				hasSmallSeparator = true;
 				break;
 			}
@@ -6141,7 +6154,6 @@ std::vector<std::vector<size_t>> splitByBigIndels(const std::vector<std::vector<
 				}
 			}
 			if (hasSmallSeparator) break;
-			std::cerr << "separator before span " << indelSpanSeparators[j] << " length " << separators.back() << std::endl;
 		}
 		if (hasSmallSeparator) continue;
 		if (separators.size() == 0) continue;
