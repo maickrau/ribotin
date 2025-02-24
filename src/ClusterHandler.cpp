@@ -244,6 +244,8 @@ public:
 	size_t approxStart;
 	size_t approxEnd;
 	size_t originalReadLength;
+	std::string rawSequence;
+	std::string rawLoopName;
 };
 
 class MorphConsensus
@@ -3997,7 +3999,7 @@ std::vector<std::tuple<size_t, size_t, std::string, size_t>> getEditsRec(const s
 }
 
 template <typename F>
-void iterateEdits(const std::string& rawConsensus, const std::vector<std::pair<std::string, std::string>>& rawLoops, const size_t numThreads, F callback)
+void iterateEdits(const std::string& rawConsensus, const std::vector<OntLoop>& rawLoops, const size_t numThreads, F callback)
 {
 	const size_t k = 31;
 	auto refKmers = getRefKmers(std::string_view { rawConsensus }, k);
@@ -4012,20 +4014,20 @@ void iterateEdits(const std::string& rawConsensus, const std::vector<std::pair<s
 			{
 				size_t pickedIndex = nextIndex++;
 				if (pickedIndex >= rawLoops.size()) break;
-				const auto& path = rawLoops[pickedIndex];
-				auto anchors = getKmerAnchors(std::string_view { rawConsensus }, refKmers, std::string_view { path.first }, k);
+				const std::string& rawSequence = rawLoops[pickedIndex].rawSequence;
+				auto anchors = getKmerAnchors(std::string_view { rawConsensus }, refKmers, std::string_view { rawSequence }, k);
 				if (anchors.size() == 0) continue;
 				for (size_t i = 1; i < anchors.size(); i++)
 				{
 					assert(anchors[i-1].first < anchors[i].first);
 					assert(anchors[i-1].second < anchors[i].second);
 					assert(anchors[i].first+k <= rawConsensus.size());
-					assert(anchors[i].second+k <= path.first.size());
-					assert(rawConsensus.substr(anchors[i].first, k) == path.first.substr(anchors[i].second, k));
-					assert(rawConsensus.substr(anchors[i-1].first, k) == path.first.substr(anchors[i-1].second, k));
+					assert(anchors[i].second+k <= rawSequence.size());
+					assert(rawConsensus.substr(anchors[i].first, k) == rawSequence.substr(anchors[i].second, k));
+					assert(rawConsensus.substr(anchors[i-1].first, k) == rawSequence.substr(anchors[i-1].second, k));
 					if (anchors[i].first - anchors[i-1].first == anchors[i].second - anchors[i-1].second && anchors[i].first - anchors[i-1].first < k) continue;
 					std::string_view refSubstr { rawConsensus.data()+anchors[i-1].first, anchors[i].first - anchors[i-1].first + k };
-					std::string_view querySubstr { path.first.data()+anchors[i-1].second, anchors[i].second - anchors[i-1].second + k };
+					std::string_view querySubstr { rawSequence.data()+anchors[i-1].second, anchors[i].second - anchors[i-1].second + k };
 					auto edits = getEditsRec(refSubstr, querySubstr, 25);
 					for (auto edit : edits)
 					{
@@ -4047,11 +4049,11 @@ void iterateEdits(const std::string& rawConsensus, const std::vector<std::pair<s
 	}
 }
 
-std::string getPolishedSequence(const std::string& rawConsensus, const std::vector<std::pair<std::string, std::string>>& rawLoops, const size_t numThreads)
+std::string getPolishedSequence(const std::string& rawConsensus, const std::vector<OntLoop>& loops, const size_t numThreads)
 {
 	std::vector<std::map<std::tuple<size_t, size_t, std::string>, size_t>> editCountsPerThread;
 	editCountsPerThread.resize(numThreads);
-	iterateEdits(rawConsensus, rawLoops, numThreads, [&editCountsPerThread](const size_t threadIndex, const size_t readIndex, const size_t firstMatchRef, const size_t lastMatchRef, const size_t firstMatchRead, const size_t lastMatchRead, const std::tuple<size_t, size_t, std::string, size_t>& edit)
+	iterateEdits(rawConsensus, loops, numThreads, [&editCountsPerThread](const size_t threadIndex, const size_t readIndex, const size_t firstMatchRef, const size_t lastMatchRef, const size_t firstMatchRead, const size_t lastMatchRead, const std::tuple<size_t, size_t, std::string, size_t>& edit)
 	{
 		assert(threadIndex < editCountsPerThread.size());
 		auto filterEdit = std::make_tuple(std::get<0>(edit), std::get<1>(edit), std::get<2>(edit));
@@ -4068,7 +4070,7 @@ std::string getPolishedSequence(const std::string& rawConsensus, const std::vect
 	std::vector<std::tuple<size_t, size_t, std::string>> pickedEdits;
 	for (const auto& pair : editCounts)
 	{
-		if (!(pair.second > rawLoops.size() * 0.6)) continue; // roundabout comparison to make sure rounding issues are handled more conservatively
+		if (!(pair.second > loops.size() * 0.6)) continue; // roundabout comparison to make sure rounding issues are handled more conservatively
 		pickedEdits.emplace_back(pair.first);
 	}
 	std::sort(pickedEdits.begin(), pickedEdits.end(), [](auto& left, auto& right) { return std::get<0>(left) < std::get<0>(right); });
@@ -4104,7 +4106,7 @@ std::vector<MorphConsensus> getMorphConsensuses(const std::vector<std::vector<On
 	return result;
 }
 
-void polishMorphConsensuses(std::vector<MorphConsensus>& morphConsensuses, const std::vector<std::vector<std::pair<std::string, std::string>>>& ontLoopSequences, const size_t numThreads)
+void polishMorphConsensuses(std::vector<MorphConsensus>& morphConsensuses, const std::vector<std::vector<OntLoop>>& ontLoopSequences, const size_t numThreads)
 {
 	for (size_t i = 0; i < morphConsensuses.size(); i++)
 	{
@@ -5582,20 +5584,20 @@ std::vector<std::vector<std::pair<std::string, std::string>>> getRawOntLoops(con
 	return result;
 }
 
-void writeRawOntLoopSequences(const std::string outputFile, const std::vector<std::vector<std::pair<std::string, std::string>>>& loopSequences)
+void writeRawOntLoopSequences(const std::string outputFile, const std::vector<std::vector<OntLoop>>& loopSequences)
 {
 	std::ofstream file { outputFile };
 	for (size_t i = 0; i < loopSequences.size(); i++)
 	{
 		for (size_t j = 0; j < loopSequences[i].size(); j++)
 		{
-			file << ">" << loopSequences[i][j].second << std::endl;
-			file << loopSequences[i][j].first << std::endl;
+			file << ">" << loopSequences[i][j].rawLoopName << std::endl;
+			file << loopSequences[i][j].rawSequence << std::endl;
 		}
 	}
 }
 
-void alignRawOntLoopsToMorphConsensuses(const std::vector<std::vector<std::pair<std::string, std::string>>>& loopSequences, std::string outputFile, std::string tmppath, const size_t numThreads, const std::vector<MorphConsensus>& morphConsensuses, const std::string& winnowmapPath, const std::string& samtoolsPath)
+void alignRawOntLoopsToMorphConsensuses(const std::vector<std::vector<OntLoop>>& loopSequences, std::string outputFile, std::string tmppath, const size_t numThreads, const std::vector<MorphConsensus>& morphConsensuses, const std::string& winnowmapPath, const std::string& samtoolsPath)
 {
 	for (size_t i = 0; i < morphConsensuses.size(); i++)
 	{
@@ -5604,8 +5606,8 @@ void alignRawOntLoopsToMorphConsensuses(const std::vector<std::vector<std::pair<
 			std::ofstream tmpConsensusFile { tmppath + "/tmpconsensus.fa" };
 			for (size_t j = 0; j < loopSequences[i].size(); j++)
 			{
-				tmpReadsFile << ">" << loopSequences[i][j].second << std::endl;
-				tmpReadsFile << loopSequences[i][j].first << std::endl;
+				tmpReadsFile << ">" << loopSequences[i][j].rawLoopName << std::endl;
+				tmpReadsFile << loopSequences[i][j].rawSequence << std::endl;
 			}
 			tmpConsensusFile << ">" << morphConsensuses[i].name << std::endl;
 			tmpConsensusFile << morphConsensuses[i].sequence << std::endl;
@@ -5657,7 +5659,7 @@ bool isBigIndel(const std::tuple<size_t, size_t, std::string>& variant)
 	return false;
 }
 
-std::vector<std::vector<std::tuple<size_t, size_t, std::string>>> getEditsForPhasing(const std::vector<OntLoop>& loops, const std::vector<std::pair<std::string, std::string>>& rawLoops, const GfaGraph& graph, const std::unordered_map<Node, size_t>& pathStartClip, const std::unordered_map<Node, size_t>& pathEndClip, const size_t numThreads)
+std::vector<std::vector<std::tuple<size_t, size_t, std::string>>> getEditsForPhasing(const std::vector<OntLoop>& loops, const GfaGraph& graph, const std::unordered_map<Node, size_t>& pathStartClip, const std::unordered_map<Node, size_t>& pathEndClip, const size_t numThreads)
 {
 	auto path = getConsensusPath(loops, graph);
 	std::string consensusSeq = getConsensusSequence(path, graph, pathStartClip, pathEndClip);
@@ -5667,7 +5669,7 @@ std::vector<std::vector<std::tuple<size_t, size_t, std::string>>> getEditsForPha
 	editsPerRead.resize(loops.size());
 	std::mutex resultMutex;
 	auto startTime = getTime();
-	iterateEdits(consensusSeq, rawLoops, numThreads, [&firstMatchPos, &lastMatchPos, &resultMutex, &editsPerRead](const size_t threadId, const size_t readId, const size_t firstMatchRef, const size_t lastMatchRef, const size_t firstMatchRead, const size_t lastMatchRead, const std::tuple<size_t, size_t, std::string, size_t>& edit)
+	iterateEdits(consensusSeq, loops, numThreads, [&firstMatchPos, &lastMatchPos, &resultMutex, &editsPerRead](const size_t threadId, const size_t readId, const size_t firstMatchRef, const size_t lastMatchRef, const size_t firstMatchRead, const size_t lastMatchRead, const std::tuple<size_t, size_t, std::string, size_t>& edit)
 	{
 		auto filterEdit = std::make_tuple(std::get<0>(edit), std::get<1>(edit), std::get<2>(edit));
 		editsPerRead[readId].emplace_back(filterEdit);
@@ -6254,7 +6256,7 @@ void filterMatchRegionsToUniqueRegions(const std::vector<std::pair<size_t, size_
 		std::sort(matchRegionsInReads[i].begin(), matchRegionsInReads[i].end());
 	}
 }
-
+/*
 std::vector<std::vector<std::tuple<size_t, size_t, size_t>>> getReadToRefUniqueMatches(std::vector<std::pair<size_t, size_t>>& uniqueRegionsInRef, const std::string& consensusSeq, const std::vector<std::pair<std::string, std::string>>& rawLoops, const size_t numThreads)
 {
 	std::vector<std::vector<std::tuple<size_t, size_t, size_t>>> matchRegionsInReads; // refstart, refend, readstart inclusive
@@ -6310,7 +6312,8 @@ std::vector<std::vector<std::tuple<size_t, size_t, size_t>>> getReadToRefUniqueM
 	filterMatchRegionsToUniqueRegions(uniqueRegionsInRef, matchRegionsInReads);
 	return matchRegionsInReads;
 }
-
+*/
+/*
 std::vector<std::pair<size_t, size_t>> getUniqueRegionsInRef(const std::string& consensusSeq, const std::vector<std::pair<std::string, std::string>>& rawLoops, const size_t k)
 {
 	const size_t uniqueRegionMaxKmerDistance = 30;
@@ -6376,7 +6379,7 @@ std::vector<std::pair<size_t, size_t>> getUniqueRegionsInRef(const std::string& 
 	}
 	return uniqueRegionsInRef;
 }
-
+*/
 std::vector<std::pair<size_t, size_t>> getAllmatchRegions(const std::vector<std::vector<std::tuple<size_t, size_t, size_t>>>& matchRegionsInReads)
 {
 	std::vector<std::pair<size_t, size_t>> result;
@@ -6484,73 +6487,6 @@ std::vector<std::vector<size_t>> getReadLengthAlleles(const std::vector<std::pai
 			size_t index = std::upper_bound(separators.begin(), separators.end(), readVariantLengths[j][i]) - separators.begin();
 			assert(index < separators.size());
 			result[j].emplace_back(index);
-		}
-	}
-	return result;
-}
-
-std::vector<std::vector<OntLoop>> splitClusterByLength(const std::vector<OntLoop>& cluster, const GfaGraph& graph, const std::unordered_map<Node, size_t>& pathStartClip, const std::unordered_map<Node, size_t>& pathEndClip, const std::vector<std::pair<std::string, std::string>>& rawLoops, const size_t numThreads)
-{
-	const size_t k = 11;
-	auto consensusPath = getConsensusPath(cluster, graph);
-	std::string consensusSeq = getConsensusSequence(consensusPath, graph, pathStartClip, pathEndClip);
-	std::cerr << "ref size " << consensusSeq.size() << std::endl;
-	std::vector<std::pair<size_t, size_t>> uniqueRegionsInRef = getUniqueRegionsInRef(consensusSeq, rawLoops, k);
-	std::cerr << "unique regions " << uniqueRegionsInRef.size() << ":";
-	for (auto pair : uniqueRegionsInRef) std::cerr << " " << pair.first << "-" << pair.second;
-	std::cerr << std::endl;
-	std::vector<std::vector<std::tuple<size_t, size_t, size_t>>> matchRegionsInReads = getReadToRefUniqueMatches(uniqueRegionsInRef, consensusSeq, rawLoops, numThreads); // refstart, refend, readstart inclusive
-	if (matchRegionsInReads[0].size() == 0)
-	{
-		return std::vector<std::vector<OntLoop>> { cluster };
-	}
-	std::cerr << "get all-match regions" << std::endl;
-	std::vector<std::pair<size_t, size_t>> allmatchRegions = getAllmatchRegions(matchRegionsInReads);
-	std::cerr << allmatchRegions.size() << " all-match regions: " << std::endl;
-	for (size_t i = 0; i < allmatchRegions.size(); i++)
-	{
-		std::cerr << " " << allmatchRegions[i].first << "-" << allmatchRegions[i].second;
-	}
-	std::cerr << std::endl;
-	std::cerr << "get region lengths between all-match regions" << std::endl;
-	std::vector<std::vector<size_t>> readVariantLengths = getReadSequenceLengthsBetweenAllMatchRegions(allmatchRegions, matchRegionsInReads);
-	std::cerr << "get read length alleles" << std::endl;
-	std::vector<std::vector<size_t>> readAlleles = getReadLengthAlleles(allmatchRegions, readVariantLengths);
-	std::cerr << "cluster" << std::endl;
-	std::map<std::vector<size_t>, size_t> lengthAllelesToCluster;
-	for (size_t i = 0; i < readAlleles.size(); i++)
-	{
-		if (lengthAllelesToCluster.count(readAlleles[i]) == 1) continue;
-		size_t cluster = lengthAllelesToCluster.size();
-		lengthAllelesToCluster[readAlleles[i]] = cluster;
-	}
-	std::vector<std::vector<OntLoop>> result;
-	result.resize(lengthAllelesToCluster.size());
-	for (size_t i = 0; i < readAlleles.size(); i++)
-	{
-		result[lengthAllelesToCluster.at(readAlleles[i])].emplace_back(cluster[i]);
-	}
-	return result;
-}
-
-std::vector<std::vector<OntLoop>> splitClustersByLength(const std::vector<std::vector<OntLoop>>& clusters, const GfaGraph& graph, const std::unordered_map<Node, size_t>& pathStartClip, const std::unordered_map<Node, size_t>& pathEndClip, const std::string ontReadPath, const size_t numThreads)
-{
-	auto rawLoops = getRawOntLoops(clusters, ontReadPath, graph, pathStartClip, pathEndClip, numThreads);
-	std::vector<std::vector<OntLoop>> result;
-	for (size_t i = 0; i < clusters.size(); i++)
-	{
-		std::cerr << "begin split cluster with size " << clusters[i].size() << std::endl;
-		auto resultHere = splitClusterByLength(clusters[i], graph, pathStartClip, pathEndClip, rawLoops[i], numThreads);
-		std::cerr << "splitted cluster with size " << clusters[i].size() << " into " << resultHere.size() << " clusters, sizes:";
-		for (size_t j = 0; j < resultHere.size(); j++)
-		{
-			std::cerr << " " << resultHere[j].size();
-		}
-		std::cerr << std::endl;
-		for (size_t j = 0; j < resultHere.size(); j++)
-		{
-			result.emplace_back();
-			std::swap(result.back(), resultHere[j]);
 		}
 	}
 	return result;
@@ -6940,7 +6876,7 @@ std::vector<std::vector<size_t>> splitByBigIndels(const std::vector<std::vector<
 	return result;
 }
 
-void callVariantsAndSplitRecursively(std::vector<std::vector<OntLoop>>& result, const std::vector<OntLoop>& cluster, const std::vector<std::pair<std::string, std::string>>& rawLoops, const GfaGraph& graph, const std::unordered_map<Node, size_t>& pathStartClip, const std::unordered_map<Node, size_t>& pathEndClip, const size_t numThreads)
+void callVariantsAndSplitRecursively(std::vector<std::vector<OntLoop>>& result, const std::vector<OntLoop>& cluster, const GfaGraph& graph, const std::unordered_map<Node, size_t>& pathStartClip, const std::unordered_map<Node, size_t>& pathEndClip, const size_t numThreads)
 {
 	if (cluster.size() <= 5)
 	{
@@ -6950,7 +6886,7 @@ void callVariantsAndSplitRecursively(std::vector<std::vector<OntLoop>>& result, 
 	}
 	std::cerr << "begin phasing cluster with size " << cluster.size() << std::endl;
 	auto startTime = getTime();
-	auto edits = getEditsForPhasing(cluster, rawLoops, graph, pathStartClip, pathEndClip, numThreads);
+	auto edits = getEditsForPhasing(cluster, graph, pathStartClip, pathEndClip, numThreads);
 	auto phasableVariantInfo = getPhasableVariantInfoBiallelicAltRefSNPsBigIndels(edits);
 	auto endTime = getTime();
 	std::cerr << "getting variants took " << formatTime(startTime, endTime) << std::endl;
@@ -6990,19 +6926,30 @@ void callVariantsAndSplitRecursively(std::vector<std::vector<OntLoop>>& result, 
 	for (size_t i = 0; i < resultHere.size(); i++)
 	{
 		std::vector<OntLoop> filteredClusters;
-		std::vector<std::pair<std::string, std::string>> filteredRawLoops;
 		for (size_t j : resultHere[i])
 		{
 			filteredClusters.emplace_back(cluster[j]);
-			filteredRawLoops.emplace_back(rawLoops[j]);
 		}
-		callVariantsAndSplitRecursively(result, filteredClusters, filteredRawLoops, graph, pathStartClip, pathEndClip, numThreads);
+		callVariantsAndSplitRecursively(result, filteredClusters, graph, pathStartClip, pathEndClip, numThreads);
 	}
 }
 
-std::vector<std::vector<OntLoop>> editSplitClusters(const std::vector<std::vector<OntLoop>>& clusters, const GfaGraph& graph, const std::unordered_map<Node, size_t>& pathStartClip, const std::unordered_map<Node, size_t>& pathEndClip, const std::string ontReadPath, const size_t numThreads)
+void addRawSequencesToLoops(std::vector<std::vector<OntLoop>>& clusters, const GfaGraph& graph, const std::unordered_map<Node, size_t>& pathStartClip, const std::unordered_map<Node, size_t>& pathEndClip, const std::string ontReadPath, const size_t numThreads)
 {
-	auto rawLoops = getRawOntLoops(clusters, ontReadPath, graph, pathStartClip, pathEndClip, numThreads);
+	std::vector<std::vector<std::string>> sequences = getRawLoopSequences(clusters, ontReadPath, graph, pathStartClip, pathEndClip, numThreads);
+	assert(sequences.size() == clusters.size());
+	for (size_t i = 0; i < clusters.size(); i++)
+	{
+		assert(sequences[i].size() == clusters[i].size());
+		for (size_t j = 0; j < clusters[i].size(); j++)
+		{
+			clusters[i][j].rawSequence = sequences[i][j];
+		}
+	}
+}
+
+std::vector<std::vector<OntLoop>> editSplitClusters(const std::vector<std::vector<OntLoop>>& clusters, const GfaGraph& graph, const std::unordered_map<Node, size_t>& pathStartClip, const std::unordered_map<Node, size_t>& pathEndClip, const size_t numThreads)
+{
 	std::vector<std::vector<OntLoop>> result;
 	for (size_t i = 0; i < clusters.size(); i++)
 	{
@@ -7012,9 +6959,20 @@ std::vector<std::vector<OntLoop>> editSplitClusters(const std::vector<std::vecto
 			result.emplace_back(clusters[i]);
 			continue;
 		}
-		callVariantsAndSplitRecursively(result, clusters[i], rawLoops[i], graph, pathStartClip, pathEndClip, numThreads);
+		callVariantsAndSplitRecursively(result, clusters[i], graph, pathStartClip, pathEndClip, numThreads);
 	}
 	return result;
+}
+
+void addRawSequenceNamesToLoops(std::vector<std::vector<OntLoop>>& clusters)
+{
+	for (size_t i = 0; i < clusters.size(); i++)
+	{
+		for (size_t j = 0; j < clusters[i].size(); j++)
+		{
+			clusters[i][j].rawLoopName = "morph_" + std::to_string(i) + "_rawloop_" + std::to_string(j) + "_" + clusters[i][j].readName + "_" + std::to_string(clusters[i][j].approxStart) + "_" + std::to_string(clusters[i][j].approxEnd);
+		}
+	}
 }
 
 void DoClusterONTAnalysis(const ClusterParams& params)
@@ -7057,16 +7015,16 @@ void DoClusterONTAnalysis(const ClusterParams& params)
 	std::cerr << "max clustering edit distance " << params.maxClusterDifference << std::endl;
 	auto clusters = roughClusterLoopSequences(loopSequences, graph, pathStartClip, pathEndClip, coreNodes, params.maxClusterDifference);
 	std::cerr << clusters.size() << " rough clusters" << std::endl;
-	std::cerr << "split clusters by variable length SVs" << std::endl;
-//	clusters = splitClustersByLength(clusters, graph, pathStartClip, pathEndClip, params.ontReadPath, params.numThreads);
-//	std::cerr << "phase clusters by raw sequences" << std::endl;
-	clusters = editSplitClusters(clusters, graph, pathStartClip, pathEndClip, params.ontReadPath, params.numThreads);
+	std::cerr << "getting exact locations of raw loop sequences" << std::endl;
+	addRawSequencesToLoops(clusters, graph, pathStartClip, pathEndClip, params.ontReadPath, params.numThreads);
+	std::cerr << "phase clusters by raw sequences" << std::endl;
+	clusters = editSplitClusters(clusters, graph, pathStartClip, pathEndClip, params.numThreads);
 	std::cerr << clusters.size() << " clusters" << std::endl;
 	std::cerr << "cluster loops by density" << std::endl;
 	clusters = densityClusterLoops(clusters, graph, pathStartClip, pathEndClip, coreNodes, params.maxClusterDifference, 5, params.minReclusterDistance);
 	std::cerr << clusters.size() << " clusters" << std::endl;
 	std::cerr << "phase clusters by raw sequences" << std::endl;
-	clusters = editSplitClusters(clusters, graph, pathStartClip, pathEndClip, params.ontReadPath, params.numThreads);
+	clusters = editSplitClusters(clusters, graph, pathStartClip, pathEndClip, params.numThreads);
 	std::cerr << clusters.size() << " clusters" << std::endl;
 	// std::cerr << "phase clusters" << std::endl;
 	// clusters = phaseClusters(clusters);
@@ -7074,8 +7032,8 @@ void DoClusterONTAnalysis(const ClusterParams& params)
 //	std::cerr << "SNP-split clusters" << std::endl;
 //	clusters = SNPsplitClusters(clusters, params.ontReadPath, graph, pathStartClip, pathEndClip, params.numThreads);
 	std::cerr << clusters.size() << " phased clusters" << std::endl;
+	addRawSequenceNamesToLoops(clusters);
 	std::sort(clusters.begin(), clusters.end(), [](const auto& left, const auto& right) { return left.size() > right.size(); });
-	auto ontLoopSequences = getRawOntLoops(clusters, params.ontReadPath, graph, pathStartClip, pathEndClip, params.numThreads);
 	std::cerr << "getting morph consensuses" << std::endl;
 	auto morphConsensuses = getMorphConsensuses(clusters, graph, pathStartClip, pathEndClip, params.namePrefix);
 	// std::cerr << "polishing morph consensuses" << std::endl;
@@ -7087,11 +7045,11 @@ void DoClusterONTAnalysis(const ClusterParams& params)
 	std::cerr << "write morph graph and read paths" << std::endl;
 	writeMorphGraphAndReadPaths(params.basePath + "/morphgraph.gfa", params.basePath + "/readpaths-morphgraph.gaf", morphConsensuses);
 	std::cerr << "write raw ONT loop sequences" << std::endl;
-	writeRawOntLoopSequences(params.basePath + "/raw_loops.fa", ontLoopSequences);
+	writeRawOntLoopSequences(params.basePath + "/raw_loops.fa", clusters);
 	if (params.winnowmapPath != "" && params.samtoolsPath != "")
 	{
 		std::cerr << "realign raw ONT loop sequences to morph consensuses" << std::endl;
-		alignRawOntLoopsToMorphConsensuses(ontLoopSequences, params.basePath + "/raw_loop_to_morphs_alignments.bam", params.basePath + "/tmp", params.numThreads, morphConsensuses, params.winnowmapPath, params.samtoolsPath);
+		alignRawOntLoopsToMorphConsensuses(clusters, params.basePath + "/raw_loop_to_morphs_alignments.bam", params.basePath + "/tmp", params.numThreads, morphConsensuses, params.winnowmapPath, params.samtoolsPath);
 	}
 	else
 	{
