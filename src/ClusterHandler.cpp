@@ -6333,8 +6333,8 @@ void DoClusterONTAnalysis(const ClusterParams& params)
 	// clusters = phaseClusters(clusters);
 	// std::cerr << clusters.size() << " phased clusters" << std::endl;
 	std::cerr << clusters.size() << " phased clusters" << std::endl;
-	addRawSequenceNamesToLoops(clusters);
 	std::sort(clusters.begin(), clusters.end(), [](const auto& left, const auto& right) { return left.size() > right.size(); });
+	addRawSequenceNamesToLoops(clusters);
 	std::cerr << "getting morph consensuses" << std::endl;
 	auto morphConsensuses = getMorphConsensuses(clusters, graph, pathStartClip, pathEndClip, params.namePrefix);
 	// std::cerr << "polishing morph consensuses" << std::endl;
