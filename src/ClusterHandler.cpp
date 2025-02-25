@@ -5039,6 +5039,105 @@ std::vector<std::vector<std::tuple<size_t, size_t, std::string>>> getEditsForPha
 	return editsPerRead;
 }
 
+std::vector<std::pair<std::vector<std::vector<size_t>>, size_t>> getSNPMSA(const std::vector<std::vector<std::tuple<size_t, size_t, std::string>>>& editsPerRead)
+{
+	const size_t minCoverage = 3;
+	const size_t minCoverageWithDels = 5;
+	std::vector<std::vector<std::vector<size_t>>> readsWhichHaveAlt;
+	for (size_t i = 0; i < editsPerRead.size(); i++)
+	{
+		for (size_t j = 0; j < editsPerRead[i].size(); j++)
+		{
+			while (readsWhichHaveAlt.size() < std::get<1>(editsPerRead[i][j])) readsWhichHaveAlt.emplace_back();
+			const std::tuple<size_t, size_t, std::string>& t = editsPerRead[i][j];
+			if (std::get<1>(t) == std::get<0>(t)) continue;
+			if (std::get<2>(t).size() >= 1 && std::get<1>(t)-std::get<0>(t) != std::get<2>(t).size()) continue;
+			for (size_t k = std::get<0>(t); k < std::get<1>(t); k++)
+			{
+				size_t allele = 5;
+				if (k-std::get<0>(t) < std::get<2>(t).size())
+				{
+					switch(std::get<2>(t)[k-std::get<0>(t)])
+					{
+						case 'A':
+							allele = 0;
+							break;
+						case 'C':
+							allele = 1;
+							break;
+						case 'G':
+							allele = 2;
+							break;
+						case 'T':
+							allele = 3;
+							break;
+						default:
+							assert(false);
+							break;
+					}
+				}
+				while (readsWhichHaveAlt[k].size() <= allele) readsWhichHaveAlt[k].emplace_back(0);
+				readsWhichHaveAlt[k][allele].emplace_back(i);
+			}
+		}
+	}
+	std::vector<std::pair<std::vector<std::vector<size_t>>, size_t>> result;
+	for (size_t i = 0; i < readsWhichHaveAlt.size(); i++)
+	{
+		size_t totalCoverage = 0;
+		bool hasSmallAllele = false;
+		size_t totalNonDeletionAlleles = 0;
+		bool hasDeletion = readsWhichHaveAlt[i].size() > 5 && readsWhichHaveAlt[i][5].size() >= 1;
+		for (size_t allele = 0; allele < readsWhichHaveAlt[i].size(); allele++)
+		{
+			totalCoverage += readsWhichHaveAlt[i][allele].size();
+			if (readsWhichHaveAlt[i][allele].size() == 0) continue;
+			if (allele != 5) totalNonDeletionAlleles += 1;
+			if (hasDeletion && readsWhichHaveAlt[i][allele].size() < minCoverageWithDels && allele != 5)
+			{
+				hasSmallAllele = true;
+			}
+			if (readsWhichHaveAlt[i][allele].size() < minCoverage && allele != 5)
+			{
+				hasSmallAllele = true;
+			}
+		}
+		if (hasSmallAllele) continue;
+		if (totalCoverage+minCoverage > editsPerRead.size()) continue;
+		if (hasDeletion && totalCoverage+minCoverageWithDels > editsPerRead.size()) continue;
+		if (totalNonDeletionAlleles < 1) continue;
+		result.emplace_back();
+		result.back().second = i;
+		result.back().first.resize(7);
+		std::vector<bool> readHasAlt;
+		readHasAlt.resize(editsPerRead.size(), false);
+		for (size_t allele = 0; allele < readsWhichHaveAlt[i].size(); allele++)
+		{
+			for (size_t read : readsWhichHaveAlt[i][allele])
+			{
+				result.back().first[allele].emplace_back(read);
+				readHasAlt[read] = true;
+			}
+		}
+		for (size_t j = 0; j < readHasAlt.size(); j++)
+		{
+			if (readHasAlt[j]) continue;
+			result.back().first[6].emplace_back(j);
+		}
+		assert(result.back().first[6].size() >= minCoverage);
+		assert(!hasDeletion || result.back().first[6].size() >= minCoverageWithDels);
+		for (size_t j = result.back().first.size()-1; j < result.back().first.size(); j--)
+		{
+			if (result.back().first[j].size() != 0) continue;
+			std::swap(result.back().first[j], result.back().first.back());
+			result.back().first.pop_back();
+		}
+		assert(result.back().first.size() >= 2);
+		assert((!hasDeletion && result.back().first.size() == totalNonDeletionAlleles+1) || (hasDeletion && result.back().first.size() == totalNonDeletionAlleles+2));
+	}
+	return result;
+}
+
 std::vector<std::pair<std::vector<std::vector<size_t>>, size_t>> getPhasableVariantInfoBiallelicAltRefSNPsBigIndels(const std::vector<std::vector<std::tuple<size_t, size_t, std::string>>>& editsPerRead)
 {
 	const size_t minCoverage = 3;
@@ -6384,6 +6483,23 @@ void callVariantsAndSplitRecursively(std::vector<std::vector<OntLoop>>& result, 
 	for (size_t i = 0; i < cluster.size(); i++) allIndices.emplace_back(i);
 	splitAndAddRecursively(resultHere, cluster, phasableVariantInfo, allIndices);
 	assert(resultHere.size() >= 1);
+	if (resultHere.size() == 1)
+	{
+		std::cerr << "split by SNP MSA size " << cluster.size() << std::endl;
+		auto SNPMSA = getSNPMSA(edits);
+		std::cerr << SNPMSA.size() << " sites in SNP MSA" << std::endl;
+		resultHere.clear();
+		splitAndAddRecursively(resultHere, cluster, SNPMSA, allIndices);
+		if (resultHere.size() > 1)
+		{
+			std::cerr << "SNP MSA splitted to " << resultHere.size() << " clusters:";
+			for (size_t i = 0; i < resultHere.size(); i++)
+			{
+				std::cerr << " " << resultHere[i].size();
+			}
+			std::cerr << std::endl;
+		}
+	}
 	if (resultHere.size() == 1)
 	{
 		std::cerr << "split by big indels size " << cluster.size() << std::endl;
