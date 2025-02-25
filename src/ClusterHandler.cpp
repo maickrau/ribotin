@@ -6179,6 +6179,112 @@ std::vector<std::vector<size_t>> splitByBigIndels(const std::vector<std::vector<
 	return result;
 }
 
+std::vector<std::vector<size_t>> splitByEditLinkage(const std::vector<std::vector<std::tuple<size_t, size_t, std::string>>>& editsPerRead)
+{
+	const size_t minEditsWithinCluster = 5;
+	const size_t minReadsWithinCluster = 5;
+	const size_t minDistanceBetweenEdits = 100;
+	phmap::flat_hash_map<std::tuple<size_t, size_t, std::string>, size_t> editToIndex;
+	std::vector<std::vector<size_t>> readsWithEdit;
+	std::vector<size_t> editPosition;
+	for (size_t read = 0; read < editsPerRead.size(); read++)
+	{
+		for (const auto& edit : editsPerRead[read])
+		{
+			if (editToIndex.count(edit) == 0)
+			{
+				editToIndex[edit] = readsWithEdit.size();
+				readsWithEdit.emplace_back();
+				readsWithEdit.emplace_back();
+				editPosition.emplace_back((std::get<0>(edit) + std::get<1>(edit)) / 2);
+			}
+			readsWithEdit[editToIndex.at(edit)].emplace_back(read);
+		}
+	}
+	assert(readsWithEdit.size() % 2 == 0);
+	for (size_t i = 0; i < readsWithEdit.size(); i += 2)
+	{
+		std::vector<bool> hasEdit;
+		hasEdit.resize(editsPerRead.size(), false);
+		for (size_t read : readsWithEdit[i])
+		{
+			hasEdit[read] = true;
+		}
+		for (size_t read = 0; read < hasEdit.size(); read++)
+		{
+			if (hasEdit[read]) continue;
+			readsWithEdit[i+1].emplace_back(read);
+		}
+	}
+	for (size_t i = 0; i < readsWithEdit.size(); i++)
+	{
+		std::sort(readsWithEdit[i].begin(), readsWithEdit[i].end());
+	}
+	std::vector<size_t> order;
+	for (size_t i = 0; i < readsWithEdit.size(); i++)
+	{
+		order.emplace_back(i);
+	}
+	std::sort(order.begin(), order.end(), [&readsWithEdit](const size_t left, const size_t right)
+	{
+		return readsWithEdit[left] < readsWithEdit[right];
+	});
+	size_t clusterStart = 0;
+	std::vector<std::vector<size_t>> readAlleles;
+	readAlleles.resize(editsPerRead.size());
+	for (size_t i = 1; i <= order.size(); i++)
+	{
+		if (i < order.size() && readsWithEdit[order[i-1]] == readsWithEdit[order[i]]) continue;
+		if (i-clusterStart >= minEditsWithinCluster)
+		{
+			if (readsWithEdit[order[clusterStart]].size() >= minReadsWithinCluster && readsWithEdit[order[clusterStart]].size()+minReadsWithinCluster <= editsPerRead.size())
+			{
+				std::vector<size_t> positions;
+				for (size_t j = clusterStart; j < i; j++)
+				{
+					positions.emplace_back(editPosition[order[j]]);
+				}
+				std::sort(positions.begin(), positions.end());
+				size_t reallyDifferentLocations = 1;
+				for (size_t j = 1; j < positions.size(); j++)
+				{
+					if (positions[j] < positions[j-1] + minDistanceBetweenEdits) continue;
+					reallyDifferentLocations += 1;
+				}
+				if (reallyDifferentLocations >= minEditsWithinCluster)
+				{
+					std::vector<bool> hasAlt;
+					hasAlt.resize(editsPerRead.size(), false);
+					for (size_t read : readsWithEdit[order[clusterStart]])
+					{
+						hasAlt[read] = true;
+						readAlleles[read].emplace_back(0);
+					}
+					for (size_t j = 0; j < editsPerRead.size(); j++)
+					{
+						if (hasAlt[j]) continue;
+						readAlleles[j].emplace_back(1);
+					}
+				}
+			}
+		}
+		clusterStart = i;
+	}
+	std::cerr << "edit linkage clusters " << readAlleles[0].size() << std::endl;
+	std::map<std::vector<size_t>, size_t> allelesToCluster;
+	std::vector<std::vector<size_t>> result;
+	for (size_t i = 0; i < readAlleles.size(); i++)
+	{
+		if (allelesToCluster.count(readAlleles[i]) == 0)
+		{
+			allelesToCluster[readAlleles[i]] = result.size();
+			result.emplace_back();
+		}
+		result[allelesToCluster.at(readAlleles[i])].emplace_back(i);
+	}
+	return result;
+}
+
 void callVariantsAndSplitRecursively(std::vector<std::vector<OntLoop>>& result, const std::vector<OntLoop>& cluster, const GfaGraph& graph, const std::unordered_map<Node, size_t>& pathStartClip, const std::unordered_map<Node, size_t>& pathEndClip, const size_t numThreads)
 {
 	if (cluster.size() <= 5)
@@ -6204,6 +6310,17 @@ void callVariantsAndSplitRecursively(std::vector<std::vector<OntLoop>>& result, 
 		std::cerr << "split by big indels size " << cluster.size() << std::endl;
 		resultHere = splitByBigIndels(edits);
 		std::cerr << "big indels splitted to " << resultHere.size() << " clusters:";
+		for (size_t i = 0; i < resultHere.size(); i++)
+		{
+			std::cerr << " " << resultHere[i].size();
+		}
+		std::cerr << std::endl;
+	}
+	if (resultHere.size() == 1)
+	{
+		std::cerr << "split by edit linkage size " << cluster.size() << std::endl;
+		resultHere = splitByEditLinkage(edits);
+		std::cerr << "edit linkage splitted to " << resultHere.size() << " clusters:";
 		for (size_t i = 0; i < resultHere.size(); i++)
 		{
 			std::cerr << " " << resultHere[i].size();
