@@ -2784,6 +2784,23 @@ size_t getEditDistancePossiblyMemoized(const std::vector<Node>& left, const std:
 	return add;
 }
 
+template <typename T>
+T find(phmap::flat_hash_map<T, T>& parent, T key)
+{
+	while (parent.at(key) != parent.at(parent.at(key))) parent[key] = parent[parent[key]];
+	return parent[key];
+}
+
+template <typename T>
+void merge(phmap::flat_hash_map<T, T>& parent, T left, T right)
+{
+	left = find(parent, left);
+	right = find(parent, right);
+	assert(parent.at(left) == left);
+	assert(parent.at(right) == right);
+	parent[right] = left;
+}
+
 size_t find(std::vector<size_t>& parent, size_t key)
 {
 	while (parent.at(key) != parent.at(parent.at(key))) parent[key] = parent[parent[key]];
@@ -2797,6 +2814,24 @@ void merge(std::vector<size_t>& parent, size_t left, size_t right)
 	assert(parent.at(left) == left);
 	assert(parent.at(right) == right);
 	parent[right] = left;
+}
+
+template <typename T>
+T find(std::map<T, T>& parent, const T& key)
+{
+	while (parent.at(key) != parent.at(parent.at(key)))
+	{
+		parent[key] = parent.at(parent.at(key));
+	}
+	return parent.at(key);
+}
+
+template <typename T>
+void merge(std::map<T, T>& parent, const T& left, const T& right)
+{
+	auto leftp = find(parent, left);
+	auto rightp = find(parent, right);
+	parent[rightp] = leftp;
 }
 
 std::vector<std::pair<size_t, size_t>> getNodeMatches(const std::vector<Node>& left, size_t leftIndex, size_t leftStart, size_t leftEnd, const std::vector<Node>& right, size_t rightIndex, size_t rightStart, size_t rightEnd, const std::vector<phmap::flat_hash_map<Node, size_t>>& nodeCountIndex, const std::vector<phmap::flat_hash_map<Node, size_t>>& nodePosIndex)
@@ -5213,40 +5248,77 @@ std::vector<std::vector<size_t>> trySplitTwoSites(const std::vector<std::pair<st
 	phaseClustersPerRead.resize(numReads);
 	for (size_t i = 0; i < phasableVariantInfo.size(); i++)
 	{
-		if (phasableVariantInfo[i].first.size() != 2) continue;
-		if (phasableVariantInfo[i].first[0].size() < minCoverage) continue;
-		if (phasableVariantInfo[i].first[1].size() < minCoverage) continue;
 		for (size_t j = i+1; j < phasableVariantInfo.size(); j++)
 		{
 			if (siteUsed[i]) break;
 			if (siteUsed[j]) continue;
-			if (phasableVariantInfo[j].first.size() != 2) continue;
-			if (phasableVariantInfo[j].first[0].size() < minCoverage) continue;
-			if (phasableVariantInfo[j].first[1].size() < minCoverage) continue;
 			assert(phasableVariantInfo[i].second < phasableVariantInfo[j].second);
 			if (phasableVariantInfo[j].second < phasableVariantInfo[i].second + minDistance) continue;
-			if (vectorsMatch(phasableVariantInfo[i].first[0], phasableVariantInfo[j].first[0]))
+			std::vector<std::pair<size_t, size_t>> allelesPerRead;
+			allelesPerRead.resize(numReads, std::make_pair(std::numeric_limits<size_t>::max(), std::numeric_limits<size_t>::max()));
+			for (size_t k = 0; k < phasableVariantInfo[i].first.size(); k++)
 			{
-				std::cerr << "split two sites " << phasableVariantInfo[i].second << " " << phasableVariantInfo[j].second << " same" << std::endl;
-				assert(vectorsMatch(phasableVariantInfo[i].first[1], phasableVariantInfo[j].first[1]));
-				std::vector<std::vector<size_t>> result;
-				result.resize(2);
-				for (size_t k : phasableVariantInfo[i].first[0]) phaseClustersPerRead[k].emplace_back(0);
-				for (size_t k : phasableVariantInfo[i].first[1]) phaseClustersPerRead[k].emplace_back(1);
-				siteUsed[i] = true;
-				siteUsed[j] = true;
+				for (size_t read : phasableVariantInfo[i].first[k])
+				{
+					assert(allelesPerRead[read].first == std::numeric_limits<size_t>::max());
+					allelesPerRead[read].first = k;
+				}
 			}
-			if (vectorsMatch(phasableVariantInfo[i].first[0], phasableVariantInfo[j].first[1]))
+			for (size_t k = 0; k < phasableVariantInfo[j].first.size(); k++)
 			{
-				std::cerr << "split two sites " << phasableVariantInfo[i].second << " " << phasableVariantInfo[j].second << " different" << std::endl;
-				assert(vectorsMatch(phasableVariantInfo[i].first[1], phasableVariantInfo[j].first[0]));
-				std::vector<std::vector<size_t>> result;
-				result.resize(2);
-				for (size_t k : phasableVariantInfo[i].first[0]) phaseClustersPerRead[k].emplace_back(0);
-				for (size_t k : phasableVariantInfo[i].first[1]) phaseClustersPerRead[k].emplace_back(1);
-				siteUsed[i] = true;
-				siteUsed[j] = true;
+				for (size_t read : phasableVariantInfo[j].first[k])
+				{
+					assert(allelesPerRead[read].second == std::numeric_limits<size_t>::max());
+					allelesPerRead[read].second = k;
+				}
 			}
+			phmap::flat_hash_set<std::pair<size_t, size_t>> alleles;
+			phmap::flat_hash_map<std::pair<size_t, size_t>, std::pair<size_t, size_t>> parent;
+			for (auto t : allelesPerRead)
+			{
+				alleles.insert(t);
+				parent[t] = t;
+			}
+			for (auto t : alleles)
+			{
+				for (auto t2 : alleles)
+				{
+					if (t2 == t) continue;
+					size_t edits = 0;
+					if (t.first != t2.first) edits += 1;
+					if (t.second != t2.second) edits += 1;
+					assert(edits > 0);
+					if (edits == 1) merge(parent, t, t2);
+				}
+			}
+			phmap::flat_hash_map<std::pair<size_t, size_t>, size_t> clusters;
+			for (auto t : alleles)
+			{
+				auto p = find(parent, t);
+				if (clusters.count(p) == 1) continue;
+				size_t cluster = clusters.size();
+				clusters[p] = cluster;
+			}
+			if (clusters.size() < 2) continue;
+			phmap::flat_hash_map<size_t, size_t> clusterCoverage;
+			for (auto t : allelesPerRead)
+			{
+				clusterCoverage[clusters.at(find(parent, t))] += 1;
+			}
+			bool hasSmallCluster = false;
+			for (auto pair : clusterCoverage)
+			{
+				if (pair.second < minCoverage) hasSmallCluster = true;
+			}
+			if (hasSmallCluster) continue;
+			std::cerr << "split two sites " << phasableVariantInfo[i].second << " " << phasableVariantInfo[j].second << std::endl;
+			for (size_t k = 0; k < allelesPerRead.size(); k++)
+			{
+				size_t cluster = clusters.at(find(parent, allelesPerRead[k]));
+				phaseClustersPerRead[k].emplace_back(cluster);
+			}
+			siteUsed[i] = true;
+			siteUsed[j] = true;
 		}
 	}
 	if (phaseClustersPerRead[0].size() == 0) return std::vector<std::vector<size_t>> {};
@@ -5881,24 +5953,6 @@ bool vectorsSomewhatMatchOppositely(const std::vector<size_t>& leftVec, const st
 	}
 	if (mismatches > maxMismatches) return false;
 	return true;
-}
-
-template <typename T>
-T find(std::map<T, T>& parent, const T& key)
-{
-	while (parent.at(key) != parent.at(parent.at(key)))
-	{
-		parent[key] = parent.at(parent.at(key));
-	}
-	return parent.at(key);
-}
-
-template <typename T>
-void merge(std::map<T, T>& parent, const T& left, const T& right)
-{
-	auto leftp = find(parent, left);
-	auto rightp = find(parent, right);
-	parent[rightp] = leftp;
 }
 
 std::vector<std::vector<size_t>> phaseApproxEdits(const std::vector<std::vector<std::tuple<size_t, size_t, std::string>>>& edits)
