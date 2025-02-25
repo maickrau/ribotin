@@ -3816,48 +3816,73 @@ void removeRepeatKmersEitherRepeat(std::vector<std::pair<uint64_t, uint64_t>>& m
 std::vector<std::pair<size_t, size_t>> getIncreasingChain(const std::vector<std::pair<size_t, size_t>>& kmerMatches)
 {
 	if (kmerMatches.size() == 0) return kmerMatches;
-	std::vector<size_t> longestChainHere;
-	longestChainHere.emplace_back(1);
+	std::vector<std::vector<size_t>> paretoFrontier;
+	paretoFrontier.emplace_back();
+	paretoFrontier.emplace_back();
+	paretoFrontier[1].emplace_back(0);
 	for (size_t i = 1; i < kmerMatches.size(); i++)
 	{
-		size_t longestPrev = 0;
-		for (size_t j = i-1; j < i; j--)
+		bool found = false;
+		for (size_t length = paretoFrontier.size()-1; length < paretoFrontier.size(); length++)
 		{
-			assert(kmerMatches[i].first > kmerMatches[j].first);
-			assert(kmerMatches[i].second != kmerMatches[j].second);
-			if (kmerMatches[i].second < kmerMatches[j].second) continue;
-			longestPrev = std::max(longestPrev, longestChainHere[j]);
+			for (size_t j : paretoFrontier[length])
+			{
+				assert(kmerMatches[i].first > kmerMatches[j].first);
+				assert(kmerMatches[i].second != kmerMatches[j].second);
+				if (kmerMatches[i].second < kmerMatches[j].second) continue;
+				found = true;
+				break;
+			}
+			if (found)
+			{
+				assert(length+1 <= paretoFrontier.size());
+				if (length+1 == paretoFrontier.size()) paretoFrontier.emplace_back();
+				bool thisIsInParetoFrontier = true;
+				for (size_t j : paretoFrontier[length+1])
+				{
+					assert(kmerMatches[i].first > kmerMatches[j].first);
+					assert(kmerMatches[i].second != kmerMatches[j].second);
+					if (kmerMatches[i].second < kmerMatches[j].second) continue;
+					thisIsInParetoFrontier = false;
+					break;
+				}
+				if (thisIsInParetoFrontier) paretoFrontier[length+1].emplace_back(i);
+				break;
+			}
 		}
-		longestChainHere.emplace_back(longestPrev+1);
-	}
-	size_t maxIndex = 0;
-	for (size_t i = 0; i < kmerMatches.size(); i++)
-	{
-		if (kmerMatches[i] > kmerMatches[maxIndex]) maxIndex = i;
-	}
-	std::vector<size_t> indexOrder;
-	indexOrder.emplace_back(maxIndex);
-	while (true)
-	{
-		size_t i = indexOrder.back();
-		size_t foundIndex = std::numeric_limits<size_t>::max();
-		for (size_t j = i-1; j < i; j--)
+		if (!found)
 		{
-			assert(kmerMatches[i].first > kmerMatches[j].first);
-			assert(kmerMatches[i].second != kmerMatches[j].second);
-			if (kmerMatches[i].second < kmerMatches[j].second) continue;
-			if (foundIndex == std::numeric_limits<size_t>::max() || longestChainHere[j] > longestChainHere[foundIndex]) foundIndex = j;
+			bool thisIsInParetoFrontier = true;
+			for (size_t j : paretoFrontier[1])
+			{
+				assert(kmerMatches[i].first > kmerMatches[j].first);
+				assert(kmerMatches[i].second != kmerMatches[j].second);
+				if (kmerMatches[i].second < kmerMatches[j].second) continue;
+				thisIsInParetoFrontier = false;
+				break;
+			}
+			if (thisIsInParetoFrontier) paretoFrontier[1].emplace_back(i);
 		}
-		assert(longestChainHere[i] == 1 || foundIndex != std::numeric_limits<size_t>::max());
-		assert(foundIndex == std::numeric_limits<size_t>::max() || longestChainHere[foundIndex]+1 == longestChainHere[i]);
-		if (foundIndex == std::numeric_limits<size_t>::max()) break;
-		indexOrder.emplace_back(foundIndex);
 	}
+	assert(paretoFrontier.back().size() >= 1);
+	size_t maxIndex = paretoFrontier.back()[0];
 	std::vector<std::pair<size_t, size_t>> result;
-	for (size_t i = indexOrder.size()-1; i < indexOrder.size(); i--)
+	result.emplace_back(kmerMatches[maxIndex]);
+	for (size_t length = paretoFrontier.size()-2; length > 0; length--)
 	{
-		result.emplace_back(kmerMatches[indexOrder[i]]);
+		bool found = false;
+		for (size_t j : paretoFrontier[length])
+		{
+			if (kmerMatches[j].first > kmerMatches[maxIndex].first) continue;
+			if (kmerMatches[j].second > kmerMatches[maxIndex].second) continue;
+			found = true;
+			result.emplace_back(kmerMatches[j]);
+			maxIndex = j;
+			break;
+		}
+		assert(found);
 	}
+	std::reverse(result.begin(), result.end());
 	return result;
 }
 
