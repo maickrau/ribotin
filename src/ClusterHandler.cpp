@@ -4168,6 +4168,11 @@ void polishMorphConsensuses(std::vector<MorphConsensus>& morphConsensuses, const
 {
 	for (size_t i = 0; i < morphConsensuses.size(); i++)
 	{
+		if (ontLoopSequences[i].size() < 3)
+		{
+			std::cerr << "skip polishing morph " << i << " with coverage " << ontLoopSequences[i].size() << std::endl;
+			continue;
+		}
 		for (size_t j = 0; j < 5; j++)
 		{
 			std::cerr << "polish morph " << i << " consensus round " << j << "/5" << std::endl;
@@ -6433,6 +6438,7 @@ std::vector<std::vector<size_t>> splitByLinkedMinorAlleles(const std::vector<std
 	{
 		for (const auto& t : editsPerRead[i])
 		{
+			if (!isSNP(t) && !isBigIndel(t)) continue;
 			readsWithEdit[t].emplace_back(i);
 		}
 	}
@@ -6799,8 +6805,8 @@ void DoClusterONTAnalysis(const ClusterParams& params)
 	addRawSequenceNamesToLoops(clusters);
 	std::cerr << "getting morph consensuses" << std::endl;
 	auto morphConsensuses = getMorphConsensuses(clusters, graph, pathStartClip, pathEndClip, params.namePrefix);
-	// std::cerr << "polishing morph consensuses" << std::endl;
-	// polishMorphConsensuses(morphConsensuses, ontLoopSequences, params.numThreads);
+	std::cerr << "polishing morph consensuses" << std::endl;
+	polishMorphConsensuses(morphConsensuses, clusters, params.numThreads);
 	std::cerr << "write morph consensuses" << std::endl;
 	writeMorphConsensuses(params.basePath + "/morphs.fa", params.basePath + "/morphs_preconsensus.fa", morphConsensuses);
 	std::cerr << "write morph paths" << std::endl;
