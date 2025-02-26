@@ -6357,6 +6357,145 @@ std::vector<std::vector<size_t>> splitByBigIndels(const std::vector<std::vector<
 	return result;
 }
 
+bool minorAllelesPerfectlyLinked(const phmap::flat_hash_map<std::tuple<size_t, size_t, std::string>, std::vector<size_t>>& readsWithEdit, const std::tuple<size_t, size_t, std::string>& editLeft, const std::tuple<size_t, size_t, std::string>& editRight, const size_t countReads)
+{
+	const size_t minCoverage = 10;
+	std::vector<std::pair<bool, bool>> allelesPerRead;
+	allelesPerRead.resize(countReads);
+	for (size_t read : readsWithEdit.at(editLeft))
+	{
+		allelesPerRead[read].first = true;
+	}
+	for (size_t read : readsWithEdit.at(editRight))
+	{
+		allelesPerRead[read].second = true;
+	}
+	std::map<std::pair<bool, bool>, size_t> alleleCounts;
+	for (size_t i = 0; i < allelesPerRead.size(); i++)
+	{
+		alleleCounts[allelesPerRead[i]] += 1;
+	}
+	bool hasSmallAllele = false;
+	for (auto pair : alleleCounts)
+	{
+		if (pair.second < minCoverage) hasSmallAllele = true;
+	}
+	if (hasSmallAllele) return false;
+	assert(alleleCounts.size() >= 2);
+	assert(alleleCounts.size() <= 4);
+	if (alleleCounts.size() == 4) return false;
+	if (alleleCounts.size() == 2)
+	{
+		for (auto t1 : alleleCounts)
+		{
+			for (auto t2 : alleleCounts)
+			{
+				if (t1.first == t2.first) continue;
+				size_t edits = 0;
+				if (t1.first.first != t2.first.first) edits += 1;
+				if (t1.first.second != t2.first.second) edits += 1;
+				assert(edits == 1 || edits == 2);
+				if (edits == 2) std::cerr << "minor alleles linked 2 edits" << std::endl;
+				return edits == 2;
+			}
+		}
+	}
+	assert(alleleCounts.size() == 3);
+	bool leftIsMinor = readsWithEdit.at(editLeft).size()*2 < countReads;
+	bool rightIsMinor = readsWithEdit.at(editRight).size()*2 < countReads;
+	if (leftIsMinor ^ rightIsMinor)
+	{
+		if (alleleCounts.count(std::make_pair(false, false)) == 0) return true;
+		if (alleleCounts.count(std::make_pair(true, true)) == 0) return true;
+		return false;
+	}
+	if (alleleCounts.count(std::make_pair(true, false)) == 0) return true;
+	if (alleleCounts.count(std::make_pair(false, true)) == 0) return true;
+	return false;
+}
+
+std::vector<std::vector<size_t>> splitByLinkedMinorAlleles(const std::vector<std::vector<std::tuple<size_t, size_t, std::string>>>& editsPerRead)
+{
+	const size_t minCoverage = std::max<size_t>(10, editsPerRead.size()*0.1);
+	const size_t minDistance = 100;
+	if (editsPerRead.size() < 2*minCoverage)
+	{
+		std::vector<std::vector<size_t>> result;
+		result.emplace_back();
+		for (size_t i = 0; i < editsPerRead.size(); i++)
+		{
+			result.back().emplace_back(i);
+		}
+		return result;
+	}
+	phmap::flat_hash_map<std::tuple<size_t, size_t, std::string>, std::vector<size_t>> readsWithEdit;
+	for (size_t i = 0; i < editsPerRead.size(); i++)
+	{
+		for (const auto& t : editsPerRead[i])
+		{
+			readsWithEdit[t].emplace_back(i);
+		}
+	}
+	std::vector<std::tuple<size_t, size_t, std::string>> coveredEdits;
+	for (const auto& pair : readsWithEdit)
+	{
+		if (pair.second.size() < minCoverage) continue;
+		if (pair.second.size()+minCoverage > editsPerRead.size()) continue;
+		coveredEdits.emplace_back(pair.first);
+	}
+	std::sort(coveredEdits.begin(), coveredEdits.end());
+	std::vector<std::vector<size_t>> allelesPerRead;
+	allelesPerRead.resize(editsPerRead.size());
+	for (size_t i = 0; i < coveredEdits.size(); i++)
+	{
+		for (size_t j = i+1; j < coveredEdits.size(); j++)
+		{
+			if (std::get<0>(coveredEdits[j]) < std::get<1>(coveredEdits[i])+minDistance) continue;
+			if (!minorAllelesPerfectlyLinked(readsWithEdit, coveredEdits[i], coveredEdits[j], editsPerRead.size())) continue;
+			std::cerr << "minor alleles perfectly linked poses " << std::get<0>(coveredEdits[i]) << "-" << std::get<1>(coveredEdits[i]) << " " << std::get<0>(coveredEdits[j]) << "-" << std::get<1>(coveredEdits[j]) << std::endl;
+			std::vector<bool> hasFirstEdit;
+			hasFirstEdit.resize(editsPerRead.size(), false);
+			for (size_t read : readsWithEdit.at(coveredEdits[i]))
+			{
+				hasFirstEdit[read] = true;
+				allelesPerRead[read].emplace_back(1);
+			}
+			for (size_t read = 0; read < hasFirstEdit.size(); read++)
+			{
+				if (hasFirstEdit[read]) continue;
+				allelesPerRead[read].emplace_back(0);
+			}
+			std::vector<bool> hasSecondEdit;
+			hasSecondEdit.resize(editsPerRead.size(), false);
+			for (size_t read : readsWithEdit.at(coveredEdits[j]))
+			{
+				hasSecondEdit[read] = true;
+				allelesPerRead[read].emplace_back(1);
+			}
+			for (size_t read = 0; read < hasSecondEdit.size(); read++)
+			{
+				if (hasSecondEdit[read]) continue;
+				allelesPerRead[read].emplace_back(0);
+			}
+			break;
+		}
+		if (allelesPerRead[0].size() > 0) break;
+	}
+	std::map<std::vector<size_t>, size_t> allelesToCluster;
+	std::vector<std::vector<size_t>> result;
+	for (size_t i = 0; i < allelesPerRead.size(); i++)
+	{
+		if (allelesToCluster.count(allelesPerRead[i]) == 0)
+		{
+			size_t cluster = result.size();
+			allelesToCluster[allelesPerRead[i]] = cluster;
+			result.emplace_back();
+		}
+		result[allelesToCluster.at(allelesPerRead[i])].emplace_back(i);
+	}
+	return result;
+}
+
 std::vector<std::vector<size_t>> splitByEditLinkage(const std::vector<std::vector<std::tuple<size_t, size_t, std::string>>>& editsPerRead)
 {
 	const size_t minEditsWithinCluster = 5;
@@ -6516,6 +6655,17 @@ void callVariantsAndSplitRecursively(std::vector<std::vector<OntLoop>>& result, 
 		std::cerr << "split by edit linkage size " << cluster.size() << std::endl;
 		resultHere = splitByEditLinkage(edits);
 		std::cerr << "edit linkage splitted to " << resultHere.size() << " clusters:";
+		for (size_t i = 0; i < resultHere.size(); i++)
+		{
+			std::cerr << " " << resultHere[i].size();
+		}
+		std::cerr << std::endl;
+	}
+	if (resultHere.size() == 1)
+	{
+		std::cerr << "split by linked minor alleles size " << cluster.size() << std::endl;
+		resultHere = splitByLinkedMinorAlleles(edits);
+		std::cerr << "linked minor alleles splitted to " << resultHere.size() << " clusters:";
 		for (size_t i = 0; i < resultHere.size(); i++)
 		{
 			std::cerr << " " << resultHere[i].size();
