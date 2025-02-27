@@ -491,6 +491,18 @@ __attribute__((always_inline)) inline size_t getBitvectorMatchLength(uint64_t le
 	return prefixMatchPlusOne-1;
 }
 
+__attribute__((always_inline)) inline size_t getMatchLength(const std::string& left, const std::string& right, const size_t leftStart, const size_t rightStart)
+{
+	if (leftStart == left.size() || rightStart == right.size()) return 0;
+	size_t result = 0;
+	while (leftStart+result < left.size() && rightStart+result < right.size())
+	{
+		if (left[leftStart+result] != right[rightStart+result]) break;
+		result += 1;
+	}
+	return result;
+}
+
 __attribute__((always_inline)) inline size_t getMatchLength(const TwobitString& left, const TwobitString& right, const size_t leftStart, const size_t rightStart)
 {
 	size_t result = 0;
@@ -2454,6 +2466,11 @@ size_t getDPRowBacktracePos(const std::string& compareQuerySeq, const std::strin
 	while (j > columnNum)
 	{
 		assert(j > 0);
+		if (i == 0)
+		{
+			j -= 1
+			continue;
+		}
 		assert(i > 0);
 		bool match = (compareQuerySeq[i-1] == compareRefSeq[j-1]);
 		if (DPmatrix[i-1][j-1] + (match ? 0 : 1) == DPmatrix[i][j])
@@ -2723,6 +2740,48 @@ std::vector<OntLoop> extractLoopSequences(const std::vector<ReadPath>& corrected
 		}
 	}
 	return result;
+}
+
+size_t getEditDistanceWfa(const std::string& left, const std::string& right)
+{
+	std::vector<size_t> offsets;
+	std::vector<size_t> nextOffsets;
+	offsets.resize(1, 0);
+	const size_t leftSize = left.size();
+	const size_t rightSize = right.size();
+	offsets[0] = getMatchLength(left, right, 0, 0);
+	if (offsets[0] == leftSize) return rightSize - leftSize;
+	if (offsets[0] == rightSize) return leftSize - rightSize;
+	size_t zeroPos = 1;
+	for (size_t score = 0; score < std::max(left.size(), right.size()); score++)
+	{
+		nextOffsets.resize(offsets.size()+2);
+		for (size_t i = 0; i < nextOffsets.size(); i++)
+		{
+			nextOffsets[i] = 0;
+			if (i < zeroPos && zeroPos-i >= left.size()) continue;
+			if (i > zeroPos && i-zeroPos >= right.size()) continue;
+			if (i >= 1 && i < nextOffsets.size()-1) nextOffsets[i] = offsets[i-1]+1;
+			if (i >= 2) nextOffsets[i] = std::max(nextOffsets[i], offsets[i-2]);
+			if (i < nextOffsets.size()-2) nextOffsets[i] = std::max(nextOffsets[i], offsets[i]+1);
+			assert(nextOffsets[i] + i >= zeroPos);
+			nextOffsets[i] = std::min(nextOffsets[i], rightSize - i + zeroPos);
+			nextOffsets[i] = std::min(nextOffsets[i], leftSize);
+			assert(nextOffsets[i] + i >= zeroPos);
+			assert(nextOffsets[i]+i-zeroPos <= rightSize);
+			assert(nextOffsets[i] <= leftSize);
+			nextOffsets[i] += getMatchLength(left, right, nextOffsets[i], nextOffsets[i]+i-zeroPos);
+			assert(nextOffsets[i]+i-zeroPos <= rightSize);
+			assert(nextOffsets[i] <= leftSize);
+			if (nextOffsets[i] == leftSize && nextOffsets[i]+i-zeroPos == rightSize) return score;
+			assert(nextOffsets[i] + i >= zeroPos);
+		}
+		std::swap(offsets, nextOffsets);
+		zeroPos += 1;
+		assert(score < leftSize+rightSize);
+	}
+	assert(false);
+	return std::max(left.size(), right.size())+1;
 }
 
 size_t getEditDistanceWfa(const PathSequenceView& left, const PathSequenceView& right, const size_t maxEdits)
@@ -5014,6 +5073,284 @@ bool isBigIndel(const std::tuple<size_t, size_t, std::string>& variant)
 	return false;
 }
 
+template <typename F>
+void iterateKmers(const std::string seq, const size_t k, F callback)
+{
+	if (seq.size() < k) return;
+	const uint64_t mask = (1ull << (2ull * k)) - 1;
+	uint64_t kmer = 0;
+	for (size_t i = 0; i < k; i++)
+	{
+		kmer <<= 2;
+		switch(seq[i])
+		{
+			case 'A':
+				kmer += 0;
+				break;
+			case 'C':
+				kmer += 1;
+				break;
+			case 'G':
+				kmer += 2;
+				break;
+			case 'T':
+				kmer += 3;
+				break;
+			default:
+				assert(false);
+				break;
+		}
+	}
+	callback(kmer, 0);
+	for (size_t i = k; i < seq.size(); i++)
+	{
+		kmer <<= 2;
+		kmer &= mask;
+		switch(seq[i])
+		{
+			case 'A':
+				kmer += 0;
+				break;
+			case 'C':
+				kmer += 1;
+				break;
+			case 'G':
+				kmer += 2;
+				break;
+			case 'T':
+				kmer += 3;
+				break;
+			default:
+				assert(false);
+				break;
+		}
+		callback(kmer, i-k+1);
+	}
+}
+
+std::vector<std::vector<size_t>> getAllPresentKmerChain(const std::string consensusSeq, const std::vector<OntLoop>& loops, const size_t k)
+{
+	phmap::flat_hash_map<uint64_t, size_t> kmerPosition;
+	phmap::flat_hash_set<uint64_t> duplicateKmers;
+	phmap::flat_hash_set<uint64_t> kmersEverywhere;
+	iterateKmers(consensusSeq, k, [&kmerPosition, &duplicateKmers](const uint64_t kmer, const size_t position)
+	{
+		if (kmerPosition.count(kmer) == 1)
+		{
+			duplicateKmers.insert(kmer);
+			return;
+		}
+		kmerPosition[kmer] = position;
+	});
+	for (auto pair : kmerPosition)
+	{
+		if (duplicateKmers.count(pair.first) == 1) continue;
+		kmersEverywhere.insert(pair.first);
+	}
+	for (size_t i = 0; i < loops.size(); i++)
+	{
+		phmap::flat_hash_set<uint64_t> kmersHere;
+		iterateKmers(loops[i].rawSequence, k, [&duplicateKmers, &kmersHere](const uint64_t kmer, const size_t position)
+		{
+			if (kmersHere.count(kmer) == 1)
+			{
+				duplicateKmers.insert(kmer);
+				return;
+			}
+			kmersHere.insert(kmer);
+		});
+		for (auto kmer : kmersEverywhere)
+		{
+			if (kmersHere.count(kmer) == 0) duplicateKmers.insert(kmer);
+		}
+	}
+	std::vector<std::pair<size_t, uint64_t>> kmerPositionsInConsensus;
+	for (auto pair : kmerPosition)
+	{
+		if (duplicateKmers.count(pair.first) == 1) continue;
+		kmerPositionsInConsensus.emplace_back(pair.second, pair.first);
+	}
+	std::sort(kmerPositionsInConsensus.begin(), kmerPositionsInConsensus.end());
+	phmap::flat_hash_map<uint64_t, size_t> kmerToIndex;
+	for (size_t i = 0; i < kmerPositionsInConsensus.size(); i++)
+	{
+		kmerToIndex[kmerPositionsInConsensus[i].second] = i;
+	}
+	std::vector<std::vector<size_t>> kmerPositionWithinLoop;
+	kmerPositionWithinLoop.resize(kmerPositionsInConsensus.size());
+	for (size_t i = 0; i < kmerPositionWithinLoop.size(); i++)
+	{
+		kmerPositionWithinLoop[i].resize(loops.size(), std::numeric_limits<size_t>::max());
+	}
+	for (size_t i = 0; i < loops.size(); i++)
+	{
+		iterateKmers(loops[i].rawSequence, k, [&kmerPositionWithinLoop, &kmerToIndex, i](const uint64_t kmer, const size_t position)
+		{
+			if (kmerToIndex.count(kmer) == 0) return;
+			assert(kmerPositionWithinLoop[kmerToIndex.at(kmer)][i] == std::numeric_limits<size_t>::max());
+			kmerPositionWithinLoop[kmerToIndex.at(kmer)][i] = position;
+		});
+	}
+	for (size_t i = 0; i < kmerPositionWithinLoop.size(); i++)
+	{
+		for (size_t j = 0; j < kmerPositionWithinLoop[i].size(); j++)
+		{
+			assert(kmerPositionWithinLoop[i][j] != std::numeric_limits<size_t>::max());
+		}
+	}
+	std::cerr << "cluster with " << loops.size() << " reads has " << kmerPositionWithinLoop.size() << " all-present kmers before chain filter" << std::endl;
+	while (true)
+	{
+		std::vector<size_t> indexConflictCount;
+		indexConflictCount.resize(kmerPositionWithinLoop.size(), false);
+		for (size_t i = 1; i < kmerPositionWithinLoop.size(); i++)
+		{
+			assert(kmerPositionWithinLoop[i].size() == loops.size());
+			assert(kmerPositionWithinLoop[i-1].size() == loops.size());
+			for (size_t j = 0; j < loops.size(); j++)
+			{
+				assert(kmerPositionWithinLoop[i-1][j] != kmerPositionWithinLoop[i][j]);
+				if (kmerPositionWithinLoop[i-1][j] < kmerPositionWithinLoop[i][j]) continue;
+				indexConflictCount[i] += 1;
+				indexConflictCount[i-1] += 1;
+			}
+		}
+		std::vector<bool> removeIndex;
+		removeIndex.resize(kmerPositionWithinLoop.size(), false);
+		for (size_t i = 0; i < kmerPositionWithinLoop.size(); i++)
+		{
+			if (indexConflictCount[i] == 0) continue;
+			if (i > 0 && indexConflictCount[i-1] > indexConflictCount[i]) continue;
+			if (i+1 < kmerPositionWithinLoop.size() && indexConflictCount[i+1] > indexConflictCount[i]) continue;
+			removeIndex[i] = true;
+		}
+		bool removedAny = false;
+		for (size_t i = kmerPositionWithinLoop.size()-1; i < kmerPositionWithinLoop.size(); i--)
+		{
+			if (!removeIndex[i]) continue;
+			kmerPositionWithinLoop.erase(kmerPositionWithinLoop.begin() + i);
+			removedAny = true;
+		}
+		if (!removedAny) break;
+	}
+	return kmerPositionWithinLoop;
+}
+
+void clusterBubbleAlleles(std::vector<std::vector<size_t>>& result, const std::vector<OntLoop>& loops, const std::vector<size_t>& previousMatchIndices, const std::vector<size_t>& currentMatchIndices, const size_t k)
+{
+	const size_t minCoverage = 3;
+	const double maxDivergence = 0.1;
+	size_t maxClusterDistance = 10;
+	std::vector<std::string> substrings;
+	for (size_t i = 0; i < loops.size(); i++)
+	{
+		assert(loops[i].rawSequence.size() >= currentMatchIndices[i]+k);
+		assert(currentMatchIndices[i] > previousMatchIndices[i]);
+		substrings.emplace_back(loops[i].rawSequence.substr(previousMatchIndices[i], currentMatchIndices[i]-previousMatchIndices[i]+k));
+		assert(substrings.back().size() >= k+1);
+		maxClusterDistance = std::max<size_t>(maxClusterDistance, substrings[i].size() * maxDivergence);
+	}
+	std::vector<std::vector<size_t>> distanceMatrix;
+	distanceMatrix.emplace_back();
+	size_t maxDistance = 0;
+	for (size_t i = 1; i < loops.size(); i++)
+	{
+		distanceMatrix.emplace_back();
+		for (size_t j = 0; j < i; j++)
+		{
+			distanceMatrix.back().emplace_back(getEditDistanceWfa(substrings[i], substrings[j]));
+			maxDistance = std::max(maxDistance, distanceMatrix.back().back());
+		}
+	}
+	if (maxDistance < maxClusterDistance) return;
+	std::vector<size_t> parent;
+	for (size_t i = 0; i < loops.size(); i++)
+	{
+		parent.emplace_back(i);
+	}
+	for (size_t i = 1; i < loops.size(); i++)
+	{
+		for (size_t j = 0; j < i; j++)
+		{
+			if (distanceMatrix[i][j] > maxClusterDistance) continue;
+			merge(parent, i, j);
+		}
+	}
+	phmap::flat_hash_set<size_t> distinctClusters;
+	std::vector<std::vector<size_t>> clusters;
+	clusters.resize(loops.size());
+	for (size_t i = 0; i < parent.size(); i++)
+	{
+		clusters[find(parent, i)].emplace_back(i);
+		distinctClusters.insert(find(parent, i));
+	}
+	if (distinctClusters.size() < 2) return;
+	bool allClustersAreCliques = true;
+	bool hasSmallCluster = false;
+	for (size_t i = 0; i < clusters.size(); i++)
+	{
+		if (clusters[i].size() > 0 && clusters[i].size() < minCoverage)
+		{
+			hasSmallCluster = true;
+			break;
+		}
+		for (size_t j = 1; j < clusters[i].size(); j++)
+		{
+			for (size_t k = 0; k < j; k++)
+			{
+				size_t smaller = std::min(clusters[i][j], clusters[i][k]);
+				size_t bigger = std::max(clusters[i][j], clusters[i][k]);
+				if (distanceMatrix[bigger][smaller] > maxClusterDistance)
+				{
+					allClustersAreCliques = false;
+					break;
+				}
+			}
+			if (!allClustersAreCliques) break;
+		}
+		if (!allClustersAreCliques) break;
+	}
+	if (hasSmallCluster) return;
+	if (!allClustersAreCliques) return;
+	// distance between clusters is always at least maxClusterDistance+1 because of union-find
+	for (size_t i = 0; i < clusters.size(); i++)
+	{
+		for (size_t read : clusters[i])
+		{
+			result[read].emplace_back(i);
+		}
+	}
+}
+
+std::vector<std::vector<size_t>> splitByBubbleAlleles(const std::vector<OntLoop>& loops, const GfaGraph& graph, const std::unordered_map<Node, size_t>& pathStartClip, const std::unordered_map<Node, size_t>& pathEndClip, const size_t numThreads)
+{
+	const size_t k = 15;
+	auto path = getConsensusPath(loops, graph);
+	std::string consensusSeq = getConsensusSequence(path, graph, pathStartClip, pathEndClip);
+	consensusSeq = getPolishedSequence(consensusSeq, loops, numThreads);
+	std::vector<std::vector<size_t>> kmerChain = getAllPresentKmerChain(consensusSeq, loops, k);
+	std::cerr << "cluster with " << loops.size() << " reads has " << kmerChain.size() << " all-present kmers in chain" << std::endl;
+	std::vector<std::vector<size_t>> allelesPerRead;
+	allelesPerRead.resize(loops.size());
+	for (size_t i = 1; i < kmerChain.size(); i++)
+	{
+		clusterBubbleAlleles(allelesPerRead, loops, kmerChain[i-1], kmerChain[i], k);
+	}
+	std::cerr << "cluster with " << loops.size() << " reads has " << allelesPerRead[0].size() << " alleles" << std::endl;
+	std::map<std::vector<size_t>, size_t> allelesToCluster;
+	std::vector<std::vector<size_t>> result;
+	for (size_t i = 0; i < allelesPerRead.size(); i++)
+	{
+		if (allelesToCluster.count(allelesPerRead[i]) == 0)
+		{
+			allelesToCluster[allelesPerRead[i]] = result.size();
+			result.emplace_back();
+		}
+		result[allelesToCluster.at(allelesPerRead[i])].emplace_back(i);
+	}
+	return result;
+}
+
 std::vector<std::vector<std::tuple<size_t, size_t, std::string>>> getEditsForPhasing(const std::vector<OntLoop>& loops, const GfaGraph& graph, const std::unordered_map<Node, size_t>& pathStartClip, const std::unordered_map<Node, size_t>& pathEndClip, const size_t numThreads)
 {
 	auto path = getConsensusPath(loops, graph);
@@ -5669,61 +6006,6 @@ void splitAndAddRecursively(std::vector<std::vector<size_t>>& result, const std:
 	}
 	std::cerr << "add cluster of size " << previous.size() << std::endl;
 	result.emplace_back(indicesHere);
-}
-
-template <typename F>
-void iterateKmers(const std::string seq, const size_t k, F callback)
-{
-	if (seq.size() < k) return;
-	const uint64_t mask = (1ull << (2ull * k)) - 1;
-	uint64_t kmer = 0;
-	for (size_t i = 0; i < k; i++)
-	{
-		kmer <<= 2;
-		switch(seq[i])
-		{
-			case 'A':
-				kmer += 0;
-				break;
-			case 'C':
-				kmer += 1;
-				break;
-			case 'G':
-				kmer += 2;
-				break;
-			case 'T':
-				kmer += 3;
-				break;
-			default:
-				assert(false);
-				break;
-		}
-	}
-	callback(kmer, 0);
-	for (size_t i = k; i < seq.size(); i++)
-	{
-		kmer <<= 2;
-		kmer &= mask;
-		switch(seq[i])
-		{
-			case 'A':
-				kmer += 0;
-				break;
-			case 'C':
-				kmer += 1;
-				break;
-			case 'G':
-				kmer += 2;
-				break;
-			case 'T':
-				kmer += 3;
-				break;
-			default:
-				assert(false);
-				break;
-		}
-		callback(kmer, i-k+1);
-	}
 }
 
 void filterUniqueRegionsToSpan(std::vector<std::pair<size_t, size_t>>& uniqueRegionsInRef, const size_t minPos, const size_t maxPos)
@@ -6799,6 +7081,17 @@ void callVariantsAndSplitRecursively(std::vector<std::vector<OntLoop>>& result, 
 	for (size_t i = 0; i < cluster.size(); i++) allIndices.emplace_back(i);
 	splitAndAddRecursively(resultHere, cluster, phasableVariantInfo, allIndices);
 	assert(resultHere.size() >= 1);
+	if (resultHere.size() == 1)
+	{
+		std::cerr << "split by bubble alleles size " << cluster.size() << std::endl;
+		resultHere = splitByBubbleAlleles(cluster, graph, pathStartClip, pathEndClip, numThreads);
+		std::cerr << "bubble alleles splitted to " << resultHere.size() << " clusters:";
+		for (size_t i = 0; i < resultHere.size(); i++)
+		{
+			std::cerr << " " << resultHere[i].size();
+		}
+		std::cerr << std::endl;
+	}
 	if (resultHere.size() == 1)
 	{
 		std::cerr << "split by SNP MSA size " << cluster.size() << std::endl;
