@@ -4188,7 +4188,7 @@ std::string getPolishedSequence(const std::string& rawConsensus, const std::vect
 	std::vector<std::tuple<size_t, size_t, std::string>> pickedEdits;
 	for (const auto& pair : editCounts)
 	{
-		if (!(pair.second > loops.size() * 0.6)) continue; // roundabout comparison to make sure rounding issues are handled more conservatively
+		if (pair.second*1.5 <= loops.size()) continue; // only pick edits supported by strictly >2/3 reads
 		pickedEdits.emplace_back(pair.first);
 	}
 	std::sort(pickedEdits.begin(), pickedEdits.end(), [](auto& left, auto& right) { return std::get<0>(left) < std::get<0>(right); });
@@ -7284,6 +7284,8 @@ void DoClusterONTAnalysis(const ClusterParams& params)
 	std::cerr << clusters.size() << " phased clusters" << std::endl;
 	std::sort(clusters.begin(), clusters.end(), [](const auto& left, const auto& right) { return left.size() > right.size(); });
 	addRawSequenceNamesToLoops(clusters);
+	std::cerr << "write raw ONT loop sequences" << std::endl;
+	writeRawOntLoopSequences(params.basePath + "/raw_loops.fa", clusters);
 	std::cerr << "getting morph consensuses" << std::endl;
 	auto morphConsensuses = getMorphConsensuses(clusters, graph, pathStartClip, pathEndClip, params.namePrefix);
 	std::cerr << "polishing morph consensuses" << std::endl;
@@ -7294,8 +7296,6 @@ void DoClusterONTAnalysis(const ClusterParams& params)
 	writeMorphPaths(params.basePath + "/morphs.gaf", morphConsensuses, graph, pathStartClip, pathEndClip);
 	std::cerr << "write morph graph and read paths" << std::endl;
 	writeMorphGraphAndReadPaths(params.basePath + "/morphgraph.gfa", params.basePath + "/readpaths-morphgraph.gaf", morphConsensuses);
-	std::cerr << "write raw ONT loop sequences" << std::endl;
-	writeRawOntLoopSequences(params.basePath + "/raw_loops.fa", clusters);
 	if (params.winnowmapPath != "" && params.samtoolsPath != "")
 	{
 		std::cerr << "realign raw ONT loop sequences to morph consensuses" << std::endl;
