@@ -1404,6 +1404,7 @@ std::vector<ReadPath> loadReadPaths(const std::string& filename, const GfaGraph&
 		size_t pathLength = std::stoull(parts[6]);
 		size_t pathStart = std::stoull(parts[7]);
 		size_t pathEnd = std::stoull(parts[8]);
+		here.readName = readname;
 		here.readLength = readlength;
 		here.readStart = readstart;
 		here.readEnd = readend;
@@ -5017,6 +5018,7 @@ std::vector<std::vector<std::tuple<size_t, size_t, std::string>>> getEditsForPha
 {
 	auto path = getConsensusPath(loops, graph);
 	std::string consensusSeq = getConsensusSequence(path, graph, pathStartClip, pathEndClip);
+	consensusSeq = getPolishedSequence(consensusSeq, loops, numThreads);
 	size_t firstMatchPos = 0;
 	size_t lastMatchPos = consensusSeq.size();;
 	std::vector<std::vector<std::tuple<size_t, size_t, std::string>>> editsPerRead;
@@ -6608,7 +6610,176 @@ std::vector<std::vector<size_t>> splitByEditLinkage(const std::vector<std::vecto
 	return result;
 }
 
-void callVariantsAndSplitRecursively(std::vector<std::vector<OntLoop>>& result, const std::vector<OntLoop>& cluster, const GfaGraph& graph, const std::unordered_map<Node, size_t>& pathStartClip, const std::unordered_map<Node, size_t>& pathEndClip, const size_t numThreads)
+std::pair<size_t, size_t> getBubble(const GfaGraph& graph, const Node startNode)
+{
+	const std::pair<size_t, size_t> noBubble { std::numeric_limits<size_t>::max(), std::numeric_limits<size_t>::max() };
+	// std::numeric_limits<size_t>::max() cannot be used for undefined because Node can't contain it
+	// break convention and use graph.numNodes() as undefined
+	const Node undefinedNode { graph.numNodes(), true };
+	if (graph.edges.count(startNode) == 0) return noBubble;
+	if (graph.edges.at(startNode).size() != 2) return noBubble;
+	Node otherSide = undefinedNode;
+	size_t alleleOne = std::numeric_limits<size_t>::max();
+	size_t alleleTwo = std::numeric_limits<size_t>::max();
+	for (auto edge : graph.edges.at(startNode))
+	{
+		Node target = std::get<0>(edge);
+		if (graph.edges.count(target) == 0) return noBubble;
+		if (graph.edges.at(target).size() != 1) return noBubble;
+		assert(graph.edges.count(reverse(target)) == 1);
+		if (graph.edges.at(reverse(target)).size() != 1) return noBubble;
+		if (otherSide == undefinedNode)
+		{
+			assert(alleleOne == std::numeric_limits<size_t>::max());
+			alleleOne = target.id();
+			otherSide = std::get<0>(*graph.edges.at(target).begin());
+		}
+		else
+		{
+			assert(alleleOne != std::numeric_limits<size_t>::max());
+			assert(alleleTwo == std::numeric_limits<size_t>::max());
+			alleleTwo = target.id();
+			if (std::get<0>(*graph.edges.at(target).begin()) != otherSide) return noBubble;
+		}
+	}
+	assert(otherSide != undefinedNode);
+	assert(graph.edges.count(reverse(otherSide)) == 1);
+	if (graph.edges.at(reverse(otherSide)).size() != 2) return noBubble;
+	if (alleleOne == startNode.id()) return noBubble;
+	if (alleleOne == otherSide.id()) return noBubble;
+	if (alleleTwo == startNode.id()) return noBubble;
+	if (alleleTwo == otherSide.id()) return noBubble;
+	if (alleleOne == alleleTwo) return noBubble;
+	return std::make_pair(alleleOne, alleleTwo);
+}
+
+std::vector<std::pair<std::vector<std::vector<size_t>>, size_t>> getDBGvariants(const std::vector<OntLoop>& cluster, const std::string MBGPath, const std::string tmpPath)
+{
+	size_t minCoverage = 5;
+	std::string graphFile = tmpPath + "/tmpgraph.gfa";
+	std::string pathsFile = tmpPath + "/tmppaths.gaf";
+	std::string readsFile = tmpPath + "/tmpreads.fa";
+	{
+		std::ofstream file { readsFile };
+		for (size_t i = 0; i < cluster.size(); i++)
+		{
+			file << ">" << i << std::endl;
+			file << cluster[i].rawSequence << std::endl;
+		}
+	}
+	std::string mbgCommand = MBGPath + " -i " + readsFile + " -o " + graphFile + " --output-sequence-paths " + pathsFile + " --error-masking=no -a 5 -u 5 --no-multiplex-cleaning -r 18446744073709551615 -R 18446744073709551615 -k 31 --only-local-resolve --do-unsafe-guesswork-resolutions 1> " + tmpPath + "/tmpstdout.txt 2> " + tmpPath + "/tmpstderr.txt";
+	std::cerr << "MBG command:" << std::endl;
+	std::cerr << mbgCommand << std::endl;
+	int runresult = system(mbgCommand.c_str());
+	if (runresult != 0)
+	{
+		std::cerr << "MBG did not run successfully" << std::endl;
+		std::abort();
+	}
+	GfaGraph graph;
+	graph.loadFromFile(graphFile);
+	std::vector<ReadPath> readPaths = loadReadPaths(pathsFile, graph);
+	std::vector<phmap::flat_hash_set<size_t>> readsTouchingNode;
+	readsTouchingNode.resize(graph.numNodes());
+	for (size_t i = 0; i < readPaths.size(); i++)
+	{
+		size_t read = std::stoull(readPaths[i].readName);
+		for (Node node : readPaths[i].path)
+		{
+			readsTouchingNode[node.id()].insert(read);
+		}
+	}
+	phmap::flat_hash_map<size_t, std::pair<size_t, size_t>> nodeBelongsToBubble;
+	size_t countBubbles = 0;
+	for (size_t i = 0; i < graph.numNodes(); i++)
+	{
+		if (readsTouchingNode[i].size() != cluster.size()) continue;
+		std::pair<size_t, size_t> bubble = getBubble(graph, Node { i, true });
+		if (bubble.first != std::numeric_limits<size_t>::max())
+		{
+			assert(bubble.second != std::numeric_limits<size_t>::max());
+			assert(bubble.first != bubble.second);
+			if (nodeBelongsToBubble.count(std::min(bubble.first, bubble.second)) == 1)
+			{
+				assert(nodeBelongsToBubble.count(std::max(bubble.first, bubble.second)) == 1);
+			}
+			else
+			{
+				nodeBelongsToBubble[std::min(bubble.first, bubble.second)] = std::make_pair(countBubbles, 0);
+				nodeBelongsToBubble[std::max(bubble.first, bubble.second)] = std::make_pair(countBubbles, 1);
+				countBubbles += 1;
+			}
+		}
+		bubble = getBubble(graph, Node { i, false });
+		if (bubble.first != std::numeric_limits<size_t>::max())
+		{
+			assert(bubble.second != std::numeric_limits<size_t>::max());
+			assert(bubble.first != bubble.second);
+			if (nodeBelongsToBubble.count(std::min(bubble.first, bubble.second)) == 1)
+			{
+				assert(nodeBelongsToBubble.count(std::max(bubble.first, bubble.second)) == 1);
+			}
+			else
+			{
+				nodeBelongsToBubble[std::min(bubble.first, bubble.second)] = std::make_pair(countBubbles, 0);
+				nodeBelongsToBubble[std::max(bubble.first, bubble.second)] = std::make_pair(countBubbles, 1);
+				countBubbles += 1;
+			}
+		}
+	}
+	std::vector<std::pair<std::vector<std::vector<size_t>>, size_t>> result;
+	result.resize(countBubbles);
+	for (size_t i = 0; i < result.size(); i++)
+	{
+		result[i].second = i*1000; // fake positions, graph always has good good sites and doesn't falsely split a single variant into multiple edits
+		result[i].first.resize(3); // always simple biallelic bubbles plus one for reads with no bubble allele because of sequencing errors
+	}
+	for (size_t i = 0; i < graph.numNodes(); i++)
+	{
+		if (nodeBelongsToBubble.count(i) == 0) continue;
+		size_t bubbleIndex = nodeBelongsToBubble.at(i).first;
+		size_t alleleIndex = nodeBelongsToBubble.at(i).second;
+		for (size_t read : readsTouchingNode[i])
+		{
+			result[bubbleIndex].first[alleleIndex].emplace_back(read);
+		}
+	}
+	for (size_t i = result.size()-1; i < result.size(); i--)
+	{
+		std::vector<bool> hasAllele;
+		hasAllele.resize(cluster.size());
+		assert(result[i].first.size() == 3);
+		assert(result[i].first[2].size() == 0);
+		bool good = true;
+		if (result[i].first[0].size() < minCoverage) good = false;
+		if (result[i].first[1].size() < minCoverage) good = false;
+		for (size_t j = 0; j < 2; j++)
+		{
+			for (size_t read : result[i].first[j])
+			{
+				if (hasAllele[read]) good = false;
+				hasAllele[read] = true;
+			}
+		}
+		for (size_t j = 0; j < hasAllele.size(); j++)
+		{
+			if (hasAllele[j]) continue;
+			result[i].first[2].emplace_back(j);
+		}
+		if (result[i].first[2].size() >= 3) good = false;
+		// equality valid for breaking because truncation rounds down, only allow missing values once coverage is 20
+		if (result[i].first[0].size() + result[i].first[1].size() <= cluster.size()*0.95) good = false;
+		if (!good)
+		{
+			std::swap(result[i], result.back());
+			result.pop_back();
+		}
+	}
+	std::sort(result.begin(), result.end(), [](const auto& left, const auto& right) { return left.second < right.second; });
+	return result;
+}
+
+void callVariantsAndSplitRecursively(std::vector<std::vector<OntLoop>>& result, const std::vector<OntLoop>& cluster, const GfaGraph& graph, const std::unordered_map<Node, size_t>& pathStartClip, const std::unordered_map<Node, size_t>& pathEndClip, const size_t numThreads, const std::string MBGPath, const std::string tmpPath)
 {
 	if (cluster.size() <= 5)
 	{
@@ -6638,6 +6809,23 @@ void callVariantsAndSplitRecursively(std::vector<std::vector<OntLoop>>& result, 
 		if (resultHere.size() > 1)
 		{
 			std::cerr << "SNP MSA splitted to " << resultHere.size() << " clusters:";
+			for (size_t i = 0; i < resultHere.size(); i++)
+			{
+				std::cerr << " " << resultHere[i].size();
+			}
+			std::cerr << std::endl;
+		}
+	}
+	if (resultHere.size() == 1)
+	{
+		std::cerr << "split by DBG variants size " << cluster.size() << std::endl;
+		auto DBGvariants = getDBGvariants(cluster, MBGPath, tmpPath);
+		std::cerr << DBGvariants.size() << " sites in DBG variants" << std::endl;
+		resultHere.clear();
+		splitAndAddRecursively(resultHere, cluster, DBGvariants, allIndices);
+		if (resultHere.size() > 1)
+		{
+			std::cerr << "DBG variants splitted to " << resultHere.size() << " clusters:";
 			for (size_t i = 0; i < resultHere.size(); i++)
 			{
 				std::cerr << " " << resultHere[i].size();
@@ -6701,7 +6889,7 @@ void callVariantsAndSplitRecursively(std::vector<std::vector<OntLoop>>& result, 
 		{
 			filteredClusters.emplace_back(cluster[j]);
 		}
-		callVariantsAndSplitRecursively(result, filteredClusters, graph, pathStartClip, pathEndClip, numThreads);
+		callVariantsAndSplitRecursively(result, filteredClusters, graph, pathStartClip, pathEndClip, numThreads, MBGPath, tmpPath);
 	}
 }
 
@@ -6719,7 +6907,7 @@ void addRawSequencesToLoops(std::vector<std::vector<OntLoop>>& clusters, const G
 	}
 }
 
-std::vector<std::vector<OntLoop>> editSplitClusters(const std::vector<std::vector<OntLoop>>& clusters, const GfaGraph& graph, const std::unordered_map<Node, size_t>& pathStartClip, const std::unordered_map<Node, size_t>& pathEndClip, const size_t numThreads)
+std::vector<std::vector<OntLoop>> editSplitClusters(const std::vector<std::vector<OntLoop>>& clusters, const GfaGraph& graph, const std::unordered_map<Node, size_t>& pathStartClip, const std::unordered_map<Node, size_t>& pathEndClip, const size_t numThreads, const std::string MBGPath, const std::string tmpPath)
 {
 	std::vector<std::vector<OntLoop>> result;
 	for (size_t i = 0; i < clusters.size(); i++)
@@ -6730,7 +6918,7 @@ std::vector<std::vector<OntLoop>> editSplitClusters(const std::vector<std::vecto
 			result.emplace_back(clusters[i]);
 			continue;
 		}
-		callVariantsAndSplitRecursively(result, clusters[i], graph, pathStartClip, pathEndClip, numThreads);
+		callVariantsAndSplitRecursively(result, clusters[i], graph, pathStartClip, pathEndClip, numThreads, MBGPath, tmpPath);
 	}
 	return result;
 }
@@ -6789,13 +6977,13 @@ void DoClusterONTAnalysis(const ClusterParams& params)
 	std::cerr << "getting exact locations of raw loop sequences" << std::endl;
 	addRawSequencesToLoops(clusters, graph, pathStartClip, pathEndClip, params.ontReadPath, params.numThreads);
 	std::cerr << "phase clusters by raw sequences" << std::endl;
-	clusters = editSplitClusters(clusters, graph, pathStartClip, pathEndClip, params.numThreads);
+	clusters = editSplitClusters(clusters, graph, pathStartClip, pathEndClip, params.numThreads, params.MBGPath, params.basePath + "/tmp");
 	std::cerr << clusters.size() << " clusters" << std::endl;
 	std::cerr << "cluster loops by density" << std::endl;
 	clusters = densityClusterLoops(clusters, graph, pathStartClip, pathEndClip, coreNodes, params.maxClusterDifference, 5, params.minReclusterDistance);
 	std::cerr << clusters.size() << " clusters" << std::endl;
 	std::cerr << "phase clusters by raw sequences" << std::endl;
-	clusters = editSplitClusters(clusters, graph, pathStartClip, pathEndClip, params.numThreads);
+	clusters = editSplitClusters(clusters, graph, pathStartClip, pathEndClip, params.numThreads, params.MBGPath, params.basePath + "/tmp");
 	std::cerr << clusters.size() << " clusters" << std::endl;
 	// std::cerr << "phase clusters" << std::endl;
 	// clusters = phaseClusters(clusters);
