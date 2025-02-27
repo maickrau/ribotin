@@ -2468,7 +2468,7 @@ size_t getDPRowBacktracePos(const std::string& compareQuerySeq, const std::strin
 		assert(j > 0);
 		if (i == 0)
 		{
-			j -= 1
+			j -= 1;
 			continue;
 		}
 		assert(i > 0);
