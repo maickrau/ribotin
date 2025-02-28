@@ -124,6 +124,13 @@ namespace std
 			return std::hash<std::vector<Node>>{}(x.first) ^ std::hash<std::vector<Node>>{}(x.second);
 		}
 	};
+	template <> struct hash<__uint128_t>
+	{
+		size_t operator()(const __uint128_t& x) const
+		{
+			return std::hash<size_t>{}(x) ^ std::hash<size_t>{}(x >> 64);
+		}
+	};
 }
 
 std::vector<char> getComplement()
@@ -246,6 +253,7 @@ public:
 	size_t originalReadLength;
 	std::string rawSequence;
 	std::string rawLoopName;
+	std::string selfCorrectedSequence;
 };
 
 class MorphConsensus
@@ -4998,6 +5006,19 @@ std::vector<std::vector<std::string>> getRawLoopSequences(const std::vector<std:
 	return result;
 }
 
+void writeSelfCorrectedOntLoopSequences(const std::string outputFile, const std::vector<std::vector<OntLoop>>& loopSequences)
+{
+	std::ofstream file { outputFile };
+	for (size_t i = 0; i < loopSequences.size(); i++)
+	{
+		for (size_t j = 0; j < loopSequences[i].size(); j++)
+		{
+			file << ">" << loopSequences[i][j].rawLoopName << std::endl;
+			file << loopSequences[i][j].selfCorrectedSequence << std::endl;
+		}
+	}
+}
+
 void writeRawOntLoopSequences(const std::string outputFile, const std::vector<std::vector<OntLoop>>& loopSequences)
 {
 	std::ofstream file { outputFile };
@@ -5008,6 +5029,55 @@ void writeRawOntLoopSequences(const std::string outputFile, const std::vector<st
 			file << ">" << loopSequences[i][j].rawLoopName << std::endl;
 			file << loopSequences[i][j].rawSequence << std::endl;
 		}
+	}
+}
+
+void alignSelfCorrectedOntLoopsToMorphConsensuses(const std::vector<std::vector<OntLoop>>& loopSequences, std::string outputFile, std::string tmppath, const size_t numThreads, const std::vector<MorphConsensus>& morphConsensuses, const std::string& winnowmapPath, const std::string& samtoolsPath)
+{
+	for (size_t i = 0; i < morphConsensuses.size(); i++)
+	{
+		{
+			std::ofstream tmpReadsFile { tmppath + "/tmpreads.fa" };
+			std::ofstream tmpConsensusFile { tmppath + "/tmpconsensus.fa" };
+			for (size_t j = 0; j < loopSequences[i].size(); j++)
+			{
+				tmpReadsFile << ">" << loopSequences[i][j].rawLoopName << std::endl;
+				tmpReadsFile << loopSequences[i][j].selfCorrectedSequence << std::endl;
+			}
+			tmpConsensusFile << ">" << morphConsensuses[i].name << std::endl;
+			tmpConsensusFile << morphConsensuses[i].sequence << std::endl;
+		}
+		std::string winnowmapCommand = winnowmapPath + " -x map-ont -a -t " + std::to_string(numThreads) + " " + tmppath + "/tmpconsensus.fa " + tmppath + "/tmpreads.fa | " + samtoolsPath + " view -b | " + samtoolsPath + " sort > " + tmppath + "/tmpalns_" + std::to_string(i) + ".bam";
+		std::cerr << "winnowmap command:" << std::endl;
+		std::cerr << winnowmapCommand << std::endl;
+		int result = system(winnowmapCommand.c_str());
+		if (result != 0)
+		{
+			std::cerr << "alignment did not run successfully" << std::endl;
+			std::abort();
+		}
+	}
+	std::string mergeCommand = samtoolsPath + " merge -o " + outputFile;
+	for (size_t i = 0; i < morphConsensuses.size(); i++)
+	{
+		mergeCommand += " " + tmppath + "/tmpalns_" + std::to_string(i) + ".bam";
+	}
+	std::cerr << "samtools command:" << std::endl;
+	std::cerr << mergeCommand << std::endl;
+	int result = system(mergeCommand.c_str());
+	if (result != 0)
+	{
+		std::cerr << "samtools merge did not run successfully" << std::endl;
+		std::abort();
+	}
+	std::string indexCommand = samtoolsPath + " index -b " + outputFile;
+	std::cerr << "samtools command:" << std::endl;
+	std::cerr << indexCommand << std::endl;
+	result = system(indexCommand.c_str());
+	if (result != 0)
+	{
+		std::cerr << "samtools index did not run successfully" << std::endl;
+		std::abort();
 	}
 }
 
@@ -5077,8 +5147,8 @@ template <typename F>
 void iterateKmers(const std::string seq, const size_t k, F callback)
 {
 	if (seq.size() < k) return;
-	const uint64_t mask = (1ull << (2ull * k)) - 1;
-	uint64_t kmer = 0;
+	const __uint128_t mask = ((__uint128_t)1 << (__uint128_t)(2ull * k)) - (__uint128_t)1;
+	__uint128_t kmer = 0;
 	for (size_t i = 0; i < k; i++)
 	{
 		kmer <<= 2;
@@ -5199,6 +5269,12 @@ std::vector<std::vector<size_t>> getAllPresentKmerChain(const std::string consen
 		}
 	}
 	std::cerr << "cluster with " << loops.size() << " reads has " << kmerPositionWithinLoop.size() << " all-present kmers before chain filter" << std::endl;
+	std::cerr << "positions before chain checking:";
+	for (auto pair : kmerPositionsInConsensus)
+	{
+		std::cerr << " " << pair.first;
+	}
+	std::cerr << std::endl;
 	while (true)
 	{
 		std::vector<size_t> indexConflictCount;
@@ -5241,6 +5317,18 @@ void clusterBubbleAlleles(std::vector<std::vector<size_t>>& result, const std::v
 	const size_t minCoverage = 3;
 	const double maxDivergence = 0.1;
 	size_t maxClusterDistance = 10;
+	if (currentMatchIndices[0] < previousMatchIndices[0] + k)
+	{
+		bool allIdentical = true;
+		for (size_t i = 1; i < loops.size(); i++)
+		{
+			if (currentMatchIndices[i] - previousMatchIndices[i] != currentMatchIndices[0] - previousMatchIndices[0])
+			{
+				allIdentical = false;
+			}
+		}
+		if (allIdentical) return;
+	}
 	std::vector<std::string> substrings;
 	for (size_t i = 0; i < loops.size(); i++)
 	{
@@ -7227,6 +7315,400 @@ void addRawSequenceNamesToLoops(std::vector<std::vector<OntLoop>>& clusters)
 	}
 }
 
+template <typename F>
+void iterateSuccessorKmers(const __uint128_t kmer, const size_t k, F callback)
+{
+	const __uint128_t mask = ((__uint128_t)1 << (__uint128_t)(2ull*k))-(__uint128_t)1;
+	for (size_t i = 0; i < 4; i++)
+	{
+		callback(((kmer << 2) & mask) + i);
+	}
+}
+
+template <typename F>
+void iteratePredecessorKmers(const __uint128_t kmer, const size_t k, F callback)
+{
+	for (size_t i = 0; i < 4; i++)
+	{
+		callback((kmer >> 2) + ((__uint128_t)i << (__uint128_t)(2*(k-1))));
+	}
+}
+
+void addPath(std::string& result, const phmap::flat_hash_set<__uint128_t>& keptKmers, const size_t lastMatchPos, const size_t thisMatchPos, const std::string& rawSequence, const size_t k)
+{
+	const __uint128_t mask = ((__uint128_t)1 << (__uint128_t)(2ull*k))-(__uint128_t)1;
+	__uint128_t lastMatchKmer = 0;
+	__uint128_t thisMatchKmer = 0;
+	for (size_t i = 0; i < k; i++)
+	{
+		lastMatchKmer <<= 2;
+		thisMatchKmer <<= 2;
+		switch(rawSequence[lastMatchPos+i])
+		{
+			case 'A':
+				lastMatchKmer += 0;
+				break;
+			case 'C':
+				lastMatchKmer += 1;
+				break;
+			case 'G':
+				lastMatchKmer += 2;
+				break;
+			case 'T':
+				lastMatchKmer += 3;
+				break;
+			default:
+				assert(false);
+		}
+		switch(rawSequence[thisMatchPos+i])
+		{
+			case 'A':
+				thisMatchKmer += 0;
+				break;
+			case 'C':
+				thisMatchKmer += 1;
+				break;
+			case 'G':
+				thisMatchKmer += 2;
+				break;
+			case 'T':
+				thisMatchKmer += 3;
+				break;
+			default:
+				assert(false);
+		}
+	}
+	if (lastMatchKmer == thisMatchKmer)
+	{
+		result += rawSequence.substr(lastMatchPos + k, thisMatchPos - lastMatchPos);
+		return;
+	}
+	assert(keptKmers.count(lastMatchKmer) == 1);
+	assert(keptKmers.count(thisMatchKmer) == 1);
+	std::string unambiguousExtensionFromLast;
+	__uint128_t wanderKmer = lastMatchKmer;
+	phmap::flat_hash_set<__uint128_t> visited;
+	while (wanderKmer != thisMatchKmer)
+	{
+		size_t uniqueSuccessor = 4;
+		for (size_t i = 0; i < 4; i++)
+		{
+			__uint128_t testKmer = ((wanderKmer << (__uint128_t)2) & mask) + i;
+			if (keptKmers.count(testKmer) == 0) continue;
+			if (uniqueSuccessor == 4)
+			{
+				uniqueSuccessor = i;
+			}
+			else
+			{
+				uniqueSuccessor = 5;
+			}
+		}
+		if (uniqueSuccessor >= 4)
+		{
+			break;
+		}
+		unambiguousExtensionFromLast += "ACGT"[uniqueSuccessor];
+		size_t nextKmer = ((wanderKmer << 2) & mask) + uniqueSuccessor;
+		wanderKmer = nextKmer;
+		if (visited.count(wanderKmer) == 1) break;
+		visited.insert(wanderKmer);
+	}
+	if (wanderKmer == thisMatchKmer)
+	{
+		assert(unambiguousExtensionFromLast.size() >= 1);
+		result += unambiguousExtensionFromLast;
+		return;
+	}
+	visited.clear();
+	wanderKmer = thisMatchKmer;
+	unambiguousExtensionFromLast.clear();
+	while (wanderKmer != lastMatchKmer)
+	{
+		size_t uniquePredecessor = 4;
+		for (size_t i = 0; i < 4; i++)
+		{
+			__uint128_t testKmer = ((wanderKmer >> 2)) + (i << (2ull*(k-1ull)));
+			if (keptKmers.count(testKmer) == 0) continue;
+			if (uniquePredecessor == 4)
+			{
+				uniquePredecessor = i;
+			}
+			else
+			{
+				uniquePredecessor = 5;
+			}
+		}
+		if (uniquePredecessor >= 4)
+		{
+			break;
+		}
+		unambiguousExtensionFromLast += "ACGT"[wanderKmer & 3];
+		size_t nextKmer = ((wanderKmer >> 2)) + (uniquePredecessor << (2ull*(k-1ull)));
+		wanderKmer = nextKmer;
+		if (visited.count(wanderKmer) == 1) break;
+		visited.insert(wanderKmer);
+	}
+	if (wanderKmer == lastMatchKmer)
+	{
+		assert(unambiguousExtensionFromLast.size() >= 1);
+		std::reverse(unambiguousExtensionFromLast.begin(), unambiguousExtensionFromLast.end());
+		result += unambiguousExtensionFromLast;
+		return;
+	}
+	result += rawSequence.substr(lastMatchPos + k, thisMatchPos - lastMatchPos);
+	return;
+}
+
+bool isTipFw(const __uint128_t kmer, const phmap::flat_hash_set<__uint128_t>& keptKmers, const phmap::flat_hash_map<__uint128_t, size_t>& kmerCounts, const size_t k)
+{
+	size_t countNeighbors = 0;
+	iterateSuccessorKmers(kmer, k, [&keptKmers, &countNeighbors](const __uint128_t neighbor)
+	{
+		if (keptKmers.count(neighbor) == 1) countNeighbors += 1;
+	});
+	return countNeighbors == 0;
+}
+
+bool isTipBw(const __uint128_t kmer, const phmap::flat_hash_set<__uint128_t>& keptKmers, const phmap::flat_hash_map<__uint128_t, size_t>& kmerCounts, const size_t k)
+{
+	size_t countNeighbors = 0;
+	iteratePredecessorKmers(kmer, k, [&keptKmers, &countNeighbors](const __uint128_t neighbor)
+	{
+		if (keptKmers.count(neighbor) == 1) countNeighbors += 1;
+	});
+	return countNeighbors == 0;
+}
+
+void checkCanRemoveBw(phmap::flat_hash_set<__uint128_t>& removeThese, const __uint128_t kmer, const phmap::flat_hash_set<__uint128_t>& keptKmers, const phmap::flat_hash_map<__uint128_t, size_t>& kmerCounts, const size_t k)
+{
+	phmap::flat_hash_set<__uint128_t> visited;
+	visited.insert(kmer);
+	__uint128_t wanderKmer = kmer;
+	for (size_t iteration = 0; iteration < k; iteration++)
+	{
+		std::vector<__uint128_t> allPredecessors;
+		iteratePredecessorKmers(wanderKmer, k, [&keptKmers, &allPredecessors](const __uint128_t testKmer)
+		{
+			if (keptKmers.count(testKmer) == 0) return;
+			allPredecessors.emplace_back(testKmer);
+		});
+		if (allPredecessors.size() == 0) break;
+		if (allPredecessors.size() >= 2)
+		{
+			bool allPredecessorsHaveGoodAlternate = true;
+			for (__uint128_t predecessor : allPredecessors)
+			{
+				bool thisPredecessorHasGoodAlternate = false;
+				iterateSuccessorKmers(predecessor, k, [&keptKmers, &kmerCounts, &thisPredecessorHasGoodAlternate](const __uint128_t neighbor)
+				{
+					if (keptKmers.count(neighbor) == 0) return;
+					if (kmerCounts.at(neighbor) >= 3) thisPredecessorHasGoodAlternate = true;
+				});
+				if (!thisPredecessorHasGoodAlternate) allPredecessorsHaveGoodAlternate = false;
+			}
+			if (!allPredecessorsHaveGoodAlternate) return;
+			break;
+		}
+		assert(allPredecessors.size() == 1);
+		bool predecessorHasOtherNeighbor = false;
+		bool predecessorHasBetterNeigbor = false;
+		iterateSuccessorKmers(allPredecessors[0], k, [&keptKmers, &kmerCounts, &predecessorHasOtherNeighbor, &predecessorHasBetterNeigbor, wanderKmer](const __uint128_t neighbor)
+		{
+			if (keptKmers.count(neighbor) == 0) return;
+			if (neighbor == wanderKmer) return;
+			predecessorHasOtherNeighbor = true;
+			if (kmerCounts.at(neighbor) >= 3) predecessorHasBetterNeigbor = true;
+		});
+		if (predecessorHasOtherNeighbor && predecessorHasBetterNeigbor) break;
+		if (predecessorHasOtherNeighbor && !predecessorHasBetterNeigbor) return;
+		if (kmerCounts.at(allPredecessors[0]) >= 3) return;
+		wanderKmer = allPredecessors[0];
+		visited.insert(wanderKmer);
+	}
+	assert(visited.size() >= 1);
+	for (__uint128_t kmer : visited)
+	{
+		assert(keptKmers.count(kmer) == 1);
+		assert(kmerCounts.at(kmer) == 2);
+		removeThese.insert(kmer);
+	}
+}
+
+void checkCanRemoveFw(phmap::flat_hash_set<__uint128_t>& removeThese, const __uint128_t kmer, const phmap::flat_hash_set<__uint128_t>& keptKmers, const phmap::flat_hash_map<__uint128_t, size_t>& kmerCounts, const size_t k)
+{
+	phmap::flat_hash_set<__uint128_t> visited;
+	visited.insert(kmer);
+	__uint128_t wanderKmer = kmer;
+	for (size_t iteration = 0; iteration < k; iteration++)
+	{
+		std::vector<__uint128_t> allSuccessors;
+		iterateSuccessorKmers(wanderKmer, k, [&keptKmers, &allSuccessors](const __uint128_t testKmer)
+		{
+			if (keptKmers.count(testKmer) == 0) return;
+			allSuccessors.emplace_back(testKmer);
+		});
+		if (allSuccessors.size() == 0) break;
+		if (allSuccessors.size() >= 2)
+		{
+			bool allSuccessorsHaveGoodAlternate = true;
+			for (__uint128_t successor : allSuccessors)
+			{
+				bool thisSuccessorHasGoodAlternate = false;
+				iteratePredecessorKmers(successor, k, [&keptKmers, &kmerCounts, &thisSuccessorHasGoodAlternate](const __uint128_t neighbor)
+				{
+					if (keptKmers.count(neighbor) == 0) return;
+					if (kmerCounts.at(neighbor) >= 3) thisSuccessorHasGoodAlternate = true;
+				});
+				if (!thisSuccessorHasGoodAlternate) allSuccessorsHaveGoodAlternate = false;
+			}
+			if (!allSuccessorsHaveGoodAlternate) return;
+			break;
+		}
+		assert(allSuccessors.size() == 1);
+		bool successorHasOtherNeighbor = false;
+		bool successorHasBetterNeigbor = false;
+		iteratePredecessorKmers(allSuccessors[0], k, [&keptKmers, &kmerCounts, &successorHasOtherNeighbor, &successorHasBetterNeigbor, wanderKmer](const __uint128_t neighbor)
+		{
+			if (keptKmers.count(neighbor) == 0) return;
+			if (neighbor == wanderKmer) return;
+			successorHasOtherNeighbor = true;
+			if (kmerCounts.at(neighbor) >= 3) successorHasBetterNeigbor = true;
+		});
+		if (successorHasOtherNeighbor && successorHasBetterNeigbor) break;
+		if (successorHasOtherNeighbor && !successorHasBetterNeigbor) return;
+		if (kmerCounts.at(allSuccessors[0]) >= 3) return;
+		wanderKmer = allSuccessors[0];
+		visited.insert(wanderKmer);
+	}
+	assert(visited.size() >= 1);
+	for (__uint128_t kmer : visited)
+	{
+		assert(keptKmers.count(kmer) == 1);
+		assert(kmerCounts.at(kmer) == 2);
+		removeThese.insert(kmer);
+	}
+}
+
+void removeTips(phmap::flat_hash_set<__uint128_t>& keptKmers, const phmap::flat_hash_map<__uint128_t, size_t>& kmerCounts, const size_t k)
+{
+	phmap::flat_hash_set<__uint128_t> removeThese;
+	for (__uint128_t kmer : keptKmers)
+	{
+		assert(kmerCounts.count(kmer) == 1);
+		assert(kmerCounts.at(kmer) >= 2);
+		if (kmerCounts.at(kmer) != 2) continue;
+		if (isTipFw(kmer, keptKmers, kmerCounts, k))
+		{
+			checkCanRemoveBw(removeThese, kmer, keptKmers, kmerCounts, k);
+		}
+		if (isTipBw(kmer, keptKmers, kmerCounts, k))
+		{
+			checkCanRemoveFw(removeThese, kmer, keptKmers, kmerCounts, k);
+		}
+	}
+	for (__uint128_t kmer : removeThese)
+	{
+		assert(keptKmers.count(kmer) == 1);
+		keptKmers.erase(kmer);
+	}
+}
+
+std::vector<std::string> getSelfCorrectedLoopsOneIteration(const std::vector<std::string>& cluster, const size_t k)
+{
+	phmap::flat_hash_map<__uint128_t, size_t> kmerCounts;
+	for (size_t i = 0; i < cluster.size(); i++)
+	{
+		iterateKmers(cluster[i], k, [&kmerCounts](const __uint128_t kmer, const size_t position) { kmerCounts[kmer] += 1; });
+	}
+	phmap::flat_hash_set<__uint128_t> keptKmers;
+	for (auto pair : kmerCounts)
+	{
+		if (pair.second == 1) continue;
+		keptKmers.insert(pair.first);
+	}
+	removeTips(keptKmers, kmerCounts, k);
+	std::vector<std::string> result;
+	for (size_t i = 0; i < cluster.size(); i++)
+	{
+		std::string resultHere;
+		size_t lastKmerMatch = std::numeric_limits<size_t>::max();
+		iterateKmers(cluster[i], k, [&keptKmers, &cluster, &resultHere, &lastKmerMatch, i, k](const __uint128_t kmer, const size_t pos)
+		{
+			if (keptKmers.count(kmer) == 0) return;
+			if (lastKmerMatch == std::numeric_limits<size_t>::max())
+			{
+				resultHere += cluster[i].substr(0, pos+k);
+				lastKmerMatch = pos;
+				return;
+			}
+			if (pos == lastKmerMatch+1)
+			{
+				resultHere += cluster[i][lastKmerMatch+k];
+				lastKmerMatch = pos;
+				return;
+			}
+			addPath(resultHere, keptKmers, lastKmerMatch, pos, cluster[i], k);
+			lastKmerMatch = pos;
+		});
+		if (lastKmerMatch == std::numeric_limits<size_t>::max())
+		{
+			resultHere = cluster[i];
+		}
+		else
+		{
+			resultHere += cluster[i].substr(lastKmerMatch+k);
+		}
+		result.emplace_back(resultHere);
+	}
+	return result;
+}
+
+std::vector<std::string> getSelfCorrectedLoops(const std::vector<OntLoop>& cluster)
+{
+	std::vector<std::string> raws;
+	for (size_t i = 0; i < cluster.size(); i++)
+	{
+		raws.emplace_back(cluster[i].rawSequence);
+	}
+	std::vector<std::string> partwiseCorrected;
+	partwiseCorrected.resize(cluster.size());
+	for (size_t i = 0; i < 10; i++)
+	{
+		std::vector<std::string> parts;
+		for (size_t j = 0; j < cluster.size(); j++)
+		{
+			parts.emplace_back(raws[j].substr(raws[j].size()*i/10, raws[j].size()*(i+1)/10 - raws[j].size()*i/10));
+		}
+		std::vector<std::string> correctedParts = getSelfCorrectedLoopsOneIteration(parts, 15);
+		correctedParts = getSelfCorrectedLoopsOneIteration(correctedParts, 31);
+		correctedParts = getSelfCorrectedLoopsOneIteration(correctedParts, 63);
+		for (size_t j = 0; j < cluster.size(); j++)
+		{
+			partwiseCorrected[j] += correctedParts[j];
+		}
+	}
+	phmap::flat_hash_map<uint64_t, size_t> kmerCounts;
+	std::vector<std::string> fullCorrected = getSelfCorrectedLoopsOneIteration(partwiseCorrected, 31);
+	fullCorrected = getSelfCorrectedLoopsOneIteration(partwiseCorrected, 63);
+	return fullCorrected;
+}
+
+void addSelfCorrectedOntLoopSequences(std::vector<std::vector<OntLoop>>& clusters)
+{
+	for (size_t i = 0; i < clusters.size(); i++)
+	{
+		std::cerr << "self-correct cluster " << i << " with size " << clusters[i].size() << std::endl;
+		auto selfCorrectedLoops = getSelfCorrectedLoops(clusters[i]);
+		assert(selfCorrectedLoops.size() == clusters[i].size());
+		for (size_t j = 0; j < clusters[i].size(); j++)
+		{
+			clusters[i][j].selfCorrectedSequence = selfCorrectedLoops[j];
+			std::cerr << "corrected read " << j << " from size " << clusters[i][j].rawSequence.size() << " to " << clusters[i][j].selfCorrectedSequence.size() << std::endl;
+		}
+	}
+}
+
 void DoClusterONTAnalysis(const ClusterParams& params)
 {
 	std::cerr << "reading allele graph" << std::endl;
@@ -7286,6 +7768,10 @@ void DoClusterONTAnalysis(const ClusterParams& params)
 	addRawSequenceNamesToLoops(clusters);
 	std::cerr << "write raw ONT loop sequences" << std::endl;
 	writeRawOntLoopSequences(params.basePath + "/raw_loops.fa", clusters);
+	std::cerr << "get self-corrected ONT loop sequences" << std::endl;
+	addSelfCorrectedOntLoopSequences(clusters);
+	std::cerr << "write self-corrected ONT loop sequences" << std::endl;
+	writeSelfCorrectedOntLoopSequences(params.basePath + "/loops_selfcorrected.fa", clusters);
 	std::cerr << "getting morph consensuses" << std::endl;
 	auto morphConsensuses = getMorphConsensuses(clusters, graph, pathStartClip, pathEndClip, params.namePrefix);
 	std::cerr << "polishing morph consensuses" << std::endl;
@@ -7300,6 +7786,8 @@ void DoClusterONTAnalysis(const ClusterParams& params)
 	{
 		std::cerr << "realign raw ONT loop sequences to morph consensuses" << std::endl;
 		alignRawOntLoopsToMorphConsensuses(clusters, params.basePath + "/raw_loop_to_morphs_alignments.bam", params.basePath + "/tmp", params.numThreads, morphConsensuses, params.winnowmapPath, params.samtoolsPath);
+		std::cerr << "realign self-corrected ONT loop sequences to morph consensuses" << std::endl;
+		alignSelfCorrectedOntLoopsToMorphConsensuses(clusters, params.basePath + "/selfcorrected_loop_to_morphs_alignments.bam", params.basePath + "/tmp", params.numThreads, morphConsensuses, params.winnowmapPath, params.samtoolsPath);
 	}
 	else
 	{
