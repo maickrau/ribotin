@@ -7417,8 +7417,15 @@ void addPath(std::string& result, const phmap::flat_hash_set<__uint128_t>& keptK
 	if (wanderKmer == thisMatchKmer)
 	{
 		assert(unambiguousExtensionFromLast.size() >= 1);
-		result += unambiguousExtensionFromLast;
-		return;
+		size_t pathLength = visited.size();
+		if (pathLength + 50 > thisMatchPos-lastMatchPos)
+		{
+			if (thisMatchPos-lastMatchPos+50 > pathLength)
+			{
+				result += unambiguousExtensionFromLast;
+				return;
+			}
+		}
 	}
 	visited.clear();
 	wanderKmer = thisMatchKmer;
@@ -7452,9 +7459,16 @@ void addPath(std::string& result, const phmap::flat_hash_set<__uint128_t>& keptK
 	if (wanderKmer == lastMatchKmer)
 	{
 		assert(unambiguousExtensionFromLast.size() >= 1);
-		std::reverse(unambiguousExtensionFromLast.begin(), unambiguousExtensionFromLast.end());
-		result += unambiguousExtensionFromLast;
-		return;
+		size_t pathLength = visited.size();
+		if (pathLength + 50 > thisMatchPos-lastMatchPos)
+		{
+			if (thisMatchPos-lastMatchPos+50 > pathLength)
+			{
+				std::reverse(unambiguousExtensionFromLast.begin(), unambiguousExtensionFromLast.end());
+				result += unambiguousExtensionFromLast;
+				return;
+			}
+		}
 	}
 	result += rawSequence.substr(lastMatchPos + k, thisMatchPos - lastMatchPos);
 	return;
