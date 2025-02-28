@@ -4125,6 +4125,36 @@ std::vector<std::tuple<size_t, size_t, std::string, size_t>> getEditsRec(const s
 }
 
 template <typename F>
+void iterateEdits(const std::string& rawConsensus, const phmap::flat_hash_map<uint64_t, size_t>& refKmers, const std::string& sequence, const size_t k, const size_t threadIndex, const size_t readIndex, F callback)
+{
+	auto anchors = getKmerAnchors(std::string_view { rawConsensus }, refKmers, std::string_view { sequence }, k);
+	if (anchors.size() == 0) return;
+	for (size_t i = 1; i < anchors.size(); i++)
+	{
+		assert(anchors[i-1].first < anchors[i].first);
+		assert(anchors[i-1].second < anchors[i].second);
+		assert(anchors[i].first+k <= rawConsensus.size());
+		assert(anchors[i].second+k <= sequence.size());
+		assert(rawConsensus.substr(anchors[i].first, k) == sequence.substr(anchors[i].second, k));
+		assert(rawConsensus.substr(anchors[i-1].first, k) == sequence.substr(anchors[i-1].second, k));
+		if (anchors[i].first - anchors[i-1].first == anchors[i].second - anchors[i-1].second && anchors[i].first - anchors[i-1].first < k) continue;
+		std::string_view refSubstr { rawConsensus.data()+anchors[i-1].first, anchors[i].first - anchors[i-1].first + k };
+		std::string_view querySubstr { sequence.data()+anchors[i-1].second, anchors[i].second - anchors[i-1].second + k };
+		auto edits = getEditsRec(refSubstr, querySubstr, 25);
+		for (auto edit : edits)
+		{
+			assert(std::get<1>(edit) >= std::get<0>(edit));
+			assert(std::get<1>(edit) < refSubstr.size());
+			std::get<0>(edit) += anchors[i-1].first;
+			std::get<1>(edit) += anchors[i-1].first;
+			assert(std::get<1>(edit) < rawConsensus.size());
+			std::get<3>(edit) += anchors[i-1].second;
+			callback(threadIndex, readIndex, anchors[0].first, anchors.back().first+k, anchors[0].second, anchors.back().second+k, edit);
+		}
+	}
+}
+
+template <typename F>
 void iterateEdits(const std::string& rawConsensus, const std::vector<OntLoop>& rawLoops, const size_t numThreads, F callback)
 {
 	const size_t k = 31;
@@ -4132,40 +4162,15 @@ void iterateEdits(const std::string& rawConsensus, const std::vector<OntLoop>& r
 	std::atomic<size_t> nextIndex;
 	nextIndex = 0;
 	std::vector<std::thread> threads;
-	for (size_t threadindex = 0; threadindex < numThreads; threadindex++)
+	for (size_t threadIndex = 0; threadIndex < numThreads; threadIndex++)
 	{
-		threads.emplace_back([&rawConsensus, &rawLoops, &nextIndex, &refKmers, threadindex, callback]()
+		threads.emplace_back([&rawConsensus, &rawLoops, &nextIndex, &refKmers, threadIndex, callback]()
 		{
 			while (true)
 			{
-				size_t pickedIndex = nextIndex++;
-				if (pickedIndex >= rawLoops.size()) break;
-				const std::string& rawSequence = rawLoops[pickedIndex].rawSequence;
-				auto anchors = getKmerAnchors(std::string_view { rawConsensus }, refKmers, std::string_view { rawSequence }, k);
-				if (anchors.size() == 0) continue;
-				for (size_t i = 1; i < anchors.size(); i++)
-				{
-					assert(anchors[i-1].first < anchors[i].first);
-					assert(anchors[i-1].second < anchors[i].second);
-					assert(anchors[i].first+k <= rawConsensus.size());
-					assert(anchors[i].second+k <= rawSequence.size());
-					assert(rawConsensus.substr(anchors[i].first, k) == rawSequence.substr(anchors[i].second, k));
-					assert(rawConsensus.substr(anchors[i-1].first, k) == rawSequence.substr(anchors[i-1].second, k));
-					if (anchors[i].first - anchors[i-1].first == anchors[i].second - anchors[i-1].second && anchors[i].first - anchors[i-1].first < k) continue;
-					std::string_view refSubstr { rawConsensus.data()+anchors[i-1].first, anchors[i].first - anchors[i-1].first + k };
-					std::string_view querySubstr { rawSequence.data()+anchors[i-1].second, anchors[i].second - anchors[i-1].second + k };
-					auto edits = getEditsRec(refSubstr, querySubstr, 25);
-					for (auto edit : edits)
-					{
-						assert(std::get<1>(edit) >= std::get<0>(edit));
-						assert(std::get<1>(edit) < refSubstr.size());
-						std::get<0>(edit) += anchors[i-1].first;
-						std::get<1>(edit) += anchors[i-1].first;
-						assert(std::get<1>(edit) < rawConsensus.size());
-						std::get<3>(edit) += anchors[i-1].second;
-						callback(threadindex, pickedIndex, anchors[0].first, anchors.back().first+k, anchors[0].second, anchors.back().second+k, edit);
-					}
-				}
+				size_t readIndex = nextIndex++;
+				if (readIndex >= rawLoops.size()) break;
+				iterateEdits(rawConsensus, refKmers, rawLoops[readIndex].rawSequence, k, threadIndex, readIndex, callback);
 			}
 		});
 	}
@@ -4175,11 +4180,37 @@ void iterateEdits(const std::string& rawConsensus, const std::vector<OntLoop>& r
 	}
 }
 
-std::string getPolishedSequence(const std::string& rawConsensus, const std::vector<OntLoop>& loops, const size_t numThreads)
+template <typename F>
+void iterateEdits(const std::string& rawConsensus, const std::vector<std::string>& rawLoops, const size_t numThreads, F callback)
+{
+	const size_t k = 31;
+	auto refKmers = getRefKmers(std::string_view { rawConsensus }, k);
+	std::atomic<size_t> nextIndex;
+	nextIndex = 0;
+	std::vector<std::thread> threads;
+	for (size_t threadIndex = 0; threadIndex < numThreads; threadIndex++)
+	{
+		threads.emplace_back([&rawConsensus, &rawLoops, &nextIndex, &refKmers, threadIndex, callback]()
+		{
+			while (true)
+			{
+				size_t readIndex = nextIndex++;
+				if (readIndex >= rawLoops.size()) break;
+				iterateEdits(rawConsensus, refKmers, rawLoops[readIndex], k, threadIndex, readIndex, callback);
+			}
+		});
+	}
+	for (size_t i = 0; i < threads.size(); i++)
+	{
+		threads[i].join();
+	}
+}
+
+std::string getPolishedSequence(const std::string& rawConsensus, const std::vector<std::string>& loopSequences, const size_t numThreads)
 {
 	std::vector<std::map<std::tuple<size_t, size_t, std::string>, size_t>> editCountsPerThread;
 	editCountsPerThread.resize(numThreads);
-	iterateEdits(rawConsensus, loops, numThreads, [&editCountsPerThread](const size_t threadIndex, const size_t readIndex, const size_t firstMatchRef, const size_t lastMatchRef, const size_t firstMatchRead, const size_t lastMatchRead, const std::tuple<size_t, size_t, std::string, size_t>& edit)
+	iterateEdits(rawConsensus, loopSequences, numThreads, [&editCountsPerThread](const size_t threadIndex, const size_t readIndex, const size_t firstMatchRef, const size_t lastMatchRef, const size_t firstMatchRead, const size_t lastMatchRead, const std::tuple<size_t, size_t, std::string, size_t>& edit)
 	{
 		assert(threadIndex < editCountsPerThread.size());
 		auto filterEdit = std::make_tuple(std::get<0>(edit), std::get<1>(edit), std::get<2>(edit));
@@ -4196,15 +4227,23 @@ std::string getPolishedSequence(const std::string& rawConsensus, const std::vect
 	std::vector<std::tuple<size_t, size_t, std::string>> pickedEdits;
 	for (const auto& pair : editCounts)
 	{
-		if (pair.second*1.5 <= loops.size()) continue; // only pick edits supported by strictly >2/3 reads
+		if (pair.second*1.5 <= loopSequences.size()) continue; // only pick edits supported by strictly >2/3 reads
 		pickedEdits.emplace_back(pair.first);
 	}
-	std::sort(pickedEdits.begin(), pickedEdits.end(), [](auto& left, auto& right) { return std::get<0>(left) < std::get<0>(right); });
+	std::sort(pickedEdits.begin(), pickedEdits.end());
 	std::cerr << "picked " << pickedEdits.size() << " edits" << std::endl;
 	std::string result;
 	size_t lastMatch = 0;
 	for (size_t i = 0; i < pickedEdits.size(); i++)
 	{
+		if (!(i == 0 || std::get<0>(pickedEdits[i]) >= std::get<1>(pickedEdits[i-1])))
+		{
+			std::cerr << pickedEdits.size() << " " << i << " " << loopSequences.size() << std::endl;
+			for (size_t j = 0; j < pickedEdits.size(); j++)
+			{
+				std::cerr << j << " " << std::get<0>(pickedEdits[j]) << " " << std::get<1>(pickedEdits[j]) << " " << std::get<2>(pickedEdits[j]) << " " << editCounts.at(pickedEdits[j]) << std::endl;
+			}
+		}
 		assert(i == 0 || std::get<0>(pickedEdits[i]) >= std::get<1>(pickedEdits[i-1]));
 		assert(std::get<0>(pickedEdits[i]) >= lastMatch);
 		result += rawConsensus.substr(lastMatch, std::get<0>(pickedEdits[i]) - lastMatch);
@@ -4244,7 +4283,12 @@ void polishMorphConsensuses(std::vector<MorphConsensus>& morphConsensuses, const
 		for (size_t j = 0; j < 5; j++)
 		{
 			std::cerr << "polish morph " << i << " consensus round " << j << "/5" << std::endl;
-			std::string newCorrection = getPolishedSequence(morphConsensuses[i].sequence, ontLoopSequences[i], numThreads);
+			std::vector<std::string> seqs;
+			for (size_t k = 0; k < ontLoopSequences[i].size(); k++)
+			{
+				seqs.emplace_back(ontLoopSequences[i][k].rawSequence);
+			}
+			std::string newCorrection = getPolishedSequence(morphConsensuses[i].sequence, seqs, numThreads);
 			if (newCorrection == morphConsensuses[i].sequence) break;
 			morphConsensuses[i].sequence = newCorrection;
 		}
@@ -5198,7 +5242,7 @@ void iterateKmers(const std::string seq, const size_t k, F callback)
 	}
 }
 
-std::vector<std::vector<size_t>> getAllPresentKmerChain(const std::string consensusSeq, const std::vector<OntLoop>& loops, const size_t k)
+std::vector<std::vector<size_t>> getAllPresentKmerChain(const std::string consensusSeq, const std::vector<std::string>& loopSequences, const size_t k)
 {
 	phmap::flat_hash_map<uint64_t, size_t> kmerPosition;
 	phmap::flat_hash_set<uint64_t> duplicateKmers;
@@ -5217,10 +5261,10 @@ std::vector<std::vector<size_t>> getAllPresentKmerChain(const std::string consen
 		if (duplicateKmers.count(pair.first) == 1) continue;
 		kmersEverywhere.insert(pair.first);
 	}
-	for (size_t i = 0; i < loops.size(); i++)
+	for (size_t i = 0; i < loopSequences.size(); i++)
 	{
 		phmap::flat_hash_set<uint64_t> kmersHere;
-		iterateKmers(loops[i].rawSequence, k, [&duplicateKmers, &kmersHere](const uint64_t kmer, const size_t position)
+		iterateKmers(loopSequences[i], k, [&duplicateKmers, &kmersHere](const uint64_t kmer, const size_t position)
 		{
 			if (kmersHere.count(kmer) == 1)
 			{
@@ -5250,11 +5294,11 @@ std::vector<std::vector<size_t>> getAllPresentKmerChain(const std::string consen
 	kmerPositionWithinLoop.resize(kmerPositionsInConsensus.size());
 	for (size_t i = 0; i < kmerPositionWithinLoop.size(); i++)
 	{
-		kmerPositionWithinLoop[i].resize(loops.size(), std::numeric_limits<size_t>::max());
+		kmerPositionWithinLoop[i].resize(loopSequences.size(), std::numeric_limits<size_t>::max());
 	}
-	for (size_t i = 0; i < loops.size(); i++)
+	for (size_t i = 0; i < loopSequences.size(); i++)
 	{
-		iterateKmers(loops[i].rawSequence, k, [&kmerPositionWithinLoop, &kmerToIndex, i](const uint64_t kmer, const size_t position)
+		iterateKmers(loopSequences[i], k, [&kmerPositionWithinLoop, &kmerToIndex, i](const uint64_t kmer, const size_t position)
 		{
 			if (kmerToIndex.count(kmer) == 0) return;
 			assert(kmerPositionWithinLoop[kmerToIndex.at(kmer)][i] == std::numeric_limits<size_t>::max());
@@ -5268,7 +5312,7 @@ std::vector<std::vector<size_t>> getAllPresentKmerChain(const std::string consen
 			assert(kmerPositionWithinLoop[i][j] != std::numeric_limits<size_t>::max());
 		}
 	}
-	std::cerr << "cluster with " << loops.size() << " reads has " << kmerPositionWithinLoop.size() << " all-present kmers before chain filter" << std::endl;
+	std::cerr << "cluster with " << loopSequences.size() << " reads has " << kmerPositionWithinLoop.size() << " all-present kmers before chain filter" << std::endl;
 	std::cerr << "positions before chain checking:";
 	for (auto pair : kmerPositionsInConsensus)
 	{
@@ -5281,9 +5325,9 @@ std::vector<std::vector<size_t>> getAllPresentKmerChain(const std::string consen
 		indexConflictCount.resize(kmerPositionWithinLoop.size(), false);
 		for (size_t i = 1; i < kmerPositionWithinLoop.size(); i++)
 		{
-			assert(kmerPositionWithinLoop[i].size() == loops.size());
-			assert(kmerPositionWithinLoop[i-1].size() == loops.size());
-			for (size_t j = 0; j < loops.size(); j++)
+			assert(kmerPositionWithinLoop[i].size() == loopSequences.size());
+			assert(kmerPositionWithinLoop[i-1].size() == loopSequences.size());
+			for (size_t j = 0; j < loopSequences.size(); j++)
 			{
 				assert(kmerPositionWithinLoop[i-1][j] != kmerPositionWithinLoop[i][j]);
 				if (kmerPositionWithinLoop[i-1][j] < kmerPositionWithinLoop[i][j]) continue;
@@ -5312,7 +5356,7 @@ std::vector<std::vector<size_t>> getAllPresentKmerChain(const std::string consen
 	return kmerPositionWithinLoop;
 }
 
-void clusterBubbleAlleles(std::vector<std::vector<size_t>>& result, const std::vector<OntLoop>& loops, const std::vector<size_t>& previousMatchIndices, const std::vector<size_t>& currentMatchIndices, const size_t k)
+void clusterBubbleAlleles(std::vector<std::vector<size_t>>& result, const std::vector<std::string>& loopSequences, const std::vector<size_t>& previousMatchIndices, const std::vector<size_t>& currentMatchIndices, const size_t k)
 {
 	const size_t minCoverage = 3;
 	const double maxDivergence = 0.1;
@@ -5320,7 +5364,7 @@ void clusterBubbleAlleles(std::vector<std::vector<size_t>>& result, const std::v
 	if (currentMatchIndices[0] < previousMatchIndices[0] + k)
 	{
 		bool allIdentical = true;
-		for (size_t i = 1; i < loops.size(); i++)
+		for (size_t i = 1; i < loopSequences.size(); i++)
 		{
 			if (currentMatchIndices[i] - previousMatchIndices[i] != currentMatchIndices[0] - previousMatchIndices[0])
 			{
@@ -5330,18 +5374,18 @@ void clusterBubbleAlleles(std::vector<std::vector<size_t>>& result, const std::v
 		if (allIdentical) return;
 	}
 	std::vector<std::string> substrings;
-	for (size_t i = 0; i < loops.size(); i++)
+	for (size_t i = 0; i < loopSequences.size(); i++)
 	{
-		assert(loops[i].rawSequence.size() >= currentMatchIndices[i]+k);
+		assert(loopSequences[i].size() >= currentMatchIndices[i]+k);
 		assert(currentMatchIndices[i] > previousMatchIndices[i]);
-		substrings.emplace_back(loops[i].rawSequence.substr(previousMatchIndices[i], currentMatchIndices[i]-previousMatchIndices[i]+k));
+		substrings.emplace_back(loopSequences[i].substr(previousMatchIndices[i], currentMatchIndices[i]-previousMatchIndices[i]+k));
 		assert(substrings.back().size() >= k+1);
 		maxClusterDistance = std::max<size_t>(maxClusterDistance, substrings[i].size() * maxDivergence);
 	}
 	std::vector<std::vector<size_t>> distanceMatrix;
 	distanceMatrix.emplace_back();
 	size_t maxDistance = 0;
-	for (size_t i = 1; i < loops.size(); i++)
+	for (size_t i = 1; i < loopSequences.size(); i++)
 	{
 		distanceMatrix.emplace_back();
 		for (size_t j = 0; j < i; j++)
@@ -5352,11 +5396,11 @@ void clusterBubbleAlleles(std::vector<std::vector<size_t>>& result, const std::v
 	}
 	if (maxDistance < maxClusterDistance) return;
 	std::vector<size_t> parent;
-	for (size_t i = 0; i < loops.size(); i++)
+	for (size_t i = 0; i < loopSequences.size(); i++)
 	{
 		parent.emplace_back(i);
 	}
-	for (size_t i = 1; i < loops.size(); i++)
+	for (size_t i = 1; i < loopSequences.size(); i++)
 	{
 		for (size_t j = 0; j < i; j++)
 		{
@@ -5366,7 +5410,7 @@ void clusterBubbleAlleles(std::vector<std::vector<size_t>>& result, const std::v
 	}
 	phmap::flat_hash_set<size_t> distinctClusters;
 	std::vector<std::vector<size_t>> clusters;
-	clusters.resize(loops.size());
+	clusters.resize(loopSequences.size());
 	for (size_t i = 0; i < parent.size(); i++)
 	{
 		clusters[find(parent, i)].emplace_back(i);
@@ -5410,21 +5454,21 @@ void clusterBubbleAlleles(std::vector<std::vector<size_t>>& result, const std::v
 	}
 }
 
-std::vector<std::vector<size_t>> splitByBubbleAlleles(const std::vector<OntLoop>& loops, const GfaGraph& graph, const std::unordered_map<Node, size_t>& pathStartClip, const std::unordered_map<Node, size_t>& pathEndClip, const size_t numThreads)
+std::vector<std::vector<size_t>> splitByBubbleAlleles(const std::vector<OntLoop>& loops, const std::vector<std::string>& loopSequences, const GfaGraph& graph, const std::unordered_map<Node, size_t>& pathStartClip, const std::unordered_map<Node, size_t>& pathEndClip, const size_t numThreads)
 {
 	const size_t k = 15;
 	auto path = getConsensusPath(loops, graph);
 	std::string consensusSeq = getConsensusSequence(path, graph, pathStartClip, pathEndClip);
-	consensusSeq = getPolishedSequence(consensusSeq, loops, numThreads);
-	std::vector<std::vector<size_t>> kmerChain = getAllPresentKmerChain(consensusSeq, loops, k);
-	std::cerr << "cluster with " << loops.size() << " reads has " << kmerChain.size() << " all-present kmers in chain" << std::endl;
+	consensusSeq = getPolishedSequence(consensusSeq, loopSequences, numThreads);
+	std::vector<std::vector<size_t>> kmerChain = getAllPresentKmerChain(consensusSeq, loopSequences, k);
+	std::cerr << "cluster with " << loopSequences.size() << " reads has " << kmerChain.size() << " all-present kmers in chain" << std::endl;
 	std::vector<std::vector<size_t>> allelesPerRead;
-	allelesPerRead.resize(loops.size());
+	allelesPerRead.resize(loopSequences.size());
 	for (size_t i = 1; i < kmerChain.size(); i++)
 	{
-		clusterBubbleAlleles(allelesPerRead, loops, kmerChain[i-1], kmerChain[i], k);
+		clusterBubbleAlleles(allelesPerRead, loopSequences, kmerChain[i-1], kmerChain[i], k);
 	}
-	std::cerr << "cluster with " << loops.size() << " reads has " << allelesPerRead[0].size() << " alleles" << std::endl;
+	std::cerr << "cluster with " << loopSequences.size() << " reads has " << allelesPerRead[0].size() << " alleles" << std::endl;
 	std::map<std::vector<size_t>, size_t> allelesToCluster;
 	std::vector<std::vector<size_t>> result;
 	for (size_t i = 0; i < allelesPerRead.size(); i++)
@@ -5439,17 +5483,17 @@ std::vector<std::vector<size_t>> splitByBubbleAlleles(const std::vector<OntLoop>
 	return result;
 }
 
-std::vector<std::vector<std::tuple<size_t, size_t, std::string>>> getEditsForPhasing(const std::vector<OntLoop>& loops, const GfaGraph& graph, const std::unordered_map<Node, size_t>& pathStartClip, const std::unordered_map<Node, size_t>& pathEndClip, const size_t numThreads)
+std::vector<std::vector<std::tuple<size_t, size_t, std::string>>> getEditsForPhasing(const std::vector<OntLoop>& loops, const std::vector<std::string>& loopSequences, const GfaGraph& graph, const std::unordered_map<Node, size_t>& pathStartClip, const std::unordered_map<Node, size_t>& pathEndClip, const size_t numThreads)
 {
 	auto path = getConsensusPath(loops, graph);
 	std::string consensusSeq = getConsensusSequence(path, graph, pathStartClip, pathEndClip);
-	consensusSeq = getPolishedSequence(consensusSeq, loops, numThreads);
+	consensusSeq = getPolishedSequence(consensusSeq, loopSequences, numThreads);
 	size_t firstMatchPos = 0;
 	size_t lastMatchPos = consensusSeq.size();;
 	std::vector<std::vector<std::tuple<size_t, size_t, std::string>>> editsPerRead;
 	editsPerRead.resize(loops.size());
 	std::mutex resultMutex;
-	iterateEdits(consensusSeq, loops, numThreads, [&firstMatchPos, &lastMatchPos, &resultMutex, &editsPerRead](const size_t threadId, const size_t readId, const size_t firstMatchRef, const size_t lastMatchRef, const size_t firstMatchRead, const size_t lastMatchRead, const std::tuple<size_t, size_t, std::string, size_t>& edit)
+	iterateEdits(consensusSeq, loopSequences, numThreads, [&firstMatchPos, &lastMatchPos, &resultMutex, &editsPerRead](const size_t threadId, const size_t readId, const size_t firstMatchRef, const size_t lastMatchRef, const size_t firstMatchRead, const size_t lastMatchRead, const std::tuple<size_t, size_t, std::string, size_t>& edit)
 	{
 		auto filterEdit = std::make_tuple(std::get<0>(edit), std::get<1>(edit), std::get<2>(edit));
 		editsPerRead[readId].emplace_back(filterEdit);
@@ -7149,172 +7193,6 @@ std::vector<std::pair<std::vector<std::vector<size_t>>, size_t>> getDBGvariants(
 	return result;
 }
 
-void callVariantsAndSplitRecursively(std::vector<std::vector<OntLoop>>& result, const std::vector<OntLoop>& cluster, const GfaGraph& graph, const std::unordered_map<Node, size_t>& pathStartClip, const std::unordered_map<Node, size_t>& pathEndClip, const size_t numThreads, const std::string MBGPath, const std::string tmpPath)
-{
-	if (cluster.size() <= 5)
-	{
-		std::cerr << "skip small cluster with size " << cluster.size() << std::endl;
-		result.emplace_back(cluster);
-		return;
-	}
-	std::cerr << "begin phasing cluster with size " << cluster.size() << std::endl;
-	auto startTime = getTime();
-	auto edits = getEditsForPhasing(cluster, graph, pathStartClip, pathEndClip, numThreads);
-	auto phasableVariantInfo = getPhasableVariantInfoBiallelicAltRefSNPsBigIndels(edits);
-	auto endTime = getTime();
-	std::cerr << "getting variants took " << formatTime(startTime, endTime) << std::endl;
-	std::cerr << "got variant info of cluster with size " << cluster.size() << std::endl;
-	std::vector<std::vector<size_t>> resultHere;
-	std::vector<size_t> allIndices;
-	for (size_t i = 0; i < cluster.size(); i++) allIndices.emplace_back(i);
-	splitAndAddRecursively(resultHere, cluster, phasableVariantInfo, allIndices);
-	assert(resultHere.size() >= 1);
-	if (resultHere.size() == 1)
-	{
-		std::cerr << "split by bubble alleles size " << cluster.size() << std::endl;
-		resultHere = splitByBubbleAlleles(cluster, graph, pathStartClip, pathEndClip, numThreads);
-		std::cerr << "bubble alleles splitted to " << resultHere.size() << " clusters:";
-		for (size_t i = 0; i < resultHere.size(); i++)
-		{
-			std::cerr << " " << resultHere[i].size();
-		}
-		std::cerr << std::endl;
-	}
-	if (resultHere.size() == 1)
-	{
-		std::cerr << "split by SNP MSA size " << cluster.size() << std::endl;
-		auto SNPMSA = getSNPMSA(edits);
-		std::cerr << SNPMSA.size() << " sites in SNP MSA" << std::endl;
-		resultHere.clear();
-		splitAndAddRecursively(resultHere, cluster, SNPMSA, allIndices);
-		if (resultHere.size() > 1)
-		{
-			std::cerr << "SNP MSA splitted to " << resultHere.size() << " clusters:";
-			for (size_t i = 0; i < resultHere.size(); i++)
-			{
-				std::cerr << " " << resultHere[i].size();
-			}
-			std::cerr << std::endl;
-		}
-	}
-	if (resultHere.size() == 1)
-	{
-		std::cerr << "split by DBG variants size " << cluster.size() << std::endl;
-		auto DBGvariants = getDBGvariants(cluster, MBGPath, tmpPath);
-		std::cerr << DBGvariants.size() << " sites in DBG variants" << std::endl;
-		resultHere.clear();
-		splitAndAddRecursively(resultHere, cluster, DBGvariants, allIndices);
-		if (resultHere.size() > 1)
-		{
-			std::cerr << "DBG variants splitted to " << resultHere.size() << " clusters:";
-			for (size_t i = 0; i < resultHere.size(); i++)
-			{
-				std::cerr << " " << resultHere[i].size();
-			}
-			std::cerr << std::endl;
-		}
-	}
-	if (resultHere.size() == 1)
-	{
-		std::cerr << "split by big indels size " << cluster.size() << std::endl;
-		resultHere = splitByBigIndels(edits);
-		std::cerr << "big indels splitted to " << resultHere.size() << " clusters:";
-		for (size_t i = 0; i < resultHere.size(); i++)
-		{
-			std::cerr << " " << resultHere[i].size();
-		}
-		std::cerr << std::endl;
-	}
-	if (resultHere.size() == 1)
-	{
-		std::cerr << "split by edit linkage size " << cluster.size() << std::endl;
-		resultHere = splitByEditLinkage(edits);
-		std::cerr << "edit linkage splitted to " << resultHere.size() << " clusters:";
-		for (size_t i = 0; i < resultHere.size(); i++)
-		{
-			std::cerr << " " << resultHere[i].size();
-		}
-		std::cerr << std::endl;
-	}
-	if (resultHere.size() == 1)
-	{
-		std::cerr << "split by linked minor alleles size " << cluster.size() << std::endl;
-		resultHere = splitByLinkedMinorAlleles(edits);
-		std::cerr << "linked minor alleles splitted to " << resultHere.size() << " clusters:";
-		for (size_t i = 0; i < resultHere.size(); i++)
-		{
-			std::cerr << " " << resultHere[i].size();
-		}
-		std::cerr << std::endl;
-	}
-/*	if (resultHere.size() == 1)
-	{
-		std::cerr << "phase approx edits size " << cluster.size() << std::endl;
-		resultHere = phaseApproxEdits(edits);
-		std::cerr << "approx edits resulted in " << resultHere.size() << " clusters:";
-		for (size_t i = 0; i < resultHere.size(); i++)
-		{
-			std::cerr << " " << resultHere[i].size();
-		}
-		std::cerr << std::endl;
-	}*/
-	if (resultHere.size() == 1)
-	{
-		result.emplace_back(cluster);
-		return;
-	}
-	for (size_t i = 0; i < resultHere.size(); i++)
-	{
-		std::vector<OntLoop> filteredClusters;
-		for (size_t j : resultHere[i])
-		{
-			filteredClusters.emplace_back(cluster[j]);
-		}
-		callVariantsAndSplitRecursively(result, filteredClusters, graph, pathStartClip, pathEndClip, numThreads, MBGPath, tmpPath);
-	}
-}
-
-void addRawSequencesToLoops(std::vector<std::vector<OntLoop>>& clusters, const GfaGraph& graph, const std::unordered_map<Node, size_t>& pathStartClip, const std::unordered_map<Node, size_t>& pathEndClip, const std::string ontReadPath, const size_t numThreads)
-{
-	std::vector<std::vector<std::string>> sequences = getRawLoopSequences(clusters, ontReadPath, graph, pathStartClip, pathEndClip, numThreads);
-	assert(sequences.size() == clusters.size());
-	for (size_t i = 0; i < clusters.size(); i++)
-	{
-		assert(sequences[i].size() == clusters[i].size());
-		for (size_t j = 0; j < clusters[i].size(); j++)
-		{
-			clusters[i][j].rawSequence = sequences[i][j];
-		}
-	}
-}
-
-std::vector<std::vector<OntLoop>> editSplitClusters(const std::vector<std::vector<OntLoop>>& clusters, const GfaGraph& graph, const std::unordered_map<Node, size_t>& pathStartClip, const std::unordered_map<Node, size_t>& pathEndClip, const size_t numThreads, const std::string MBGPath, const std::string tmpPath)
-{
-	std::vector<std::vector<OntLoop>> result;
-	for (size_t i = 0; i < clusters.size(); i++)
-	{
-		if (clusters[i].size() <= 5)
-		{
-			std::cerr << "skip low coverage cluster with size " << clusters[i].size() << std::endl;
-			result.emplace_back(clusters[i]);
-			continue;
-		}
-		callVariantsAndSplitRecursively(result, clusters[i], graph, pathStartClip, pathEndClip, numThreads, MBGPath, tmpPath);
-	}
-	return result;
-}
-
-void addRawSequenceNamesToLoops(std::vector<std::vector<OntLoop>>& clusters)
-{
-	for (size_t i = 0; i < clusters.size(); i++)
-	{
-		for (size_t j = 0; j < clusters[i].size(); j++)
-		{
-			clusters[i][j].rawLoopName = "morph_" + std::to_string(i) + "_rawloop_" + std::to_string(j) + "_" + clusters[i][j].readName + "_" + std::to_string(clusters[i][j].approxStart) + "_" + std::to_string(clusters[i][j].approxEnd);
-		}
-	}
-}
-
 template <typename F>
 void iterateSuccessorKmers(const __uint128_t kmer, const size_t k, F callback)
 {
@@ -7706,6 +7584,192 @@ std::vector<std::string> getSelfCorrectedLoops(const std::vector<OntLoop>& clust
 	std::vector<std::string> fullCorrected = getSelfCorrectedLoopsOneIteration(partwiseCorrected, 31);
 	fullCorrected = getSelfCorrectedLoopsOneIteration(partwiseCorrected, 63);
 	return fullCorrected;
+}
+
+void callVariantsAndSplitRecursively(std::vector<std::vector<OntLoop>>& result, const std::vector<OntLoop>& cluster, const GfaGraph& graph, const std::unordered_map<Node, size_t>& pathStartClip, const std::unordered_map<Node, size_t>& pathEndClip, const size_t numThreads, const std::string MBGPath, const std::string tmpPath, const bool correctBeforePhasing)
+{
+	if (cluster.size() <= 5)
+	{
+		std::cerr << "skip small cluster with size " << cluster.size() << std::endl;
+		result.emplace_back(cluster);
+		return;
+	}
+	std::cerr << "begin phasing cluster with size " << cluster.size() << std::endl;
+	std::vector<std::string> sequences;
+	if (correctBeforePhasing)
+	{
+		sequences = getSelfCorrectedLoops(cluster);
+	}
+	else
+	{
+		for (size_t i = 0; i < cluster.size(); i++)
+		{
+			sequences.emplace_back(cluster[i].rawSequence);
+		}
+	}
+	auto startTime = getTime();
+	auto edits = getEditsForPhasing(cluster, sequences, graph, pathStartClip, pathEndClip, numThreads);
+	auto phasableVariantInfo = getPhasableVariantInfoBiallelicAltRefSNPsBigIndels(edits);
+	auto endTime = getTime();
+	std::cerr << "getting variants took " << formatTime(startTime, endTime) << std::endl;
+	std::cerr << "got variant info of cluster with size " << cluster.size() << std::endl;
+	std::vector<std::vector<size_t>> resultHere;
+	std::vector<size_t> allIndices;
+	for (size_t i = 0; i < cluster.size(); i++) allIndices.emplace_back(i);
+	splitAndAddRecursively(resultHere, cluster, phasableVariantInfo, allIndices);
+	assert(resultHere.size() >= 1);
+	if (resultHere.size() == 1)
+	{
+		std::cerr << "split by bubble alleles size " << cluster.size() << std::endl;
+		resultHere = splitByBubbleAlleles(cluster, sequences, graph, pathStartClip, pathEndClip, numThreads);
+		std::cerr << "bubble alleles splitted to " << resultHere.size() << " clusters:";
+		for (size_t i = 0; i < resultHere.size(); i++)
+		{
+			std::cerr << " " << resultHere[i].size();
+		}
+		std::cerr << std::endl;
+	}
+	if (resultHere.size() == 1)
+	{
+		std::cerr << "split by SNP MSA size " << cluster.size() << std::endl;
+		auto SNPMSA = getSNPMSA(edits);
+		std::cerr << SNPMSA.size() << " sites in SNP MSA" << std::endl;
+		resultHere.clear();
+		splitAndAddRecursively(resultHere, cluster, SNPMSA, allIndices);
+		if (resultHere.size() > 1)
+		{
+			std::cerr << "SNP MSA splitted to " << resultHere.size() << " clusters:";
+			for (size_t i = 0; i < resultHere.size(); i++)
+			{
+				std::cerr << " " << resultHere[i].size();
+			}
+			std::cerr << std::endl;
+		}
+	}
+	if (resultHere.size() == 1)
+	{
+		std::cerr << "split by DBG variants size " << cluster.size() << std::endl;
+		auto DBGvariants = getDBGvariants(cluster, MBGPath, tmpPath);
+		std::cerr << DBGvariants.size() << " sites in DBG variants" << std::endl;
+		resultHere.clear();
+		splitAndAddRecursively(resultHere, cluster, DBGvariants, allIndices);
+		if (resultHere.size() > 1)
+		{
+			std::cerr << "DBG variants splitted to " << resultHere.size() << " clusters:";
+			for (size_t i = 0; i < resultHere.size(); i++)
+			{
+				std::cerr << " " << resultHere[i].size();
+			}
+			std::cerr << std::endl;
+		}
+	}
+	if (resultHere.size() == 1)
+	{
+		std::cerr << "split by big indels size " << cluster.size() << std::endl;
+		resultHere = splitByBigIndels(edits);
+		std::cerr << "big indels splitted to " << resultHere.size() << " clusters:";
+		for (size_t i = 0; i < resultHere.size(); i++)
+		{
+			std::cerr << " " << resultHere[i].size();
+		}
+		std::cerr << std::endl;
+	}
+	if (resultHere.size() == 1)
+	{
+		std::cerr << "split by edit linkage size " << cluster.size() << std::endl;
+		resultHere = splitByEditLinkage(edits);
+		std::cerr << "edit linkage splitted to " << resultHere.size() << " clusters:";
+		for (size_t i = 0; i < resultHere.size(); i++)
+		{
+			std::cerr << " " << resultHere[i].size();
+		}
+		std::cerr << std::endl;
+	}
+	if (resultHere.size() == 1)
+	{
+		std::cerr << "split by linked minor alleles size " << cluster.size() << std::endl;
+		resultHere = splitByLinkedMinorAlleles(edits);
+		std::cerr << "linked minor alleles splitted to " << resultHere.size() << " clusters:";
+		for (size_t i = 0; i < resultHere.size(); i++)
+		{
+			std::cerr << " " << resultHere[i].size();
+		}
+		std::cerr << std::endl;
+	}
+/*	if (resultHere.size() == 1)
+	{
+		std::cerr << "phase approx edits size " << cluster.size() << std::endl;
+		resultHere = phaseApproxEdits(edits);
+		std::cerr << "approx edits resulted in " << resultHere.size() << " clusters:";
+		for (size_t i = 0; i < resultHere.size(); i++)
+		{
+			std::cerr << " " << resultHere[i].size();
+		}
+		std::cerr << std::endl;
+	}*/
+	if (resultHere.size() == 1)
+	{
+		if (correctBeforePhasing)
+		{
+			result.emplace_back(cluster);
+			return;
+		}
+		else
+		{
+			callVariantsAndSplitRecursively(result, cluster, graph, pathStartClip, pathEndClip, numThreads, MBGPath, tmpPath, true);
+			return;
+		}
+	}
+	for (size_t i = 0; i < resultHere.size(); i++)
+	{
+		std::vector<OntLoop> filteredClusters;
+		for (size_t j : resultHere[i])
+		{
+			filteredClusters.emplace_back(cluster[j]);
+		}
+		callVariantsAndSplitRecursively(result, filteredClusters, graph, pathStartClip, pathEndClip, numThreads, MBGPath, tmpPath, false);
+	}
+}
+
+void addRawSequencesToLoops(std::vector<std::vector<OntLoop>>& clusters, const GfaGraph& graph, const std::unordered_map<Node, size_t>& pathStartClip, const std::unordered_map<Node, size_t>& pathEndClip, const std::string ontReadPath, const size_t numThreads)
+{
+	std::vector<std::vector<std::string>> sequences = getRawLoopSequences(clusters, ontReadPath, graph, pathStartClip, pathEndClip, numThreads);
+	assert(sequences.size() == clusters.size());
+	for (size_t i = 0; i < clusters.size(); i++)
+	{
+		assert(sequences[i].size() == clusters[i].size());
+		for (size_t j = 0; j < clusters[i].size(); j++)
+		{
+			clusters[i][j].rawSequence = sequences[i][j];
+		}
+	}
+}
+
+std::vector<std::vector<OntLoop>> editSplitClusters(const std::vector<std::vector<OntLoop>>& clusters, const GfaGraph& graph, const std::unordered_map<Node, size_t>& pathStartClip, const std::unordered_map<Node, size_t>& pathEndClip, const size_t numThreads, const std::string MBGPath, const std::string tmpPath)
+{
+	std::vector<std::vector<OntLoop>> result;
+	for (size_t i = 0; i < clusters.size(); i++)
+	{
+		if (clusters[i].size() <= 5)
+		{
+			std::cerr << "skip low coverage cluster with size " << clusters[i].size() << std::endl;
+			result.emplace_back(clusters[i]);
+			continue;
+		}
+		callVariantsAndSplitRecursively(result, clusters[i], graph, pathStartClip, pathEndClip, numThreads, MBGPath, tmpPath, false);
+	}
+	return result;
+}
+
+void addRawSequenceNamesToLoops(std::vector<std::vector<OntLoop>>& clusters)
+{
+	for (size_t i = 0; i < clusters.size(); i++)
+	{
+		for (size_t j = 0; j < clusters[i].size(); j++)
+		{
+			clusters[i][j].rawLoopName = "morph_" + std::to_string(i) + "_rawloop_" + std::to_string(j) + "_" + clusters[i][j].readName + "_" + std::to_string(clusters[i][j].approxStart) + "_" + std::to_string(clusters[i][j].approxEnd);
+		}
+	}
 }
 
 void addSelfCorrectedOntLoopSequences(std::vector<std::vector<OntLoop>>& clusters)
