@@ -7494,6 +7494,12 @@ void callVariantsAndSplitRecursively(std::vector<std::vector<OntLoop>>& result, 
 	{
 		if (correctBeforePhasing)
 		{
+			std::cerr << "final cluster with size " << cluster.size() << " with reads:";
+			for (const auto& read : cluster)
+			{
+				std::cerr << " " << read.readName << "_" << read.approxStart << "_" << read.approxEnd;
+			}
+			std::cerr << std::endl;
 			result.emplace_back(cluster);
 			return;
 		}
@@ -7505,6 +7511,12 @@ void callVariantsAndSplitRecursively(std::vector<std::vector<OntLoop>>& result, 
 	}
 	for (size_t i = 0; i < resultHere.size(); i++)
 	{
+		std::cerr << "split cluster with size " << cluster.size() << " corrected " << (correctBeforePhasing ? "yes" : "no")  << " into " << resultHere.size() << " clusters with reads:";
+		for (const auto& read : cluster)
+		{
+			std::cerr << " " << read.readName << "_" << read.approxStart << "_" << read.approxEnd;
+		}
+		std::cerr << std::endl;
 		std::vector<OntLoop> filteredClusters;
 		for (size_t j : resultHere[i])
 		{
