@@ -243,6 +243,61 @@ std::pair<std::string, std::string> canon(const std::string& left, const std::st
 	return std::make_pair(left, right);
 }
 
+template <typename F>
+void iterateKmers(const std::string seq, const size_t k, F callback)
+{
+	if (seq.size() < k) return;
+	const __uint128_t mask = ((__uint128_t)1 << (__uint128_t)(2ull * k)) - (__uint128_t)1;
+	__uint128_t kmer = 0;
+	for (size_t i = 0; i < k; i++)
+	{
+		kmer <<= 2;
+		switch(seq[i])
+		{
+			case 'A':
+				kmer += 0;
+				break;
+			case 'C':
+				kmer += 1;
+				break;
+			case 'G':
+				kmer += 2;
+				break;
+			case 'T':
+				kmer += 3;
+				break;
+			default:
+				assert(false);
+				break;
+		}
+	}
+	callback(kmer, 0);
+	for (size_t i = k; i < seq.size(); i++)
+	{
+		kmer <<= 2;
+		kmer &= mask;
+		switch(seq[i])
+		{
+			case 'A':
+				kmer += 0;
+				break;
+			case 'C':
+				kmer += 1;
+				break;
+			case 'G':
+				kmer += 2;
+				break;
+			case 'T':
+				kmer += 3;
+				break;
+			default:
+				assert(false);
+				break;
+		}
+		callback(kmer, i-k+1);
+	}
+}
+
 class OntLoop
 {
 public:
@@ -4271,6 +4326,193 @@ std::vector<MorphConsensus> getMorphConsensuses(const std::vector<std::vector<On
 	return result;
 }
 
+std::string getCentralModalAllele(const std::vector<std::string>& sequences, const std::vector<size_t>& startIndices, const std::vector<size_t>& endIndices, const size_t k)
+{
+	assert(startIndices.size() == sequences.size());
+	assert(endIndices.size() == sequences.size());
+	phmap::flat_hash_map<std::string, size_t> alleleCounts;
+	for (size_t i = 0; i < sequences.size(); i++)
+	{
+		assert(endIndices[i] > startIndices[i]);
+		assert(endIndices[i] + k <= sequences[i].size());
+		alleleCounts[sequences[i].substr(startIndices[i], endIndices[i]+k-startIndices[i])] += 1;
+	}
+	std::vector<std::string> modalAlleles;
+	size_t modalAlleleCoverage = 0;
+	for (const auto& pair : alleleCounts)
+	{
+		if (pair.second < modalAlleleCoverage) continue;
+		if (pair.second > modalAlleleCoverage)
+		{
+			modalAlleles.clear();
+			modalAlleleCoverage = pair.second;
+		}
+		modalAlleles.emplace_back(pair.first);
+	}
+	if (modalAlleles.size() == 1) return modalAlleles[0];
+	std::vector<size_t> weightedEdits;
+	weightedEdits.resize(modalAlleles.size());
+	for (size_t i = 0; i < modalAlleles.size(); i++)
+	{
+		for (const auto& pair : alleleCounts)
+		{
+			if (pair.first == modalAlleles[i]) continue;
+			size_t edits = getEditDistanceWfa(modalAlleles[i], pair.first);
+			weightedEdits[i] += edits * pair.second;
+		}
+	}
+	size_t bestIndex = 0;
+	for (size_t i = 1; i < modalAlleles.size(); i++)
+	{
+		if (weightedEdits[i] < weightedEdits[bestIndex]) bestIndex = i;
+	}
+	return modalAlleles[bestIndex];
+}
+
+std::vector<std::vector<size_t>> getAllPresentKmerChain(const std::string consensusSeq, const std::vector<std::string>& loopSequences, const size_t k)
+{
+	phmap::flat_hash_map<uint64_t, size_t> kmerPosition;
+	phmap::flat_hash_set<uint64_t> duplicateKmers;
+	phmap::flat_hash_set<uint64_t> kmersEverywhere;
+	iterateKmers(consensusSeq, k, [&kmerPosition, &duplicateKmers](const uint64_t kmer, const size_t position)
+	{
+		if (kmerPosition.count(kmer) == 1)
+		{
+			duplicateKmers.insert(kmer);
+			return;
+		}
+		kmerPosition[kmer] = position;
+	});
+	for (auto pair : kmerPosition)
+	{
+		if (duplicateKmers.count(pair.first) == 1) continue;
+		kmersEverywhere.insert(pair.first);
+	}
+	for (size_t i = 0; i < loopSequences.size(); i++)
+	{
+		phmap::flat_hash_set<uint64_t> kmersHere;
+		iterateKmers(loopSequences[i], k, [&duplicateKmers, &kmersHere](const uint64_t kmer, const size_t position)
+		{
+			if (kmersHere.count(kmer) == 1)
+			{
+				duplicateKmers.insert(kmer);
+				return;
+			}
+			kmersHere.insert(kmer);
+		});
+		for (auto kmer : kmersEverywhere)
+		{
+			if (kmersHere.count(kmer) == 0) duplicateKmers.insert(kmer);
+		}
+	}
+	std::vector<std::pair<size_t, uint64_t>> kmerPositionsInConsensus;
+	for (auto pair : kmerPosition)
+	{
+		if (duplicateKmers.count(pair.first) == 1) continue;
+		kmerPositionsInConsensus.emplace_back(pair.second, pair.first);
+	}
+	std::sort(kmerPositionsInConsensus.begin(), kmerPositionsInConsensus.end());
+	phmap::flat_hash_map<uint64_t, size_t> kmerToIndex;
+	for (size_t i = 0; i < kmerPositionsInConsensus.size(); i++)
+	{
+		kmerToIndex[kmerPositionsInConsensus[i].second] = i;
+	}
+	std::vector<std::vector<size_t>> kmerPositionWithinLoop;
+	kmerPositionWithinLoop.resize(kmerPositionsInConsensus.size());
+	for (size_t i = 0; i < kmerPositionWithinLoop.size(); i++)
+	{
+		kmerPositionWithinLoop[i].resize(loopSequences.size(), std::numeric_limits<size_t>::max());
+	}
+	for (size_t i = 0; i < loopSequences.size(); i++)
+	{
+		iterateKmers(loopSequences[i], k, [&kmerPositionWithinLoop, &kmerToIndex, i](const uint64_t kmer, const size_t position)
+		{
+			if (kmerToIndex.count(kmer) == 0) return;
+			assert(kmerPositionWithinLoop[kmerToIndex.at(kmer)][i] == std::numeric_limits<size_t>::max());
+			kmerPositionWithinLoop[kmerToIndex.at(kmer)][i] = position;
+		});
+	}
+	for (size_t i = 0; i < kmerPositionWithinLoop.size(); i++)
+	{
+		for (size_t j = 0; j < kmerPositionWithinLoop[i].size(); j++)
+		{
+			assert(kmerPositionWithinLoop[i][j] != std::numeric_limits<size_t>::max());
+		}
+	}
+	std::cerr << "cluster with " << loopSequences.size() << " reads has " << kmerPositionWithinLoop.size() << " all-present kmers before chain filter" << std::endl;
+	std::cerr << "positions before chain checking:";
+	for (auto pair : kmerPositionsInConsensus)
+	{
+		std::cerr << " " << pair.first;
+	}
+	std::cerr << std::endl;
+	while (true)
+	{
+		std::vector<size_t> indexConflictCount;
+		indexConflictCount.resize(kmerPositionWithinLoop.size(), false);
+		for (size_t i = 1; i < kmerPositionWithinLoop.size(); i++)
+		{
+			assert(kmerPositionWithinLoop[i].size() == loopSequences.size());
+			assert(kmerPositionWithinLoop[i-1].size() == loopSequences.size());
+			for (size_t j = 0; j < loopSequences.size(); j++)
+			{
+				assert(kmerPositionWithinLoop[i-1][j] != kmerPositionWithinLoop[i][j]);
+				if (kmerPositionWithinLoop[i-1][j] < kmerPositionWithinLoop[i][j]) continue;
+				indexConflictCount[i] += 1;
+				indexConflictCount[i-1] += 1;
+			}
+		}
+		std::vector<bool> removeIndex;
+		removeIndex.resize(kmerPositionWithinLoop.size(), false);
+		for (size_t i = 0; i < kmerPositionWithinLoop.size(); i++)
+		{
+			if (indexConflictCount[i] == 0) continue;
+			if (i > 0 && indexConflictCount[i-1] > indexConflictCount[i]) continue;
+			if (i+1 < kmerPositionWithinLoop.size() && indexConflictCount[i+1] > indexConflictCount[i]) continue;
+			removeIndex[i] = true;
+		}
+		bool removedAny = false;
+		for (size_t i = kmerPositionWithinLoop.size()-1; i < kmerPositionWithinLoop.size(); i--)
+		{
+			if (!removeIndex[i]) continue;
+			kmerPositionWithinLoop.erase(kmerPositionWithinLoop.begin() + i);
+			removedAny = true;
+		}
+		if (!removedAny) break;
+	}
+	return kmerPositionWithinLoop;
+}
+
+std::string polishByBubbles(const std::string& refSequence, const std::vector<std::string>& ontSequences)
+{
+	const size_t k = 31;
+	std::vector<std::string> sequencesWithRef;
+	sequencesWithRef.emplace_back(refSequence);
+	sequencesWithRef.insert(sequencesWithRef.end(), ontSequences.begin(), ontSequences.end());
+	std::vector<std::vector<size_t>> kmerChain = getAllPresentKmerChain(refSequence, sequencesWithRef, k);
+	std::cerr << "bubble polishing has " << kmerChain.size() << " shared kmers" << std::endl;
+	if (kmerChain.size() < 2) return refSequence;
+	assert(kmerChain[0].size() == sequencesWithRef.size());
+	std::string result;
+	result = refSequence.substr(0, kmerChain[0][0]);
+	for (size_t i = 1; i < kmerChain.size(); i++)
+	{
+		assert(kmerChain[i][0] > kmerChain[i-1][0]);
+		if (kmerChain[i][0] > kmerChain[i-1][0] + 5000)
+		{
+			result += refSequence.substr(kmerChain[i-1][0], kmerChain[i][0]-kmerChain[i-1][0]);
+			continue;
+		}
+		std::string alleleHere = getCentralModalAllele(sequencesWithRef, kmerChain[i-1], kmerChain[i], k);
+		assert(alleleHere.size() > k);
+		assert(alleleHere.substr(0, k) == refSequence.substr(kmerChain[i-1][0], k));
+		assert(alleleHere.substr(alleleHere.size()-k, k) == refSequence.substr(kmerChain[i][0], k));
+		result += alleleHere.substr(0, alleleHere.size()-k);
+	}
+	result += refSequence.substr(kmerChain.back()[0]);
+	return result;
+}
+
 std::string polishByDBG(const std::string& refSequence, const std::vector<std::string>& ontSequences, const std::string MBGPath, const std::string tmpPrefix, const size_t numThreads)
 {
 	std::string tmpReadsFile = tmpPrefix + "reads.fa";
@@ -4446,7 +4688,10 @@ void polishMorphConsensuses(std::vector<MorphConsensus>& morphConsensuses, const
 		{
 			seqs.emplace_back(ontLoopSequences[i][k].rawSequence);
 		}
-		morphConsensuses[i].sequence = polishByDBG(morphConsensuses[i].sequence, seqs, MBGPath, tmpPath + "/polish" + std::to_string(i), numThreads);
+		size_t sizeBeforePolish = morphConsensuses[i].sequence.size();
+		morphConsensuses[i].sequence = polishByBubbles(morphConsensuses[i].sequence, seqs);
+		std::cerr << "polished from size " << sizeBeforePolish << " to " << morphConsensuses[i].sequence.size() << std::endl;
+//		morphConsensuses[i].sequence = polishByDBG(morphConsensuses[i].sequence, seqs, MBGPath, tmpPath + "/polish" + std::to_string(i), numThreads);
 		for (size_t j = 0; j < 5; j++)
 		{
 			std::cerr << "polish morph " << i << " consensus round " << j << "/5" << std::endl;
@@ -5349,175 +5594,6 @@ bool isBigIndel(const std::tuple<size_t, size_t, std::string>& variant)
 	if (std::get<1>(variant)-std::get<0>(variant) >= 10) return true;
 	if (std::get<2>(variant).size() >= 10) return true;
 	return false;
-}
-
-template <typename F>
-void iterateKmers(const std::string seq, const size_t k, F callback)
-{
-	if (seq.size() < k) return;
-	const __uint128_t mask = ((__uint128_t)1 << (__uint128_t)(2ull * k)) - (__uint128_t)1;
-	__uint128_t kmer = 0;
-	for (size_t i = 0; i < k; i++)
-	{
-		kmer <<= 2;
-		switch(seq[i])
-		{
-			case 'A':
-				kmer += 0;
-				break;
-			case 'C':
-				kmer += 1;
-				break;
-			case 'G':
-				kmer += 2;
-				break;
-			case 'T':
-				kmer += 3;
-				break;
-			default:
-				assert(false);
-				break;
-		}
-	}
-	callback(kmer, 0);
-	for (size_t i = k; i < seq.size(); i++)
-	{
-		kmer <<= 2;
-		kmer &= mask;
-		switch(seq[i])
-		{
-			case 'A':
-				kmer += 0;
-				break;
-			case 'C':
-				kmer += 1;
-				break;
-			case 'G':
-				kmer += 2;
-				break;
-			case 'T':
-				kmer += 3;
-				break;
-			default:
-				assert(false);
-				break;
-		}
-		callback(kmer, i-k+1);
-	}
-}
-
-std::vector<std::vector<size_t>> getAllPresentKmerChain(const std::string consensusSeq, const std::vector<std::string>& loopSequences, const size_t k)
-{
-	phmap::flat_hash_map<uint64_t, size_t> kmerPosition;
-	phmap::flat_hash_set<uint64_t> duplicateKmers;
-	phmap::flat_hash_set<uint64_t> kmersEverywhere;
-	iterateKmers(consensusSeq, k, [&kmerPosition, &duplicateKmers](const uint64_t kmer, const size_t position)
-	{
-		if (kmerPosition.count(kmer) == 1)
-		{
-			duplicateKmers.insert(kmer);
-			return;
-		}
-		kmerPosition[kmer] = position;
-	});
-	for (auto pair : kmerPosition)
-	{
-		if (duplicateKmers.count(pair.first) == 1) continue;
-		kmersEverywhere.insert(pair.first);
-	}
-	for (size_t i = 0; i < loopSequences.size(); i++)
-	{
-		phmap::flat_hash_set<uint64_t> kmersHere;
-		iterateKmers(loopSequences[i], k, [&duplicateKmers, &kmersHere](const uint64_t kmer, const size_t position)
-		{
-			if (kmersHere.count(kmer) == 1)
-			{
-				duplicateKmers.insert(kmer);
-				return;
-			}
-			kmersHere.insert(kmer);
-		});
-		for (auto kmer : kmersEverywhere)
-		{
-			if (kmersHere.count(kmer) == 0) duplicateKmers.insert(kmer);
-		}
-	}
-	std::vector<std::pair<size_t, uint64_t>> kmerPositionsInConsensus;
-	for (auto pair : kmerPosition)
-	{
-		if (duplicateKmers.count(pair.first) == 1) continue;
-		kmerPositionsInConsensus.emplace_back(pair.second, pair.first);
-	}
-	std::sort(kmerPositionsInConsensus.begin(), kmerPositionsInConsensus.end());
-	phmap::flat_hash_map<uint64_t, size_t> kmerToIndex;
-	for (size_t i = 0; i < kmerPositionsInConsensus.size(); i++)
-	{
-		kmerToIndex[kmerPositionsInConsensus[i].second] = i;
-	}
-	std::vector<std::vector<size_t>> kmerPositionWithinLoop;
-	kmerPositionWithinLoop.resize(kmerPositionsInConsensus.size());
-	for (size_t i = 0; i < kmerPositionWithinLoop.size(); i++)
-	{
-		kmerPositionWithinLoop[i].resize(loopSequences.size(), std::numeric_limits<size_t>::max());
-	}
-	for (size_t i = 0; i < loopSequences.size(); i++)
-	{
-		iterateKmers(loopSequences[i], k, [&kmerPositionWithinLoop, &kmerToIndex, i](const uint64_t kmer, const size_t position)
-		{
-			if (kmerToIndex.count(kmer) == 0) return;
-			assert(kmerPositionWithinLoop[kmerToIndex.at(kmer)][i] == std::numeric_limits<size_t>::max());
-			kmerPositionWithinLoop[kmerToIndex.at(kmer)][i] = position;
-		});
-	}
-	for (size_t i = 0; i < kmerPositionWithinLoop.size(); i++)
-	{
-		for (size_t j = 0; j < kmerPositionWithinLoop[i].size(); j++)
-		{
-			assert(kmerPositionWithinLoop[i][j] != std::numeric_limits<size_t>::max());
-		}
-	}
-	std::cerr << "cluster with " << loopSequences.size() << " reads has " << kmerPositionWithinLoop.size() << " all-present kmers before chain filter" << std::endl;
-	std::cerr << "positions before chain checking:";
-	for (auto pair : kmerPositionsInConsensus)
-	{
-		std::cerr << " " << pair.first;
-	}
-	std::cerr << std::endl;
-	while (true)
-	{
-		std::vector<size_t> indexConflictCount;
-		indexConflictCount.resize(kmerPositionWithinLoop.size(), false);
-		for (size_t i = 1; i < kmerPositionWithinLoop.size(); i++)
-		{
-			assert(kmerPositionWithinLoop[i].size() == loopSequences.size());
-			assert(kmerPositionWithinLoop[i-1].size() == loopSequences.size());
-			for (size_t j = 0; j < loopSequences.size(); j++)
-			{
-				assert(kmerPositionWithinLoop[i-1][j] != kmerPositionWithinLoop[i][j]);
-				if (kmerPositionWithinLoop[i-1][j] < kmerPositionWithinLoop[i][j]) continue;
-				indexConflictCount[i] += 1;
-				indexConflictCount[i-1] += 1;
-			}
-		}
-		std::vector<bool> removeIndex;
-		removeIndex.resize(kmerPositionWithinLoop.size(), false);
-		for (size_t i = 0; i < kmerPositionWithinLoop.size(); i++)
-		{
-			if (indexConflictCount[i] == 0) continue;
-			if (i > 0 && indexConflictCount[i-1] > indexConflictCount[i]) continue;
-			if (i+1 < kmerPositionWithinLoop.size() && indexConflictCount[i+1] > indexConflictCount[i]) continue;
-			removeIndex[i] = true;
-		}
-		bool removedAny = false;
-		for (size_t i = kmerPositionWithinLoop.size()-1; i < kmerPositionWithinLoop.size(); i--)
-		{
-			if (!removeIndex[i]) continue;
-			kmerPositionWithinLoop.erase(kmerPositionWithinLoop.begin() + i);
-			removedAny = true;
-		}
-		if (!removedAny) break;
-	}
-	return kmerPositionWithinLoop;
 }
 
 void clusterBubbleAlleles(std::vector<std::vector<size_t>>& result, const std::vector<std::string>& loopSequences, const std::vector<size_t>& previousMatchIndices, const std::vector<size_t>& currentMatchIndices, const size_t k)
