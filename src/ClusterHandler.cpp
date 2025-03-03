@@ -4426,6 +4426,9 @@ std::string polishByDBG(const std::string& refSequence, const std::vector<std::s
 	pickedPath = reverse(pickedPath);
 	std::string result = getSequence(pickedPath, graph.nodeSeqs, graph.revCompNodeSeqs, graph.edges);
 	result = refSequence.substr(0, startPlus) + result.substr(startClip, result.size() - startClip - endClip) + refSequence.substr(refSequence.size()-endPlus);
+	std::cerr << "DBG try to polish from size " << refSequence.size() << " to " << result.size() << std::endl;
+	if (result.size() > refSequence.size()+100) return refSequence;
+	if (result.size()+100 < refSequence.size()) return refSequence;
 	return result;
 }
 
