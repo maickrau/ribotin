@@ -7137,9 +7137,9 @@ void addPath(std::string& result, const phmap::flat_hash_set<__uint128_t>& keptK
 	{
 		assert(unambiguousExtensionFromLast.size() >= 1);
 		size_t pathLength = visited.size();
-		if (pathLength + 50 > thisMatchPos-lastMatchPos)
+		if (pathLength + 20 > thisMatchPos-lastMatchPos)
 		{
-			if (thisMatchPos-lastMatchPos+50 > pathLength)
+			if (thisMatchPos-lastMatchPos+20 > pathLength)
 			{
 				std::reverse(unambiguousExtensionFromLast.begin(), unambiguousExtensionFromLast.end());
 				result += unambiguousExtensionFromLast;
