@@ -4809,6 +4809,7 @@ void writeMorphGraphAndReadPaths(const std::string& graphFile, const std::string
 	{
 		for (const auto& loop : morphConsensuses[i].ontLoops)
 		{
+			assert(loop.originalReadLength != 0);
 			originalReadLength[loop.readName] = loop.originalReadLength;
 			if (loop.approxEnd < loop.approxStart)
 			{
@@ -4832,6 +4833,7 @@ void writeMorphGraphAndReadPaths(const std::string& graphFile, const std::string
 			{
 				readPaths.emplace_back();
 				pathLength.emplace_back(0);
+				readPaths.back().readLength = originalReadLength.at(pair.first);
 				readPaths.back().readName = pair.first;
 				readPaths.back().pathStartClip = 0;
 				readPaths.back().pathEndClip = 0;
