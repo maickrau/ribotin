@@ -5598,7 +5598,7 @@ bool isBigIndel(const std::tuple<size_t, size_t, std::string>& variant)
 
 void clusterBubbleAlleles(std::vector<std::vector<size_t>>& result, const std::vector<std::string>& loopSequences, const std::vector<size_t>& previousMatchIndices, const std::vector<size_t>& currentMatchIndices, const size_t k)
 {
-	const size_t minCoverage = 5;
+	const size_t minCoverage = std::max<size_t>(5, loopSequences.size()*0.05);
 	const double maxDivergence = 0.1;
 	size_t maxClusterDistance = 10;
 	if (currentMatchIndices[0] < previousMatchIndices[0] + k)
@@ -5975,99 +5975,6 @@ std::vector<std::pair<std::vector<std::vector<size_t>>, size_t>> getPhasableVari
 	return result;
 }
 
-std::pair<std::vector<std::vector<OntLoop>>, std::vector<std::vector<std::pair<std::vector<std::vector<size_t>>, size_t>>>> splitLoopsAndPhaseInfoToClusters(const std::vector<OntLoop>& previous, const std::vector<std::pair<std::vector<std::vector<size_t>>, size_t>>& phasableVariantInfo, const std::vector<std::vector<size_t>>& splitted)
-{
-	const size_t minCoverage = 3;
-	std::vector<size_t> clusterOfLoop;
-	std::vector<size_t> readIndexWithinCluster;
-	readIndexWithinCluster.resize(previous.size(), std::numeric_limits<size_t>::max());
-	clusterOfLoop.resize(previous.size(), std::numeric_limits<size_t>::max());
-	for (size_t i = 0; i < splitted.size(); i++)
-	{
-		for (size_t j = 0; j < splitted[i].size(); j++)
-		{
-			assert(splitted[i][j] < previous.size());
-			assert(clusterOfLoop[splitted[i][j]] == std::numeric_limits<size_t>::max());
-			assert(readIndexWithinCluster[splitted[i][j]] == std::numeric_limits<size_t>::max());
-			clusterOfLoop[splitted[i][j]] = i;
-			readIndexWithinCluster[splitted[i][j]] = j;
-		}
-	}
-	for (size_t i = 0; i < readIndexWithinCluster.size(); i++)
-	{
-		assert(clusterOfLoop[i] != std::numeric_limits<size_t>::max());
-		assert(readIndexWithinCluster[i] != std::numeric_limits<size_t>::max());
-	}
-	std::vector<std::vector<OntLoop>> splittedLoops;
-	std::vector<std::vector<std::pair<std::vector<std::vector<size_t>>, size_t>>> splittedPhasableVariantInfo;
-	splittedLoops.resize(splitted.size());
-	splittedPhasableVariantInfo.resize(splitted.size());
-	for (size_t i = 0; i < splitted.size(); i++)
-	{
-		splittedLoops[i].resize(splitted[i].size());
-	}
-	for (size_t j = 0; j < previous.size(); j++)
-	{
-		assert(j < clusterOfLoop.size());
-		assert(clusterOfLoop[j] < splittedLoops.size());
-		assert(j < readIndexWithinCluster.size());
-		assert(readIndexWithinCluster[j] < splittedLoops[clusterOfLoop[j]].size());
-		splittedLoops[clusterOfLoop[j]][readIndexWithinCluster[j]] = previous[j];
-	}
-	for (size_t site = 0; site < phasableVariantInfo.size(); site++)
-	{
-		for (size_t j = 0; j < splitted.size(); j++)
-		{
-			splittedPhasableVariantInfo[j].emplace_back();
-			splittedPhasableVariantInfo[j][site].first.resize(phasableVariantInfo[site].first.size());
-			splittedPhasableVariantInfo[j][site].second = phasableVariantInfo[site].second;
-		}
-		for (size_t allele = 0; allele < phasableVariantInfo[site].first.size(); allele++)
-		{
-			for (size_t read : phasableVariantInfo[site].first[allele])
-			{
-				splittedPhasableVariantInfo[clusterOfLoop[read]][site].first[allele].emplace_back(readIndexWithinCluster[read]);
-			}
-		}
-	}
-	for (size_t i = 0; i < splittedPhasableVariantInfo.size(); i++)
-	{
-		bool removedAny = false;
-		for (size_t j = splittedPhasableVariantInfo[i].size()-1; j < splittedPhasableVariantInfo[i].size(); j--)
-		{
-			bool hasLowCoverage = false;
-			for (size_t k = 0; k < splittedPhasableVariantInfo[i][j].first.size(); k++)
-			{
-				if (splittedPhasableVariantInfo[i][j].first[k].size() < minCoverage) hasLowCoverage = true;
-			}
-			if (hasLowCoverage)
-			{
-				std::swap(splittedPhasableVariantInfo[i][j], splittedPhasableVariantInfo[i].back());
-				splittedPhasableVariantInfo[i].pop_back();
-				removedAny = true;
-			}
-		}
-		if (removedAny)
-		{
-			std::sort(splittedPhasableVariantInfo[i].begin(), splittedPhasableVariantInfo[i].end(), [](const auto& left, const auto& right) { return left.second < right.second; });
-		}
-	}
-	for (size_t i = 0; i < splittedPhasableVariantInfo.size(); i++)
-	{
-		for (size_t j = 0; j < splittedPhasableVariantInfo[i].size(); j++)
-		{
-			for (size_t k = 0; k < splittedPhasableVariantInfo[i][j].first.size(); k++)
-			{
-				for (size_t read : splittedPhasableVariantInfo[i][j].first[k])
-				{
-					assert(read < splitted[i].size());
-				}
-			}
-		}
-	}
-	return std::make_pair(splittedLoops, splittedPhasableVariantInfo);
-}
-
 bool vectorsMatch(const std::vector<size_t>& left, const std::vector<size_t>& right)
 {
 	if (left.size() != right.size()) return false;
@@ -6081,17 +5988,15 @@ bool vectorsMatch(const std::vector<size_t>& left, const std::vector<size_t>& ri
 std::vector<std::vector<size_t>> trySplitTwoSites(const std::vector<std::pair<std::vector<std::vector<size_t>>, size_t>>& phasableVariantInfo, const size_t numReads)
 {
 	const size_t minDistance = 100;
-	const size_t minCoverage = 3;
-	std::vector<bool> siteUsed;
-	siteUsed.resize(phasableVariantInfo.size(), false);
-	std::vector<std::vector<size_t>> phaseClustersPerRead;
-	phaseClustersPerRead.resize(numReads);
+	const size_t minCoverage = std::max<size_t>(3, numReads*0.05);
+	size_t bestSiteOne = std::numeric_limits<size_t>::max();
+	size_t bestSiteTwo = std::numeric_limits<size_t>::max();
+	size_t bestSiteMinorAlleleCoverage = 0;
+	std::vector<size_t> readsInFirstCluster;
 	for (size_t i = 0; i < phasableVariantInfo.size(); i++)
 	{
 		for (size_t j = i+1; j < phasableVariantInfo.size(); j++)
 		{
-			if (siteUsed[i]) break;
-			if (siteUsed[j]) continue;
 			assert(phasableVariantInfo[i].second < phasableVariantInfo[j].second);
 			if (phasableVariantInfo[j].second < phasableVariantInfo[i].second + minDistance) continue;
 			std::vector<std::pair<size_t, size_t>> allelesPerRead;
@@ -6139,47 +6044,59 @@ std::vector<std::vector<size_t>> trySplitTwoSites(const std::vector<std::pair<st
 				size_t cluster = clusters.size();
 				clusters[p] = cluster;
 			}
-			if (clusters.size() < 2) continue;
+			if (clusters.size() != 2) continue;
 			phmap::flat_hash_map<size_t, size_t> clusterCoverage;
 			for (auto t : allelesPerRead)
 			{
 				clusterCoverage[clusters.at(find(parent, t))] += 1;
 			}
 			bool hasSmallCluster = false;
+			size_t minorAlleleCoverage = numReads;
 			for (auto pair : clusterCoverage)
 			{
-				if (pair.second < minCoverage) hasSmallCluster = true;
+				minorAlleleCoverage = std::min(minorAlleleCoverage, pair.second);
 			}
+			assert(minorAlleleCoverage*2 <= numReads);
+			if (minorAlleleCoverage < minCoverage) hasSmallCluster = true;
 			if (hasSmallCluster) continue;
-			std::cerr << "split two sites " << phasableVariantInfo[i].second << " " << phasableVariantInfo[j].second << std::endl;
-			for (size_t k = 0; k < allelesPerRead.size(); k++)
+			if (minorAlleleCoverage > bestSiteMinorAlleleCoverage)
 			{
-				size_t cluster = clusters.at(find(parent, allelesPerRead[k]));
-				phaseClustersPerRead[k].emplace_back(cluster);
+				bestSiteMinorAlleleCoverage = minorAlleleCoverage;
+				bestSiteOne = i;
+				bestSiteTwo = j;
+				readsInFirstCluster.clear();
+				size_t firstCluster = std::numeric_limits<size_t>::max();
+				for (size_t read = 0; read < allelesPerRead.size(); read++)
+				{
+					size_t cluster = clusters.at(find(parent, allelesPerRead[read]));
+					if (firstCluster == std::numeric_limits<size_t>::max()) firstCluster = cluster;
+					if (cluster == firstCluster) readsInFirstCluster.emplace_back(read);
+				}
 			}
-			siteUsed[i] = true;
-			siteUsed[j] = true;
 		}
 	}
-	if (phaseClustersPerRead[0].size() == 0) return std::vector<std::vector<size_t>> {};
+	if (bestSiteMinorAlleleCoverage == 0) return std::vector<std::vector<size_t>> {};
+	assert(bestSiteOne < phasableVariantInfo.size());
+	assert(bestSiteTwo < phasableVariantInfo.size());
+	std::cerr << "split two sites " << phasableVariantInfo[bestSiteOne].second << " " << phasableVariantInfo[bestSiteTwo].second << std::endl;
 	std::vector<std::vector<size_t>> result;
-	std::map<std::vector<size_t>, size_t> clusters;
-	for (size_t i = 0; i < phaseClustersPerRead.size(); i++)
+	result.resize(2);
+	result[0] = readsInFirstCluster;
+	std::vector<bool> readUsed;
+	readUsed.resize(numReads, false);
+	for (size_t read : readsInFirstCluster) readUsed[read] = true;
+	for (size_t read = 0; read < numReads; read++)
 	{
-		if (clusters.count(phaseClustersPerRead[i]) == 0)
-		{
-			clusters[phaseClustersPerRead[i]] = result.size();
-			result.emplace_back();
-		}
-		result[clusters.at(phaseClustersPerRead[i])].emplace_back(i);
+		if (readUsed[read]) continue;
+		result[1].emplace_back(read);
 	}
 	return result;
 }
 
-std::vector<std::vector<size_t>> trySplitThreeSites(const std::vector<std::pair<std::vector<std::vector<size_t>>, size_t>>& phasableVariantInfo)
+std::vector<std::vector<size_t>> trySplitThreeSites(const std::vector<std::pair<std::vector<std::vector<size_t>>, size_t>>& phasableVariantInfo, const size_t numReads)
 {
 	const size_t minDistance = 100;
-	const size_t minCoverage = 3;
+	const size_t minCoverage = std::max<size_t>(3, numReads*0.05);
 	std::vector<std::vector<size_t>> allelesPerRead;
 	for (size_t i = 0; i < phasableVariantInfo.size(); i++)
 	{
@@ -6324,7 +6241,7 @@ std::vector<std::vector<size_t>> trySplitThreeSites(const std::vector<std::pair<
 	return std::vector<std::vector<size_t>> {};
 }
 
-void splitAndAddRecursively(std::vector<std::vector<size_t>>& result, const std::vector<OntLoop>& previous, const std::vector<std::pair<std::vector<std::vector<size_t>>, size_t>>& phasableVariantInfo, const std::vector<size_t>& indicesHere)
+std::vector<std::vector<size_t>> splitAndAdd(const std::vector<OntLoop>& previous, const std::vector<std::pair<std::vector<std::vector<size_t>>, size_t>>& phasableVariantInfo)
 {
 	std::cerr << "recurse phase of cluster with size " << previous.size() << std::endl;
 	std::cerr << "count sites " << phasableVariantInfo.size() << std::endl;
@@ -6341,20 +6258,11 @@ void splitAndAddRecursively(std::vector<std::vector<size_t>>& result, const std:
 			std::cerr << " " << splitted[i].size();
 		}
 		std::cerr << std::endl;
-		std::vector<std::vector<OntLoop>> splittedLoops;
-		std::vector<std::vector<std::pair<std::vector<std::vector<size_t>>, size_t>>> splittedPhasableVariantInfo;
-		std::tie(splittedLoops, splittedPhasableVariantInfo) = splitLoopsAndPhaseInfoToClusters(previous, phasableVariantInfo, splitted);
-		for (size_t i = 0; i < splitted.size(); i++)
-		{
-			std::vector<size_t> splittedIndices;
-			for (size_t j : splitted[i]) splittedIndices.emplace_back(indicesHere[j]);
-			splitAndAddRecursively(result, splittedLoops[i], splittedPhasableVariantInfo[i], splittedIndices);
-		}
-		return;
+		return splitted;
 	}
 	std::cerr << "try split three sites" << std::endl;
 	startTime = getTime();
-	splitted = trySplitThreeSites(phasableVariantInfo);
+	splitted = trySplitThreeSites(phasableVariantInfo, previous.size());
 	endTime = getTime();
 	std::cerr << "three sites took " << formatTime(startTime, endTime) << std::endl;
 	if (splitted.size() >= 2)
@@ -6365,19 +6273,15 @@ void splitAndAddRecursively(std::vector<std::vector<size_t>>& result, const std:
 			std::cerr << " " << splitted[i].size();
 		}
 		std::cerr << std::endl;
-		std::vector<std::vector<OntLoop>> splittedLoops;
-		std::vector<std::vector<std::pair<std::vector<std::vector<size_t>>, size_t>>> splittedPhasableVariantInfo;
-		std::tie(splittedLoops, splittedPhasableVariantInfo) = splitLoopsAndPhaseInfoToClusters(previous, phasableVariantInfo, splitted);
-		for (size_t i = 0; i < splitted.size(); i++)
-		{
-			std::vector<size_t> splittedIndices;
-			for (size_t j : splitted[i]) splittedIndices.emplace_back(indicesHere[j]);
-			splitAndAddRecursively(result, splittedLoops[i], splittedPhasableVariantInfo[i], splittedIndices);
-		}
-		return;
+		return splitted;
 	}
-	std::cerr << "add cluster of size " << previous.size() << std::endl;
-	result.emplace_back(indicesHere);
+	std::vector<std::vector<size_t>> result;
+	result.emplace_back();
+	for (size_t i = 0; i < previous.size(); i++)
+	{
+		result.back().emplace_back(i);
+	}
+	return result;
 }
 
 void filterUniqueRegionsToSpan(std::vector<std::pair<size_t, size_t>>& uniqueRegionsInRef, const size_t minPos, const size_t maxPos)
@@ -6944,7 +6848,7 @@ std::pair<size_t, size_t> getBubble(const GfaGraph& graph, const Node startNode)
 
 std::vector<std::pair<std::vector<std::vector<size_t>>, size_t>> getDBGvariants(const std::vector<OntLoop>& cluster, const std::string MBGPath, const std::string tmpPath)
 {
-	size_t minCoverage = 5;
+	size_t minCoverage = std::max<size_t>(5, cluster.size()*0.05);
 	std::string graphFile = tmpPath + "/tmpgraph.gfa";
 	std::string pathsFile = tmpPath + "/tmppaths.gaf";
 	std::string readsFile = tmpPath + "/tmpreads.fa";
@@ -7490,8 +7394,7 @@ void callVariantsAndSplitRecursively(std::vector<std::vector<OntLoop>>& result, 
 	std::cerr << "got variant info of cluster with size " << cluster.size() << std::endl;
 	std::vector<std::vector<size_t>> resultHere;
 	std::vector<size_t> allIndices;
-	for (size_t i = 0; i < cluster.size(); i++) allIndices.emplace_back(i);
-	splitAndAddRecursively(resultHere, cluster, phasableVariantInfo, allIndices);
+	resultHere = splitAndAdd(cluster, phasableVariantInfo);
 	assert(resultHere.size() >= 1);
 	if (resultHere.size() == 1)
 	{
@@ -7510,7 +7413,7 @@ void callVariantsAndSplitRecursively(std::vector<std::vector<OntLoop>>& result, 
 		auto SNPMSA = getSNPMSA(edits);
 		std::cerr << SNPMSA.size() << " sites in SNP MSA" << std::endl;
 		resultHere.clear();
-		splitAndAddRecursively(resultHere, cluster, SNPMSA, allIndices);
+		resultHere = splitAndAdd(cluster, SNPMSA);
 		if (resultHere.size() > 1)
 		{
 			std::cerr << "SNP MSA splitted to " << resultHere.size() << " clusters:";
@@ -7527,7 +7430,7 @@ void callVariantsAndSplitRecursively(std::vector<std::vector<OntLoop>>& result, 
 		auto DBGvariants = getDBGvariants(cluster, MBGPath, tmpPath);
 		std::cerr << DBGvariants.size() << " sites in DBG variants" << std::endl;
 		resultHere.clear();
-		splitAndAddRecursively(resultHere, cluster, DBGvariants, allIndices);
+		resultHere = splitAndAdd(cluster, DBGvariants);
 		if (resultHere.size() > 1)
 		{
 			std::cerr << "DBG variants splitted to " << resultHere.size() << " clusters:";
