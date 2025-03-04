@@ -4513,6 +4513,18 @@ std::string polishByBubbles(const std::string& refSequence, const std::vector<st
 	return result;
 }
 
+std::string polishConsensus(const std::string rawConsensus, const std::vector<std::string>& seqs, const size_t numThreads)
+{
+	std::string result = polishByBubbles(rawConsensus, seqs);
+	for (size_t j = 0; j < 5; j++)
+	{
+		std::string newCorrection = getPolishedSequence(result, seqs, numThreads);
+		if (newCorrection == result) break;
+		result = newCorrection;
+	}
+	return result;
+}
+
 void polishMorphConsensuses(std::vector<MorphConsensus>& morphConsensuses, const std::vector<std::vector<OntLoop>>& ontLoopSequences, const std::string MBGPath, const std::string tmpPath, const size_t numThreads)
 {
 	for (size_t i = 0; i < morphConsensuses.size(); i++)
@@ -4528,15 +4540,8 @@ void polishMorphConsensuses(std::vector<MorphConsensus>& morphConsensuses, const
 			seqs.emplace_back(ontLoopSequences[i][k].rawSequence);
 		}
 		size_t sizeBeforePolish = morphConsensuses[i].sequence.size();
-		morphConsensuses[i].sequence = polishByBubbles(morphConsensuses[i].sequence, seqs);
+		morphConsensuses[i].sequence = polishConsensus(morphConsensuses[i].sequence, seqs, numThreads);
 		std::cerr << "polished from size " << sizeBeforePolish << " to " << morphConsensuses[i].sequence.size() << std::endl;
-		for (size_t j = 0; j < 5; j++)
-		{
-			std::cerr << "polish morph " << i << " consensus round " << j << "/5" << std::endl;
-			std::string newCorrection = getPolishedSequence(morphConsensuses[i].sequence, seqs, numThreads);
-			if (newCorrection == morphConsensuses[i].sequence) break;
-			morphConsensuses[i].sequence = newCorrection;
-		}
 	}
 }
 
@@ -5537,7 +5542,7 @@ std::vector<std::vector<size_t>> splitByBubbleAlleles(const std::vector<OntLoop>
 	const size_t k = 15;
 	auto path = getConsensusPath(loops, graph);
 	std::string consensusSeq = getConsensusSequence(path, graph, pathStartClip, pathEndClip);
-	consensusSeq = getPolishedSequence(consensusSeq, loopSequences, numThreads);
+	consensusSeq = polishConsensus(consensusSeq, loopSequences, numThreads);
 	std::vector<std::vector<size_t>> kmerChain = getAllPresentKmerChain(consensusSeq, loopSequences, k);
 	std::cerr << "cluster with " << loopSequences.size() << " reads has " << kmerChain.size() << " all-present kmers in chain" << std::endl;
 	std::vector<std::vector<size_t>> allelesPerRead;
@@ -5565,7 +5570,7 @@ std::vector<std::vector<std::tuple<size_t, size_t, std::string>>> getEditsForPha
 {
 	auto path = getConsensusPath(loops, graph);
 	std::string consensusSeq = getConsensusSequence(path, graph, pathStartClip, pathEndClip);
-	consensusSeq = getPolishedSequence(consensusSeq, loopSequences, numThreads);
+	consensusSeq = polishConsensus(consensusSeq, loopSequences, numThreads);
 	size_t firstMatchPos = 0;
 	size_t lastMatchPos = consensusSeq.size();;
 	std::vector<std::vector<std::tuple<size_t, size_t, std::string>>> editsPerRead;
