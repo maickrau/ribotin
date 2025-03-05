@@ -6457,6 +6457,256 @@ bool minorAllelesPerfectlyLinked(const phmap::flat_hash_map<std::tuple<size_t, s
 	return false;
 }
 
+bool editIntersectsWithSomething(const std::tuple<size_t, size_t, std::string>& edit, const std::vector<std::tuple<size_t, size_t, std::string>>& otherEdits)
+{
+	for (size_t i = 0; i < otherEdits.size(); i++)
+	{
+		if (std::get<0>(edit) <= std::get<1>(otherEdits[i]) && std::get<1>(edit) >= std::get<0>(otherEdits[i])) return true;
+	}
+	return false;
+}
+
+size_t intersectSize(const std::vector<size_t>& left, const std::vector<size_t>& right)
+{
+	size_t result = 0;
+	size_t leftIndex = 0;
+	size_t rightIndex = 0;
+	while (leftIndex < left.size() && rightIndex < right.size())
+	{
+		if (left[leftIndex] == right[rightIndex])
+		{
+			result += 1;
+			leftIndex += 1;
+			rightIndex += 1;
+			continue;
+		}
+		if (left[leftIndex] > right[rightIndex])
+		{
+			rightIndex += 1;
+			continue;
+		}
+		assert(left[leftIndex] < right[rightIndex]);
+		leftIndex += 1;
+	}
+	return result;
+}
+
+std::vector<double> pascalTriangleFractionLog(const size_t row)
+{
+	// https://stackoverflow.com/questions/15580291/how-to-efficiently-calculate-a-row-in-pascals-triangle
+	std::vector<double> result;
+	result.emplace_back(0);
+	for (size_t i = 0; i < row; i++)
+	{
+		result.emplace_back(result.back() + log(row-i) - log(i+1));
+	}
+	return result;
+}
+
+double binomialPValue(const double p, const size_t success, const size_t trials)
+{
+	std::vector<double> pascalLogRow = pascalTriangleFractionLog(trials);
+	double normalizer = 0;
+	for (size_t i = 0; i <= trials; i++)
+	{
+		normalizer += exp(pascalLogRow[i] + log(p) * success + log(1-p) * (trials-success));
+	}
+	if (success > trials * p)
+	{
+		double result = 0;
+		for (size_t i = success; i <= trials; i++)
+		{
+			result += exp(pascalLogRow[i] + log(p) * success + log(1-p) * (trials-success));
+		}
+		return result / normalizer;
+	}
+	double result = 0;
+	for (size_t i = 0; i <= success; i++)
+	{
+		result += exp(pascalLogRow[i] + log(p) * success + log(1-p) * (trials-success));
+	}
+	return result / normalizer;
+}
+
+bool allelesMatchWellEnough(const std::vector<std::vector<size_t>>& readsWithEdit, const std::vector<std::vector<size_t>>& readsWithRef, const size_t left, const size_t right)
+{
+	size_t countRefRef = intersectSize(readsWithRef[left], readsWithRef[right]);
+	size_t countRefAlt = intersectSize(readsWithRef[left], readsWithEdit[right]);
+	size_t countAltRef = intersectSize(readsWithEdit[left], readsWithRef[right]);
+	size_t countAltAlt = intersectSize(readsWithEdit[left], readsWithEdit[right]);
+	std::cerr << "check sites " << countRefRef << " " << countRefAlt << " " << countAltRef << " " << countAltAlt << std::endl;
+	double refFractionLeft = (double)(countRefRef + countRefAlt) / (double)(countRefRef + countRefAlt + countAltRef + countAltAlt);
+	double refFractionRight = (double)(countRefRef + countAltRef) / (double)(countRefRef + countRefAlt + countAltRef + countAltAlt);
+	double requiredPValue = 0.000001;
+	double leftPpart1 = binomialPValue(refFractionLeft, countRefRef, countRefRef + countAltRef);
+	double leftPpart2 = binomialPValue(refFractionLeft, countRefAlt, countRefAlt + countAltAlt);
+	double rightPpart1 = binomialPValue(refFractionRight, countRefRef, countRefRef + countRefAlt);
+	double rightPpart2 = binomialPValue(refFractionRight, countAltRef, countAltRef + countAltAlt);
+	bool result = false;
+	if (leftPpart1 < requiredPValue) result = true;
+	if (leftPpart2 < requiredPValue) result = true;
+	if (rightPpart1 < requiredPValue) result = true;
+	if (rightPpart2 < requiredPValue) result = true;
+	std::cerr << "P-values " << leftPpart1 << " " << leftPpart2 << " " << rightPpart1 << " " << rightPpart2 << " result " << (result ? "yes" : "no") << std::endl;
+	return result;
+}
+
+std::vector<std::vector<size_t>> splitBySNPCorrelation(const std::vector<std::vector<std::tuple<size_t, size_t, std::string>>>& editsPerRead)
+{
+	const size_t minCoverage = std::max<size_t>(10, editsPerRead.size()*0.2);
+	std::map<std::tuple<size_t, size_t, std::string>, size_t> editCoverage;
+	for (size_t i = 0; i < editsPerRead.size(); i++)
+	{
+		for (const auto& edit : editsPerRead[i])
+		{
+			editCoverage[edit] += 1;
+		}
+	}
+	std::set<std::tuple<size_t, size_t, std::string>> coveredEdits;
+	for (auto pair : editCoverage)
+	{
+		if (pair.second < minCoverage) continue;
+		if (pair.second+minCoverage > editsPerRead.size()) continue;
+		coveredEdits.insert(pair.first);
+	}
+	std::map<std::tuple<size_t, size_t, std::string>, size_t> refCoverage;
+	for (size_t i = 0; i < editsPerRead.size(); i++)
+	{
+		for (const auto& edit : coveredEdits)
+		{
+			if (editIntersectsWithSomething(edit, editsPerRead[i])) continue;
+			refCoverage[edit] += 1;
+		}
+	}
+	std::vector<std::tuple<size_t, size_t, std::string>> goodishEdits;
+	std::vector<size_t> veryGoodEditIndices;
+	std::vector<size_t> perfectEditIndices;
+	for (const auto& t : coveredEdits)
+	{
+		if (refCoverage.count(t) == 0) continue;
+		if (refCoverage.at(t) < minCoverage) continue;
+		if (editCoverage.at(t) + refCoverage.at(t) < editsPerRead.size() * 0.95) continue;
+		assert(editCoverage.at(t) >= minCoverage);
+		assert(editCoverage.at(t) + refCoverage.at(t) <= editsPerRead.size());
+		if (isSNP(t) || isBigIndel(t))
+		{
+			if (editCoverage.at(t) + refCoverage.at(t) == editsPerRead.size())
+			{
+				std::cerr << "add perfect index " << goodishEdits.size() << " " << editCoverage.at(t) << " " << refCoverage.at(t) << std::endl;
+				perfectEditIndices.emplace_back(goodishEdits.size());
+			}
+			else if (editCoverage.at(t) + refCoverage.at(t) + 3 > editsPerRead.size())
+			{
+				veryGoodEditIndices.emplace_back(goodishEdits.size());
+			}
+		}
+		goodishEdits.emplace_back(t);
+	}
+	std::sort(veryGoodEditIndices.begin(), veryGoodEditIndices.end(), [&editCoverage, &refCoverage, &goodishEdits](size_t left, size_t right)
+	{
+		return editCoverage.at(goodishEdits[left]) + refCoverage.at(goodishEdits[left]) < editCoverage.at(goodishEdits[right]) + refCoverage.at(goodishEdits[right]);
+	});
+	std::map<std::tuple<size_t, size_t, std::string>, size_t> goodishEditIndex;
+	for (size_t i = 0; i < goodishEdits.size(); i++)
+	{
+		goodishEditIndex[goodishEdits[i]] = i;
+	}
+	std::vector<std::vector<size_t>> readsWithEdit;
+	std::vector<std::vector<size_t>> readsWithRef;
+	readsWithEdit.resize(goodishEdits.size());
+	readsWithRef.resize(goodishEdits.size());
+	for (size_t i = 0; i < editsPerRead.size(); i++)
+	{
+		std::vector<bool> editFound;
+		editFound.resize(goodishEdits.size(), false);
+		for (const auto& edit : editsPerRead[i])
+		{
+			if (goodishEditIndex.count(edit) == 0) continue;
+			readsWithEdit[goodishEditIndex.at(edit)].emplace_back(i);
+			editFound[goodishEditIndex.at(edit)] = true;
+		}
+		for (size_t j = 0; j < editFound.size(); j++)
+		{
+			if (editFound[j]) continue;
+			if (editIntersectsWithSomething(goodishEdits[j], editsPerRead[i])) continue;
+			readsWithRef[j].emplace_back(i);
+		}
+	}
+	for (size_t i = 0; i < goodishEdits.size(); i++)
+	{
+		assert(readsWithEdit[i].size() == editCoverage.at(goodishEdits[i]));
+		assert(readsWithRef[i].size() == refCoverage.at(goodishEdits[i]));
+		assert(intersectSize(readsWithEdit[i], readsWithRef[i]) == 0);
+	}
+	for (size_t i : perfectEditIndices)
+	{
+		assert(i < readsWithEdit.size());
+		assert(i < readsWithRef.size());
+		std::cerr << std::get<0>(goodishEdits[i]) << "-" << std::get<1>(goodishEdits[i]) << "\"" << std::get<2>(goodishEdits[i]) << "\" " << i << " " << readsWithEdit[i].size() << " " << readsWithRef[i].size() << " " << editsPerRead.size() << std::endl;
+		assert(readsWithEdit[i].size() + readsWithRef[i].size() == editsPerRead.size());
+		for (size_t j = 0; j < goodishEdits.size(); j++)
+		{
+			if (i == j) continue;
+			if (std::get<0>(goodishEdits[j]) < std::get<1>(goodishEdits[i])+100 && std::get<0>(goodishEdits[i]) < std::get<1>(goodishEdits[j])+100) continue;
+			if (!allelesMatchWellEnough(readsWithEdit, readsWithRef, i, j)) continue;
+			std::cerr << "split by perfect edits: " << std::get<0>(goodishEdits[i]) << "-" << std::get<1>(goodishEdits[i]) << "\"" << std::get<2>(goodishEdits[i]) << "\" " << std::get<0>(goodishEdits[j]) << "-" << std::get<1>(goodishEdits[j]) << "\"" << std::get<2>(goodishEdits[j]) << std::endl;
+			std::vector<std::vector<size_t>> result;
+			result.resize(2);
+			for (size_t read : readsWithRef[i])
+			{
+				result[0].emplace_back(read);
+			}
+			for (size_t read : readsWithEdit[i])
+			{
+				result[1].emplace_back(read);
+			}
+			return result;
+		}
+	}
+	for (size_t i : veryGoodEditIndices)
+	{
+		assert(readsWithEdit[i].size() + readsWithRef[i].size() < editsPerRead.size());
+		assert(readsWithEdit[i].size() + readsWithRef[i].size() + 3 >= editsPerRead.size());
+		for (size_t j = 0; j < goodishEdits.size(); j++)
+		{
+			if (i == j) continue;
+			if (std::get<0>(goodishEdits[j]) < std::get<1>(goodishEdits[i])+100 && std::get<0>(goodishEdits[i]) < std::get<1>(goodishEdits[j])+100) continue;
+			if (!allelesMatchWellEnough(readsWithEdit, readsWithRef, i, j)) continue;
+			std::cerr << "split by edits: " << std::get<0>(goodishEdits[i]) << "-" << std::get<1>(goodishEdits[i]) << "\"" << std::get<2>(goodishEdits[i]) << "\" " << std::get<0>(goodishEdits[j]) << "-" << std::get<1>(goodishEdits[j]) << "\"" << std::get<2>(goodishEdits[j]) << std::endl;
+			std::vector<std::vector<size_t>> result;
+			result.resize(2);
+			std::vector<bool> readFound;
+			readFound.resize(editsPerRead.size(), false);
+			for (size_t read : readsWithRef[i])
+			{
+				result[0].emplace_back(read);
+				assert(!readFound[read]);
+				readFound[read] = true;
+			}
+			for (size_t read : readsWithEdit[i])
+			{
+				result[1].emplace_back(read);
+				assert(!readFound[read]);
+				readFound[read] = true;
+			}
+			for (size_t read = 0; read < editsPerRead.size(); read++)
+			{
+				if (readFound[read]) continue;
+				result.emplace_back();
+				result.back().emplace_back(read);
+			}
+			return result;
+		}
+	}
+	std::vector<std::vector<size_t>> result;
+	result.resize(1);
+	for (size_t i = 0; i < editsPerRead.size(); i++)
+	{
+		result[0].emplace_back(i);
+	}
+	return result;
+}
+
 std::vector<std::vector<size_t>> splitByLinkedMinorAlleles(const std::vector<std::vector<std::tuple<size_t, size_t, std::string>>>& editsPerRead)
 {
 	const size_t minCoverage = std::max<size_t>(10, editsPerRead.size()*0.1);
@@ -7311,6 +7561,17 @@ void callVariantsAndSplitRecursively(std::vector<std::vector<OntLoop>>& result, 
 		std::cerr << "split by linked minor alleles size " << cluster.size() << std::endl;
 		resultHere = splitByLinkedMinorAlleles(edits);
 		std::cerr << "linked minor alleles splitted to " << resultHere.size() << " clusters:";
+		for (size_t i = 0; i < resultHere.size(); i++)
+		{
+			std::cerr << " " << resultHere[i].size();
+		}
+		std::cerr << std::endl;
+	}
+	if (resultHere.size() == 1 && correctBeforePhasing)
+	{
+		std::cerr << "split by SNP correlation size " << cluster.size() << std::endl;
+		resultHere = splitBySNPCorrelation(edits);
+		std::cerr << "SNP correlation splitted to " << resultHere.size() << " clusters:";
 		for (size_t i = 0; i < resultHere.size(); i++)
 		{
 			std::cerr << " " << resultHere[i].size();
