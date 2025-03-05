@@ -7716,10 +7716,10 @@ void DoClusterONTAnalysis(const ClusterParams& params)
 	clusters = editSplitClusters(clusters, graph, pathStartClip, pathEndClip, params.numThreads, params.MBGPath, params.basePath + "/tmp");
 	std::cerr << clusters.size() << " clusters" << std::endl;
 	std::cerr << "cluster loops by density" << std::endl;
-	clusters = densityClusterLoops(clusters, graph, pathStartClip, pathEndClip, coreNodes, params.maxClusterDifference, 5, params.minReclusterDistance);
-	std::cerr << clusters.size() << " clusters" << std::endl;
-	std::cerr << "phase clusters by raw sequences" << std::endl;
-	clusters = editSplitClusters(clusters, graph, pathStartClip, pathEndClip, params.numThreads, params.MBGPath, params.basePath + "/tmp");
+//	clusters = densityClusterLoops(clusters, graph, pathStartClip, pathEndClip, coreNodes, params.maxClusterDifference, 5, params.minReclusterDistance);
+//	std::cerr << clusters.size() << " clusters" << std::endl;
+//	std::cerr << "phase clusters by raw sequences" << std::endl;
+//	clusters = editSplitClusters(clusters, graph, pathStartClip, pathEndClip, params.numThreads, params.MBGPath, params.basePath + "/tmp");
 	std::cerr << clusters.size() << " clusters" << std::endl;
 	// std::cerr << "phase clusters" << std::endl;
 	// clusters = phaseClusters(clusters);
