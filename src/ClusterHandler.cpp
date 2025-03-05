@@ -7534,7 +7534,7 @@ void callVariantsAndSplitRecursively(std::vector<std::vector<OntLoop>>& result, 
 			std::cerr << std::endl;
 		}
 	}
-	if (resultHere.size() == 1)
+/*	if (resultHere.size() == 1)
 	{
 		std::cerr << "split by big indels size " << cluster.size() << std::endl;
 		resultHere = splitByBigIndels(edits);
@@ -7544,7 +7544,7 @@ void callVariantsAndSplitRecursively(std::vector<std::vector<OntLoop>>& result, 
 			std::cerr << " " << resultHere[i].size();
 		}
 		std::cerr << std::endl;
-	}
+	}*/
 	if (resultHere.size() == 1)
 	{
 		std::cerr << "split by edit linkage size " << cluster.size() << std::endl;
