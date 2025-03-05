@@ -5600,8 +5600,8 @@ std::vector<std::vector<std::tuple<size_t, size_t, std::string>>> getEditsForPha
 
 std::vector<std::pair<std::vector<std::vector<size_t>>, size_t>> getSNPMSA(const std::vector<std::vector<std::tuple<size_t, size_t, std::string>>>& editsPerRead)
 {
-	const size_t minCoverage = 3;
-	const size_t minCoverageWithDels = 5;
+	const size_t minCoverage = std::max<size_t>(5, editsPerRead.size()*0.1);
+	const size_t minCoverageWithDels = std::max<size_t>(10, editsPerRead.size()*0.1);
 	std::vector<std::vector<std::vector<size_t>>> readsWhichHaveAlt;
 	for (size_t i = 0; i < editsPerRead.size(); i++)
 	{
@@ -5647,12 +5647,13 @@ std::vector<std::pair<std::vector<std::vector<size_t>>, size_t>> getSNPMSA(const
 		bool hasSmallAllele = false;
 		size_t totalNonDeletionAlleles = 0;
 		bool hasDeletion = readsWhichHaveAlt[i].size() > 5 && readsWhichHaveAlt[i][5].size() >= 1;
+		bool hasNeighboringDeletion = (i > 0 && readsWhichHaveAlt[i-1].size() > 5 && readsWhichHaveAlt[i-1][5].size() >= 1) || (i+1 < readsWhichHaveAlt.size() && readsWhichHaveAlt[i+1].size() > 5 && readsWhichHaveAlt[i+1][5].size() >= 1);
 		for (size_t allele = 0; allele < readsWhichHaveAlt[i].size(); allele++)
 		{
 			totalCoverage += readsWhichHaveAlt[i][allele].size();
 			if (readsWhichHaveAlt[i][allele].size() == 0) continue;
 			if (allele != 5) totalNonDeletionAlleles += 1;
-			if (hasDeletion && readsWhichHaveAlt[i][allele].size() < minCoverageWithDels && allele != 5)
+			if (hasDeletion && hasNeighboringDeletion && readsWhichHaveAlt[i][allele].size() < minCoverageWithDels && allele != 5)
 			{
 				hasSmallAllele = true;
 			}
@@ -5663,7 +5664,7 @@ std::vector<std::pair<std::vector<std::vector<size_t>>, size_t>> getSNPMSA(const
 		}
 		if (hasSmallAllele) continue;
 		if (totalCoverage+minCoverage > editsPerRead.size()) continue;
-		if (hasDeletion && totalCoverage+minCoverageWithDels > editsPerRead.size()) continue;
+		if (hasDeletion && hasNeighboringDeletion && totalCoverage+minCoverageWithDels > editsPerRead.size()) continue;
 		if (totalNonDeletionAlleles < 1) continue;
 		result.emplace_back();
 		result.back().second = i;
@@ -5684,7 +5685,7 @@ std::vector<std::pair<std::vector<std::vector<size_t>>, size_t>> getSNPMSA(const
 			result.back().first[6].emplace_back(j);
 		}
 		assert(result.back().first[6].size() >= minCoverage);
-		assert(!hasDeletion || result.back().first[6].size() >= minCoverageWithDels);
+		assert(!hasDeletion || !hasNeighboringDeletion || result.back().first[6].size() >= minCoverageWithDels);
 		for (size_t j = result.back().first.size()-1; j < result.back().first.size(); j--)
 		{
 			if (result.back().first[j].size() != 0) continue;
@@ -5831,7 +5832,7 @@ bool vectorsMatch(const std::vector<size_t>& left, const std::vector<size_t>& ri
 std::vector<std::vector<size_t>> trySplitTwoSites(const std::vector<std::pair<std::vector<std::vector<size_t>>, size_t>>& phasableVariantInfo, const size_t numReads)
 {
 	const size_t minDistance = 100;
-	const size_t minCoverage = std::max<size_t>(3, numReads*0.05);
+	const size_t minCoverage = std::max<size_t>(5, numReads*0.05);
 	size_t bestSiteOne = std::numeric_limits<size_t>::max();
 	size_t bestSiteTwo = std::numeric_limits<size_t>::max();
 	size_t bestSiteMinorAlleleCoverage = 0;
@@ -5939,7 +5940,7 @@ std::vector<std::vector<size_t>> trySplitTwoSites(const std::vector<std::pair<st
 std::vector<std::vector<size_t>> trySplitThreeSites(const std::vector<std::pair<std::vector<std::vector<size_t>>, size_t>>& phasableVariantInfo, const size_t numReads)
 {
 	const size_t minDistance = 100;
-	const size_t minCoverage = std::max<size_t>(3, numReads*0.05);
+	const size_t minCoverage = std::max<size_t>(5, numReads*0.05);
 	std::vector<std::vector<size_t>> allelesPerRead;
 	for (size_t i = 0; i < phasableVariantInfo.size(); i++)
 	{
