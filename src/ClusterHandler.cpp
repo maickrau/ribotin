@@ -5441,7 +5441,7 @@ bool isBigIndel(const std::tuple<size_t, size_t, std::string>& variant)
 
 void clusterBubbleAlleles(std::vector<std::vector<size_t>>& result, const std::vector<std::string>& loopSequences, const std::vector<size_t>& previousMatchIndices, const std::vector<size_t>& currentMatchIndices, const size_t k)
 {
-	const size_t minCoverage = std::max<size_t>(5, loopSequences.size()*0.05);
+	const size_t minCoverage = std::max<size_t>(3, loopSequences.size()*0.05);
 	const double maxDivergence = 0.1;
 	size_t maxClusterDistance = 10;
 	if (currentMatchIndices[0] < previousMatchIndices[0] + k)
@@ -6792,8 +6792,8 @@ std::vector<std::vector<size_t>> splitByLinkedMinorAlleles(const std::vector<std
 
 std::vector<std::vector<size_t>> splitByEditLinkage(const std::vector<std::vector<std::tuple<size_t, size_t, std::string>>>& editsPerRead)
 {
-	const size_t minEditsWithinCluster = 5;
-	const size_t minReadsWithinCluster = 5;
+	const size_t minEditsWithinCluster = (editsPerRead.size() < 20) ? 4 : 5;
+	const size_t minReadsWithinCluster = (editsPerRead.size() < 20) ? 4 : 5;
 	const size_t minDistanceBetweenEdits = 100;
 	phmap::flat_hash_map<std::tuple<size_t, size_t, std::string>, size_t> editToIndex;
 	std::vector<std::vector<size_t>> readsWithEdit;
