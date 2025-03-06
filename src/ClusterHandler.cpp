@@ -5426,9 +5426,64 @@ void alignRawOntLoopsToMorphConsensuses(const std::vector<std::vector<OntLoop>>&
 	}
 }
 
+bool isIndel(const std::tuple<size_t, size_t, std::string>& variant)
+{
+	if (std::get<1>(variant)-std::get<0>(variant) == std::get<2>(variant).size()) return false;
+	return true;
+}
+
 bool isSNP(const std::tuple<size_t, size_t, std::string>& variant)
 {
 	if (std::get<1>(variant)-std::get<0>(variant) == 1 && std::get<2>(variant).size() == 1) return true;
+	return false;
+}
+
+bool isRepeat(const std::string& seq, const size_t repeatlen)
+{
+	assert(seq.size() % repeatlen == 0);
+	for (size_t i = 1; i*repeatlen < seq.size(); i++)
+	{
+		if (seq.substr(i*repeatlen, repeatlen) != seq.substr(0, repeatlen)) return false;
+	}
+	return true;
+}
+
+bool isMicrosatelliteOrHomopolymerIndel(const std::tuple<size_t, size_t, std::string>& variant, const std::string& refSequence)
+{
+	size_t deletionLength = std::get<1>(variant)-std::get<0>(variant);
+	size_t insertionLength = std::get<2>(variant).size();
+	if (deletionLength > 0 && insertionLength > 0) return false;
+	for (size_t i = 1; i < 10; i++)
+	{
+		if (deletionLength >= i && deletionLength % i == 0)
+		{
+			if (isRepeat(refSequence.substr(std::get<0>(variant), std::get<1>(variant)-std::get<0>(variant)), i))
+			{
+				if (refSequence.substr(std::get<1>(variant), i) == refSequence.substr(std::get<0>(variant), i))
+				{
+					return true;
+				}
+				if (std::get<0>(variant) >= i && refSequence.substr(std::get<0>(variant)-i, i) == refSequence.substr(std::get<0>(variant), i))
+				{
+					return true;
+				}
+			}
+		}
+		if (insertionLength >= i && insertionLength % i == 0)
+		{
+			if (isRepeat(std::get<2>(variant), i))
+			{
+				if (refSequence.substr(std::get<1>(variant), i) == std::get<2>(variant).substr(0, i))
+				{
+					return true;
+				}
+				if (std::get<0>(variant) >= i && refSequence.substr(std::get<0>(variant)-i, i) == std::get<2>(variant).substr(0, i))
+				{
+					return true;
+				}
+			}
+		}
+	}
 	return false;
 }
 
@@ -5566,15 +5621,20 @@ std::vector<std::vector<size_t>> splitByBubbleAlleles(const std::vector<OntLoop>
 	return result;
 }
 
-std::vector<std::vector<std::tuple<size_t, size_t, std::string>>> getEditsForPhasing(const std::vector<OntLoop>& loops, const std::vector<std::string>& loopSequences, const GfaGraph& graph, const std::unordered_map<Node, size_t>& pathStartClip, const std::unordered_map<Node, size_t>& pathEndClip, const size_t numThreads)
+std::string getConsensus(const std::vector<OntLoop>& loops, const std::vector<std::string>& loopSequences, const GfaGraph& graph, const std::unordered_map<Node, size_t>& pathStartClip, const std::unordered_map<Node, size_t>& pathEndClip, const size_t numThreads)
 {
 	auto path = getConsensusPath(loops, graph);
 	std::string consensusSeq = getConsensusSequence(path, graph, pathStartClip, pathEndClip);
 	consensusSeq = polishConsensus(consensusSeq, loopSequences, numThreads);
+	return consensusSeq;
+}
+
+std::vector<std::vector<std::tuple<size_t, size_t, std::string>>> getEditsForPhasing(const std::string& consensusSeq, const std::vector<std::string>& loopSequences, const size_t numThreads)
+{
 	size_t firstMatchPos = 0;
 	size_t lastMatchPos = consensusSeq.size();;
 	std::vector<std::vector<std::tuple<size_t, size_t, std::string>>> editsPerRead;
-	editsPerRead.resize(loops.size());
+	editsPerRead.resize(loopSequences.size());
 	std::mutex resultMutex;
 	iterateEdits(consensusSeq, loopSequences, numThreads, [&firstMatchPos, &lastMatchPos, &resultMutex, &editsPerRead](const size_t threadId, const size_t readId, const size_t firstMatchRef, const size_t lastMatchRef, const size_t firstMatchRead, const size_t lastMatchRead, const std::tuple<size_t, size_t, std::string, size_t>& edit)
 	{
@@ -6300,8 +6360,7 @@ std::vector<std::vector<size_t>> splitByBigIndels(const std::vector<std::vector<
 	{
 		for (auto t : editsPerRead[i])
 		{
-			if (isSNP(t)) continue;
-			if (std::get<1>(t)-std::get<0>(t) == std::get<2>(t).size()) continue;
+			if (!isIndel(t)) continue;
 			closeToIndelSpans.emplace(std::get<0>(t), std::get<1>(t));
 		}
 	}
@@ -6331,8 +6390,7 @@ std::vector<std::vector<size_t>> splitByBigIndels(const std::vector<std::vector<
 		indelLengthSums[i].resize(indelSpanSeparators.size(), 0);
 		for (auto t : editsPerRead[i])
 		{
-			if (isSNP(t)) continue;
-			if (std::get<1>(t)-std::get<0>(t) == std::get<2>(t).size()) continue;
+			if (!isIndel(t)) continue;
 			size_t index = std::upper_bound(indelSpanSeparators.begin(), indelSpanSeparators.end(), std::get<0>(t)) - indelSpanSeparators.begin();
 			assert(index < indelLengthSums[i].size());
 			indelLengthSums[i][index] += std::get<2>(t).size();
@@ -6552,7 +6610,7 @@ bool allelesMatchWellEnough(const std::vector<std::vector<size_t>>& readsWithEdi
 	return result;
 }
 
-std::vector<std::vector<size_t>> splitBySNPCorrelation(const std::vector<std::vector<std::tuple<size_t, size_t, std::string>>>& editsPerRead)
+std::vector<std::vector<size_t>> splitBySNPCorrelation(const std::vector<std::vector<std::tuple<size_t, size_t, std::string>>>& editsPerRead, const std::string& refSequence)
 {
 	const size_t minCoverage = std::max<size_t>(10, editsPerRead.size()*0.2);
 	std::map<std::tuple<size_t, size_t, std::string>, size_t> editCoverage;
@@ -6591,14 +6649,17 @@ std::vector<std::vector<size_t>> splitBySNPCorrelation(const std::vector<std::ve
 		assert(editCoverage.at(t) + refCoverage.at(t) <= editsPerRead.size());
 		if (isSNP(t) || isBigIndel(t))
 		{
-			if (editCoverage.at(t) + refCoverage.at(t) == editsPerRead.size())
+			if (!isMicrosatelliteOrHomopolymerIndel(t, refSequence))
 			{
-				std::cerr << "add perfect index " << goodishEdits.size() << " " << editCoverage.at(t) << " " << refCoverage.at(t) << std::endl;
-				perfectEditIndices.emplace_back(goodishEdits.size());
-			}
-			else if (editCoverage.at(t) + refCoverage.at(t) + 3 > editsPerRead.size())
-			{
-				veryGoodEditIndices.emplace_back(goodishEdits.size());
+				if (editCoverage.at(t) + refCoverage.at(t) == editsPerRead.size())
+				{
+					std::cerr << "add perfect index " << goodishEdits.size() << " " << editCoverage.at(t) << " " << refCoverage.at(t) << std::endl;
+					perfectEditIndices.emplace_back(goodishEdits.size());
+				}
+				else if (editCoverage.at(t) + refCoverage.at(t) + 3 > editsPerRead.size())
+				{
+					veryGoodEditIndices.emplace_back(goodishEdits.size());
+				}
 			}
 		}
 		goodishEdits.emplace_back(t);
@@ -6708,7 +6769,7 @@ std::vector<std::vector<size_t>> splitBySNPCorrelation(const std::vector<std::ve
 	return result;
 }
 
-std::vector<std::vector<size_t>> splitByLinkedMinorAlleles(const std::vector<std::vector<std::tuple<size_t, size_t, std::string>>>& editsPerRead)
+std::vector<std::vector<size_t>> splitByLinkedMinorAlleles(const std::vector<std::vector<std::tuple<size_t, size_t, std::string>>>& editsPerRead, const std::string& refSequence)
 {
 	const size_t minCoverage = std::max<size_t>(10, editsPerRead.size()*0.1);
 	const size_t minDistance = 100;
@@ -6728,6 +6789,7 @@ std::vector<std::vector<size_t>> splitByLinkedMinorAlleles(const std::vector<std
 		for (const auto& t : editsPerRead[i])
 		{
 			if (!isSNP(t) && !isBigIndel(t)) continue;
+			if (isMicrosatelliteOrHomopolymerIndel(t, refSequence)) continue;
 			readsWithEdit[t].emplace_back(i);
 		}
 	}
@@ -6747,7 +6809,7 @@ std::vector<std::vector<size_t>> splitByLinkedMinorAlleles(const std::vector<std
 		{
 			if (std::get<0>(coveredEdits[j]) < std::get<1>(coveredEdits[i])+minDistance) continue;
 			if (!minorAllelesPerfectlyLinked(readsWithEdit, coveredEdits[i], coveredEdits[j], editsPerRead.size())) continue;
-			std::cerr << "minor alleles perfectly linked poses " << std::get<0>(coveredEdits[i]) << "-" << std::get<1>(coveredEdits[i]) << " " << std::get<0>(coveredEdits[j]) << "-" << std::get<1>(coveredEdits[j]) << std::endl;
+			std::cerr << "minor alleles perfectly linked poses " << std::get<0>(coveredEdits[i]) << "-" << std::get<1>(coveredEdits[i]) << "\"" << std::get<2>(coveredEdits[i]) << "\"" << " " << std::get<0>(coveredEdits[j]) << "-" << std::get<1>(coveredEdits[j]) << "\"" << std::get<2>(coveredEdits[j]) << "\"" << std::endl;
 			std::vector<bool> hasFirstEdit;
 			hasFirstEdit.resize(editsPerRead.size(), false);
 			for (size_t read : readsWithEdit.at(coveredEdits[i]))
@@ -7481,7 +7543,8 @@ void callVariantsAndSplitRecursively(std::vector<std::vector<OntLoop>>& result, 
 		}
 	}
 	auto startTime = getTime();
-	auto edits = getEditsForPhasing(cluster, sequences, graph, pathStartClip, pathEndClip, numThreads);
+	auto refSequence = getConsensus(cluster, sequences, graph, pathStartClip, pathEndClip, numThreads);
+	auto edits = getEditsForPhasing(refSequence, sequences, numThreads);
 	auto phasableVariantInfo = getPhasableVariantInfoBiallelicAltRefSNPsBigIndels(edits);
 	auto endTime = getTime();
 	std::cerr << "getting variants took " << formatTime(startTime, endTime) << std::endl;
@@ -7560,7 +7623,7 @@ void callVariantsAndSplitRecursively(std::vector<std::vector<OntLoop>>& result, 
 	if (resultHere.size() == 1)
 	{
 		std::cerr << "split by linked minor alleles size " << cluster.size() << std::endl;
-		resultHere = splitByLinkedMinorAlleles(edits);
+		resultHere = splitByLinkedMinorAlleles(edits, refSequence);
 		std::cerr << "linked minor alleles splitted to " << resultHere.size() << " clusters:";
 		for (size_t i = 0; i < resultHere.size(); i++)
 		{
@@ -7571,7 +7634,7 @@ void callVariantsAndSplitRecursively(std::vector<std::vector<OntLoop>>& result, 
 	if (resultHere.size() == 1 && correctBeforePhasing)
 	{
 		std::cerr << "split by SNP correlation size " << cluster.size() << std::endl;
-		resultHere = splitBySNPCorrelation(edits);
+		resultHere = splitBySNPCorrelation(edits, refSequence);
 		std::cerr << "SNP correlation splitted to " << resultHere.size() << " clusters:";
 		for (size_t i = 0; i < resultHere.size(); i++)
 		{
