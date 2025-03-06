@@ -15,6 +15,7 @@ CommonParams::CommonParams() :
 	morphReclusterMinDistance(0),
 	numThreadspriv(0),
 	k(0),
+	extraPhasing(false),
 	annotationReferenceFastaAndGff3("", "")
 {
 }
@@ -27,6 +28,7 @@ void CommonParams::addParamsToOptions(cxxopts::Options& options)
 		("sample-name", "Name of the sample added to all morph names", cxxopts::value<std::string>())
 		("orient-by-reference", "Rotate and possibly reverse complement the consensus to match the orientation of the given reference", cxxopts::value<std::string>())
 		("approx-morphsize", "Approximate length of one morph", cxxopts::value<size_t>())
+		("extra-phasing", "Use extra phasing heuristics during nanopore analysis. Recommended for r10 nanopore reads but not for r9")
 		("k", "k-mer size", cxxopts::value<size_t>()->default_value("101"))
 		("annotation-reference-fasta", "Lift over the annotations from given reference fasta+gff3 (requires liftoff)", cxxopts::value<std::string>())
 		("annotation-gff3", "Lift over the annotations from given reference fasta+gff3 (requires liftoff)", cxxopts::value<std::string>())
@@ -206,6 +208,7 @@ bool CommonParams::parseParamsAndPrintErrors(const cxxopts::ParseResult& params)
 	{
 		assert(params.count("annotation-gff3") == 0);
 	}
+	if (params.count("extra-phasing") == 1) extraPhasing = true;
 	return true;
 }
 
@@ -225,6 +228,7 @@ void CommonParams::addToClusterOptions(ClusterParams& clusterParams)
 	clusterParams.maxClusterDifference = morphClusterMaxDistance;
 	clusterParams.minReclusterDistance = morphReclusterMinDistance;
 	clusterParams.maxResolveLength = maxResolveLength;
+	clusterParams.extraPhasing = extraPhasing;
 }
 
 size_t CommonParams::numThreads() const

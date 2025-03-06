@@ -32,6 +32,7 @@ private:
 	size_t morphReclusterMinDistance;
 	size_t numThreadspriv;
 	size_t k;
+	bool extraPhasing;
 	std::pair<std::string, std::string> annotationReferenceFastaAndGff3;
 };
 

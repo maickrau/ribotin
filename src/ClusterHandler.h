@@ -24,6 +24,7 @@ public:
 	size_t maxClusterDifference;
 	size_t maxResolveLength;
 	size_t minReclusterDistance;
+	bool extraPhasing;
 };
 
 void HandleCluster(const ClusterParams& params);

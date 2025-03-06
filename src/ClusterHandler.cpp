@@ -7713,11 +7713,17 @@ void DoClusterONTAnalysis(const ClusterParams& params)
 	std::cerr << clusters.size() << " rough clusters" << std::endl;
 	std::cerr << "getting exact locations of raw loop sequences" << std::endl;
 	addRawSequencesToLoops(clusters, graph, pathStartClip, pathEndClip, params.ontReadPath, params.numThreads);
-	std::cerr << "phase clusters by raw sequences" << std::endl;
-	clusters = editSplitClusters(clusters, graph, pathStartClip, pathEndClip, params.numThreads, params.MBGPath, params.basePath + "/tmp");
+	if (params.extraPhasing)
+	{
+		std::cerr << "phase clusters by raw sequences" << std::endl;
+		clusters = editSplitClusters(clusters, graph, pathStartClip, pathEndClip, params.numThreads, params.MBGPath, params.basePath + "/tmp");
+	}
+	else
+	{
+		std::cerr << "cluster loops by density" << std::endl;
+		clusters = densityClusterLoops(clusters, graph, pathStartClip, pathEndClip, coreNodes, params.maxClusterDifference, 5, params.minReclusterDistance);
+	}
 	std::cerr << clusters.size() << " clusters" << std::endl;
-	std::cerr << "cluster loops by density" << std::endl;
-//	clusters = densityClusterLoops(clusters, graph, pathStartClip, pathEndClip, coreNodes, params.maxClusterDifference, 5, params.minReclusterDistance);
 //	std::cerr << clusters.size() << " clusters" << std::endl;
 //	std::cerr << "phase clusters by raw sequences" << std::endl;
 //	clusters = editSplitClusters(clusters, graph, pathStartClip, pathEndClip, params.numThreads, params.MBGPath, params.basePath + "/tmp");
