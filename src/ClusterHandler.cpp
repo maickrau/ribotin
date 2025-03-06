@@ -3138,102 +3138,6 @@ bool bubbleIsPhased(const std::vector<std::vector<std::vector<size_t>>>& readsPe
 	return true;
 }
 
-void phaseAndAppend(const std::vector<OntLoop>& paths, std::vector<std::vector<OntLoop>>& result)
-{
-	if (paths.size() < minPhaseCoverage)
-	{
-		result.emplace_back(paths);
-		return;
-	}
-	auto coreNodes = getCoreNodes(paths);
-	std::vector<std::map<std::vector<Node>, size_t>> bubbleAlleles;
-	bubbleAlleles.resize(coreNodes.size());
-	std::vector<std::vector<std::vector<size_t>>> readsPerBubble;
-	readsPerBubble.resize(coreNodes.size());
-	std::vector<std::vector<size_t>> allelesPerRead;
-	for (size_t i = 0; i < paths.size(); i++)
-	{
-		size_t lastCore = std::numeric_limits<size_t>::max();
-		size_t coreNum = 0;
-		allelesPerRead.emplace_back();
-		for (size_t j = 0; j < paths[i].path.size(); j++)
-		{
-			if (coreNodes.count(paths[i].path[j].id()) == 0) continue;
-			if (lastCore == std::numeric_limits<size_t>::max())
-			{
-				lastCore = j;
-				continue;
-			}
-			std::vector<Node> subpath { paths[i].path.begin()+lastCore, paths[i].path.begin()+j+1 };
-			if (bubbleAlleles[coreNum].count(subpath) == 0)
-			{
-				size_t count = readsPerBubble[coreNum].size();
-				bubbleAlleles[coreNum][subpath] = count;
-				readsPerBubble[coreNum].emplace_back();
-			}
-			readsPerBubble[coreNum][bubbleAlleles[coreNum].at(subpath)].push_back(i);
-			allelesPerRead.back().push_back(bubbleAlleles[coreNum].at(subpath));
-			coreNum += 1;
-		}
-	}
-	for (size_t i = 0; i < readsPerBubble.size(); i++)
-	{
-		for (size_t j = 0; j < readsPerBubble[i].size(); j++)
-		{
-			std::sort(readsPerBubble[i][j].begin(), readsPerBubble[i][j].end());
-		}
-	}
-	std::unordered_set<size_t> phaseInformativeBubblesSet;
-	for (size_t i = 0; i < bubbleAlleles.size(); i++)
-	{
-		for (size_t j = i+1; j < bubbleAlleles.size(); j++)
-		{
-			if (!bubbleIsPhased(readsPerBubble, i, j)) continue;
-			phaseInformativeBubblesSet.insert(i);
-			phaseInformativeBubblesSet.insert(j);
-		}
-	}
-	if (phaseInformativeBubblesSet.size() < 2)
-	{
-		result.emplace_back(paths);
-		return;
-	}
-	std::vector<size_t> phaseInformativeBubbles { phaseInformativeBubblesSet.begin(), phaseInformativeBubblesSet.end() };
-	std::sort(phaseInformativeBubbles.begin(), phaseInformativeBubbles.end());
-	std::map<std::vector<size_t>, size_t> bubbleToCluster;
-	std::vector<std::vector<OntLoop>> phasedClusters;
-	for (size_t i = 0; i < paths.size(); i++)
-	{
-		std::vector<size_t> allelesHere;
-		for (size_t index : phaseInformativeBubbles)
-		{
-			allelesHere.push_back(allelesPerRead[i][index]);
-		}
-		if (bubbleToCluster.count(allelesHere) == 0)
-		{
-			size_t count = bubbleToCluster.size();
-			bubbleToCluster[allelesHere] = count;
-			phasedClusters.emplace_back();
-		}
-		phasedClusters[bubbleToCluster.at(allelesHere)].emplace_back(paths[i]);
-	}
-	assert(phasedClusters.size() >= 2);
-	for (size_t i = 0; i < phasedClusters.size(); i++)
-	{
-		phaseAndAppend(phasedClusters[i], result);
-	}
-}
-
-std::vector<std::vector<OntLoop>> phaseClusters(const std::vector<std::vector<OntLoop>>& unphasedClusters)
-{
-	std::vector<std::vector<OntLoop>> result;
-	for (size_t i = 0; i < unphasedClusters.size(); i++)
-	{
-		phaseAndAppend(unphasedClusters[i], result);
-	}
-	return result;
-}
-
 std::vector<std::vector<OntLoop>> roughClusterLoopSequences(const std::vector<OntLoop>& loops, const GfaGraph& graph, const std::unordered_map<Node, size_t>& pathStartClip, const std::unordered_map<Node, size_t>& pathEndClip, const std::unordered_set<size_t>& coreNodes, const size_t maxEdits)
 {
 	std::vector<size_t> parent;
@@ -7787,13 +7691,7 @@ void DoClusterONTAnalysis(const ClusterParams& params)
 		clusters = densityClusterLoops(clusters, graph, pathStartClip, pathEndClip, coreNodes, params.maxClusterDifference, 5, params.minReclusterDistance);
 	}
 	std::cerr << clusters.size() << " clusters" << std::endl;
-//	std::cerr << clusters.size() << " clusters" << std::endl;
-//	std::cerr << "phase clusters by raw sequences" << std::endl;
-//	clusters = editSplitClusters(clusters, graph, pathStartClip, pathEndClip, params.numThreads, params.MBGPath, params.basePath + "/tmp");
 	std::cerr << clusters.size() << " clusters" << std::endl;
-	// std::cerr << "phase clusters" << std::endl;
-	// clusters = phaseClusters(clusters);
-	// std::cerr << clusters.size() << " phased clusters" << std::endl;
 	std::cerr << clusters.size() << " phased clusters" << std::endl;
 	std::sort(clusters.begin(), clusters.end(), [](const auto& left, const auto& right) { return left.size() > right.size(); });
 	addRawSequenceNamesToLoops(clusters);
