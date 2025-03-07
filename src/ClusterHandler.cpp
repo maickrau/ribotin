@@ -37,10 +37,6 @@ std::string formatTime(std::chrono::steady_clock::time_point start, std::chrono:
 	return std::to_string(milliseconds / 1000) + "," + std::to_string(milliseconds % 1000) + " s";
 }
 
-class CyclicGraphException : public std::exception
-{
-};
-
 class Node
 {
 public:
@@ -241,6 +237,56 @@ std::pair<std::string, std::string> canon(const std::string& left, const std::st
 	if (left < revright) return std::make_pair(left, right);
 	if (revleft < right) return std::make_pair(revright, revleft);
 	return std::make_pair(left, right);
+}
+
+template <typename T>
+T find(phmap::flat_hash_map<T, T>& parent, T key)
+{
+	while (parent.at(key) != parent.at(parent.at(key))) parent[key] = parent[parent[key]];
+	return parent[key];
+}
+
+template <typename T>
+void merge(phmap::flat_hash_map<T, T>& parent, T left, T right)
+{
+	left = find(parent, left);
+	right = find(parent, right);
+	assert(parent.at(left) == left);
+	assert(parent.at(right) == right);
+	parent[right] = left;
+}
+
+size_t find(std::vector<size_t>& parent, size_t key)
+{
+	while (parent.at(key) != parent.at(parent.at(key))) parent[key] = parent[parent[key]];
+	return parent[key];
+}
+
+void merge(std::vector<size_t>& parent, size_t left, size_t right)
+{
+	left = find(parent, left);
+	right = find(parent, right);
+	assert(parent.at(left) == left);
+	assert(parent.at(right) == right);
+	parent[right] = left;
+}
+
+template <typename T>
+T find(std::map<T, T>& parent, const T& key)
+{
+	while (parent.at(key) != parent.at(parent.at(key)))
+	{
+		parent[key] = parent.at(parent.at(key));
+	}
+	return parent.at(key);
+}
+
+template <typename T>
+void merge(std::map<T, T>& parent, const T& left, const T& right)
+{
+	auto leftp = find(parent, left);
+	auto rightp = find(parent, right);
+	parent[rightp] = leftp;
 }
 
 template <typename F>
@@ -775,89 +821,6 @@ Path readHeavyPath(const GfaGraph& graph, const std::string& heavyPathGafFile)
 	return result;
 }
 
-void filterOut(std::unordered_set<size_t>& nodes, const std::unordered_set<size_t>& removeThese)
-{
-	for (auto node : removeThese)
-	{
-		if (nodes.count(node) == 1) nodes.erase(node);
-	}
-}
-
-void filterOut(std::unordered_map<Node, std::unordered_set<Node>>& edges, const std::unordered_set<size_t>& removeThese)
-{
-	for (auto node : removeThese)
-	{
-		if (edges.count(Node { node, true }) == 1) edges.erase(Node { node, true });
-		if (edges.count(Node { node, false }) == 1) edges.erase(Node { node, false });
-	}
-	for (auto& pair : edges)
-	{
-		for (auto node : removeThese)
-		{
-			if (pair.second.count(Node { node, true }) == 1) pair.second.erase(Node { node, true });
-			if (pair.second.count(Node { node, false }) == 1) pair.second.erase(Node { node, false });
-		}
-	}
-}
-
-bool isCircular(const std::unordered_set<size_t>& nodes, const std::unordered_map<Node, std::unordered_set<Node>>& edges, Node startNode)
-{
-	assert(nodes.count(startNode.id()) == 1);
-	std::unordered_set<Node> reachable;
-	std::vector<Node> stack;
-	stack.push_back(startNode);
-	while (stack.size() > 0)
-	{
-		auto top = stack.back();
-		assert(nodes.count(top.id()) == 1);
-		stack.pop_back();
-		if (reachable.count(top) == 1) continue;
-		reachable.insert(top);
-		if (edges.count(top) == 0) continue;
-		for (auto edge : edges.at(top))
-		{
-			if (nodes.count(edge.id()) == 0) continue;
-			stack.push_back(edge);
-			if (edge == startNode) return true;
-		}
-	}
-	return false;
-}
-
-void filterOutNonCircularParts(std::unordered_set<size_t>& nodes, std::unordered_map<Node, std::unordered_set<Node>>& edges, size_t startNode)
-{
-	assert(nodes.count(startNode) == 1);
-	std::unordered_set<Node> reachable;
-	std::vector<Node> stack;
-	stack.push_back(Node { startNode, true });
-	stack.push_back(Node { startNode, false });
-	while (stack.size() > 0)
-	{
-		auto top = stack.back();
-		stack.pop_back();
-		if (reachable.count(top) == 1) continue;
-		reachable.insert(top);
-		if (edges.count(top) == 0) continue;
-		for (auto edge : edges.at(top))
-		{
-			if (nodes.count(edge.id()) == 0) continue;
-			stack.push_back(edge);
-		}
-	}
-	std::unordered_set<size_t> notCircular;
-	for (auto node : nodes)
-	{
-		if (reachable.count(Node { node, true }) == 1 && reachable.count(Node { node, false }) == 1)
-		{
-			continue;
-		}
-		notCircular.insert(node);
-	}
-	assert(notCircular.count(startNode) == 0);
-	filterOut(nodes, notCircular);
-	filterOut(edges, notCircular);
-}
-
 class PathRecWideCoverage
 {
 public:
@@ -872,308 +835,41 @@ public:
 		{
 			if (coverages[i].first < other.coverages[i].first) return true;
 			if (coverages[i].first > other.coverages[i].first) return false;
-			if (coverages[i].second > other.coverages[i].second) return true;
 			if (coverages[i].second < other.coverages[i].second) return false;
+			if (coverages[i].second > other.coverages[i].second) return true;
 		}
 		if (coverages.size() < other.coverages.size()) return true;
 		return false;
 	}
+	void addCoverage(const size_t coverage, const size_t length)
+	{
+		coverages.emplace_back(coverage, length);
+		std::sort(coverages.begin(), coverages.end());
+		bool removedAny = false;
+		for (size_t i = coverages.size()-1; i > 0; i--)
+		{
+			if (coverages[i-1].first != coverages[i].first) continue;
+			coverages[i-1].second += coverages[i].second;
+			std::swap(coverages[i], coverages.back());
+			coverages.pop_back();
+			removedAny = true;
+		}
+		if (removedAny)
+		{
+			std::sort(coverages.begin(), coverages.end());
+		}
+	}
+	PathRecWideCoverage& operator+=(const PathRecWideCoverage& other)
+	{
+		for (size_t i = 0; i < other.coverages.size(); i++)
+		{
+			addCoverage(other.coverages[i].first, other.coverages[i].second);
+		}
+		return *this;
+	}
 	std::vector<std::pair<size_t, size_t>> coverages;
 private:
 };
-
-PathRecWideCoverage operator+(const PathRecWideCoverage& left, const PathRecWideCoverage& right)
-{
-	PathRecWideCoverage result;
-	size_t leftIndex = 0;
-	size_t rightIndex = 0;
-	while (leftIndex < left.coverages.size() && rightIndex < right.coverages.size())
-	{
-		if (left.coverages[leftIndex].first < right.coverages[rightIndex].first)
-		{
-			result.coverages.emplace_back(left.coverages[leftIndex]);
-			leftIndex += 1;
-		}
-		else if (left.coverages[leftIndex].first > right.coverages[rightIndex].first)
-		{
-			result.coverages.emplace_back(right.coverages[rightIndex]);
-			rightIndex += 1;
-		}
-		else
-		{
-			assert(left.coverages[leftIndex].first == right.coverages[rightIndex].first);
-			result.coverages.emplace_back(left.coverages[leftIndex]);
-			result.coverages.back().second += right.coverages[rightIndex].second;
-			leftIndex += 1;
-			rightIndex += 1;
-		}
-	}
-	while (leftIndex < left.coverages.size())
-	{
-		result.coverages.emplace_back(left.coverages[leftIndex]);
-		leftIndex += 1;
-	}
-	while (rightIndex < right.coverages.size())
-	{
-		result.coverages.emplace_back(right.coverages[rightIndex]);
-		rightIndex += 1;
-	}
-	return result;
-}
-
-Path getRecWidestPath(const std::unordered_set<size_t>& coveredNodes, const std::unordered_map<Node, std::unordered_set<Node>>& coveredEdges, const GfaGraph& graph, const Node start)
-{
-	assert(coveredNodes.count(start.id()) == 1);
-	std::unordered_map<Node, PathRecWideCoverage> nodeRecWideCoverage;
-	std::unordered_map<Node, Node> predecessor;
-	nodeRecWideCoverage[start] = PathRecWideCoverage { graph.nodeCoverages[start.id()], graph.nodeSeqs[start.id()].size() };
-	std::vector<Node> checkStack;
-	assert(coveredEdges.count(start) == 1);
-	for (auto edge : coveredEdges.at(start))
-	{
-		if (coveredNodes.count(edge.id()) == 0) continue;
-		checkStack.push_back(edge);
-	}
-	while (checkStack.size() > 0)
-	{
-		auto top = checkStack.back();
-		assert(coveredNodes.count(top.id()) == 1);
-		checkStack.pop_back();
-		if (predecessor.count(top) == 1)
-		{
-			assert(nodeRecWideCoverage.count(top) == 1);
-			continue;
-		}
-		assert(predecessor.count(top) == 0);
-		assert(nodeRecWideCoverage.count(top) == 0 || top == start);
-		bool hasAllNeighbors = true;
-		Node bestPredecessor;
-		bool hasAny = false;
-		assert(coveredEdges.count(reverse(top)) == 1);
-		for (auto revedge : coveredEdges.at(reverse(top)))
-		{
-			if (coveredNodes.count(revedge.id()) == 0) continue;
-			auto pre = reverse(revedge);
-			if (nodeRecWideCoverage.count(pre) == 0)
-			{
-				hasAllNeighbors = false;
-			}
-			else
-			{
-				if (!hasAny)
-				{
-					bestPredecessor = pre;
-					hasAny = true;
-				}
-				else if (nodeRecWideCoverage.at(bestPredecessor) < nodeRecWideCoverage.at(pre))
-				{
-					bestPredecessor = pre;
-					hasAny = true;
-				}
-			}
-		}
-		assert(hasAny);
-		if (!hasAllNeighbors) continue;
-		if (hasAllNeighbors)
-		{
-			predecessor[top] = bestPredecessor;
-			nodeRecWideCoverage[top] = nodeRecWideCoverage.at(bestPredecessor) + PathRecWideCoverage { graph.nodeCoverages[top.id()], graph.nodeSeqs[top.id()].size() };
-			assert(coveredEdges.count(top) == 1);
-			for (auto edge : coveredEdges.at(top))
-			{
-				if (coveredNodes.count(edge.id()) == 0) continue;
-				assert(coveredEdges.count(reverse(edge)) == 1);
-				assert(coveredEdges.at(reverse(edge)).count(reverse(top)) == 1);
-				checkStack.push_back(edge);
-			}
-		}
-	}
-	if (predecessor.count(start) == 0)
-	{
-		throw CyclicGraphException {};
-	}
-	assert(predecessor.count(start) == 1);
-	assert(predecessor.count(reverse(start)) == 0);
-	Path result;
-	Node pos = predecessor.at(start);
-	while (pos != start)
-	{
-		result.nodes.push_back(pos);
-		pos = predecessor.at(pos);
-	}
-	result.nodes.push_back(start);
-	std::reverse(result.nodes.begin(), result.nodes.end());
-	return result;
-}
-
-std::vector<Node> getCoreNodeOrder(const std::unordered_set<size_t>& nodes, const std::unordered_map<Node, std::unordered_set<Node>>& edges, const std::unordered_set<size_t> coreNodes, const size_t startNode)
-{
-	std::vector<Node> result;
-	result.emplace_back(startNode, true);
-	while (true)
-	{
-		std::vector<Node> stack { result.back() };
-		Node pos = result.back();
-		Node nextPos = pos;
-		std::unordered_set<size_t> visited;
-		while (stack.size() >= 1)
-		{
-			auto top = stack.back();
-			stack.pop_back();
-			if (visited.count(top.id()) == 1) continue;
-			visited.insert(top.id());
-			assert(nodes.count(top.id()) == 1);
-			for (auto edge : edges.at(top))
-			{
-				if (nodes.count(edge.id()) == 0) continue;
-				if (coreNodes.count(edge.id()) == 1)
-				{
-					nextPos = edge;
-					stack.clear();
-					break;
-				}
-				stack.push_back(edge);
-			}
-		}
-		assert(nextPos != pos);
-		result.push_back(nextPos);
-		pos = nextPos;
-		if (pos.id() == startNode) break;
-		assert(result.size() <= coreNodes.size());
-	}
-	assert(result.size() == coreNodes.size()+1);
-	assert(result[0].id() == startNode);
-	assert(result.back().id() == startNode);
-	return result;
-}
-
-bool isReachable(std::unordered_set<size_t>& nodes, std::unordered_map<Node, std::unordered_set<Node>>& edges, const Node start, const Node end)
-{
-	std::unordered_set<size_t> checked;
-	std::vector<Node> stack;
-	stack.push_back(start);
-	while (stack.size() >= 1)
-	{
-		auto top = stack.back();
-		stack.pop_back();
-		if (checked.count(top.id()) == 1) continue;
-		checked.insert(top.id());
-		if (edges.count(top) == 0) continue;
-		for (auto edge : edges.at(top))
-		{
-			if (nodes.count(edge.id()) == 0) continue;
-			stack.push_back(edge);
-			if (edge == end) return true;
-		}
-	}
-	return false;
-}
-
-void filterOutNonThroughGoers(std::unordered_set<size_t>& nodes, const std::unordered_set<size_t>& removables, std::unordered_map<Node, std::unordered_set<Node>>& edges, const Node start, const Node end)
-{
-	std::unordered_set<Node> visited;
-	std::vector<Node> checkStack { start, reverse(end) };
-	while (checkStack.size() >= 1)
-	{
-		auto top = checkStack.back();
-		checkStack.pop_back();
-		assert(nodes.count(top.id()) == 1);
-		if (visited.count(top) == 1) continue;
-		visited.insert(top);
-		if (top == end) continue;
-		if (top == reverse(start)) continue;
-		if (edges.count(top) == 0) continue;
-		for (auto edge : edges.at(top))
-		{
-			if (nodes.count(edge.id()) == 0) continue;
-			checkStack.push_back(edge);
-		}
-	}
-	std::unordered_set<size_t> removeThese;
-	for (size_t node : removables)
-	{
-		if (visited.count(Node { node, true }) == 1 && visited.count(Node { node, false }) == 1) continue;
-		removeThese.insert(node);
-	}
-	filterOut(nodes, removeThese);
-	filterOut(edges, removeThese);
-	assert(isReachable(nodes, edges, start, end));
-}
-
-void filterOutDefinitelyNonConsensusNodes(std::unordered_set<size_t>& nodes, std::unordered_map<Node, std::unordered_set<Node>>& edges, const Node start, const Node end, const GfaGraph& graph)
-{
-	if (edges.at(start).count(end) == 1) return; // corner case, just don't handle it and hope for no problem
-	std::unordered_set<size_t> nodesInSubgraph;
-	std::vector<Node> checkStack { start };
-	while (checkStack.size() >= 1)
-	{
-		auto top = checkStack.back();
-		checkStack.pop_back();
-		if (nodesInSubgraph.count(top.id()) == 1) continue;
-		nodesInSubgraph.insert(top.id());
-		if (top == end) continue;
-		for (auto edge : edges.at(top))
-		{
-			if (nodes.count(edge.id()) == 0) continue;
-			checkStack.push_back(edge);
-		}
-	}
-	assert(nodesInSubgraph.size() >= 3);
-	assert(nodesInSubgraph.count(start.id()) == 1);
-	assert(nodesInSubgraph.count(end.id()) == 1);
-	nodesInSubgraph.erase(start.id());
-	nodesInSubgraph.erase(end.id());
-	std::vector<std::pair<size_t, size_t>> nodeAndCoverage;
-	std::vector<std::tuple<Node, Node, size_t>> edgeAndCoverage;
-	for (size_t node : nodesInSubgraph)
-	{
-		nodeAndCoverage.emplace_back(node, graph.nodeCoverages[node]);
-		Node fw { node, true };
-		if (graph.edges.count(fw) == 1)
-		{
-			for (const auto& target : graph.edges.at(fw))
-			{
-				edgeAndCoverage.emplace_back(fw, std::get<0>(target), std::get<2>(target));
-			}
-		}
-		Node bw { node, false };
-		if (graph.edges.count(bw) == 1)
-		{
-			for (const auto& target : graph.edges.at(bw))
-			{
-				edgeAndCoverage.emplace_back(bw, std::get<0>(target), std::get<2>(target));
-			}
-		}
-	}
-	filterOut(nodes, nodesInSubgraph);
-	filterOut(edges, nodesInSubgraph);
-	std::sort(nodeAndCoverage.begin(), nodeAndCoverage.end(), [](auto left, auto right) { return left.second > right.second; });
-	std::sort(edgeAndCoverage.begin(), edgeAndCoverage.end(), [](auto left, auto right) { return std::get<2>(left) > std::get<2>(right); });
-	size_t minCoverage = nodeAndCoverage[0].second;
-	size_t nodeIndex = 0;
-	size_t edgeIndex = 0;
-	while (minCoverage > 0)
-	{
-		size_t nextCoverage = 0;
-		while (nodeIndex < nodeAndCoverage.size() && nodeAndCoverage[nodeIndex].second >= minCoverage)
-		{
-			nodes.emplace(nodeAndCoverage[nodeIndex].first);
-			nodeIndex += 1;
-		}
-		while (edgeIndex < edgeAndCoverage.size() && std::get<2>(edgeAndCoverage[edgeIndex]) >= minCoverage)
-		{
-			edges[std::get<0>(edgeAndCoverage[edgeIndex])].emplace(std::get<1>(edgeAndCoverage[edgeIndex]));
-			edges[reverse(std::get<1>(edgeAndCoverage[edgeIndex]))].emplace(reverse(std::get<0>(edgeAndCoverage[edgeIndex])));
-			edgeIndex += 1;
-		}
-		if (nodeIndex < nodeAndCoverage.size()) nextCoverage = nodeAndCoverage[nodeIndex].second;
-		if (edgeIndex < edgeAndCoverage.size()) nextCoverage = std::max(nextCoverage, std::get<2>(edgeAndCoverage[edgeIndex]));
-		assert(nextCoverage < minCoverage);
-		minCoverage = nextCoverage;
-		if (isReachable(nodes, edges, start, end)) break;
-	}
-	filterOutNonThroughGoers(nodes, nodesInSubgraph, edges, start, end);
-}
 
 struct DistantNode
 {
@@ -1197,67 +893,6 @@ public:
 	}
 };
 
-size_t splitUndirectedDistance(const GfaGraph& graph, const std::unordered_set<size_t>& nodes, const std::unordered_map<Node, std::unordered_set<Node>>& edges, const size_t middleNode)
-{
-	std::unordered_map<Node, size_t> distance;
-	std::priority_queue<DistantNode, std::vector<DistantNode>, DistantNodeComparator> queue;
-	queue.emplace(0, Node { middleNode, true });
-	while (queue.size() >= 1)
-	{
-		auto top = queue.top();
-		queue.pop();
-		if (distance.count(top.node) == 1)
-		{
-			assert(distance.at(top.node) <= top.distance);
-			continue;
-		}
-		distance[top.node] = top.distance;
-		if (top.node.id() != middleNode)
-		{
-			queue.emplace(top.distance + graph.nodeSeqs.at(top.node.id()).size(), reverse(top.node));
-		}
-		if (edges.count(top.node) == 1)
-		{
-			for (auto edge : edges.at(top.node))
-			{
-				if (nodes.count(edge.id() == 0)) continue;
-				queue.emplace(top.distance, reverse(edge));
-			}
-		}
-	}
-	if (distance.count(Node { middleNode, false }) == 0) return std::numeric_limits<size_t>::max();
-	return distance.at(Node { middleNode, false });
-}
-
-void filterOutDefinitelyNonConsensusNodes(std::unordered_set<size_t>& nodes, std::unordered_map<Node, std::unordered_set<Node>>& edges, const size_t startNode, const GfaGraph& graph, const size_t localResolveLength)
-{
-	std::unordered_set<size_t> coreNodes;
-	std::vector<size_t> testNodes { nodes.begin(), nodes.end() };
-	for (size_t node : testNodes)
-	{
-		if (node == startNode) continue;
-		nodes.erase(node);
-		if (!isCircular(nodes, edges, Node { startNode, true }))
-		{
-			size_t splitDistance = splitUndirectedDistance(graph, nodes, edges, node);
-			if (splitDistance >= localResolveLength)
-			{
-				coreNodes.insert(node);
-			}
-		}
-		nodes.insert(node);
-	}
-	if (coreNodes.size() < 2) return;
-	nodes.erase(startNode);
-	if (!isCircular(nodes, edges, Node { *coreNodes.begin(), true })) coreNodes.insert(startNode);
-	nodes.insert(startNode);
-	std::vector<Node> coreNodeOrder = getCoreNodeOrder(nodes, edges, coreNodes, (coreNodes.count(startNode) == 1) ? startNode : *coreNodes.begin());
-	for (size_t i = 1; i < coreNodeOrder.size(); i++)
-	{
-		filterOutDefinitelyNonConsensusNodes(nodes, edges, coreNodeOrder[i-1], coreNodeOrder[i], graph);
-	}
-}
-
 std::vector<Node> getShortestPath(const phmap::flat_hash_map<Node, Node>& shortestPathPredecessor, const Node startNode, const size_t endNode)
 {
 	std::vector<Node> result;
@@ -1273,138 +908,312 @@ std::vector<Node> getShortestPath(const phmap::flat_hash_map<Node, Node>& shorte
 	return result;
 }
 
-void filterOutLocalCycles(std::unordered_set<size_t>& coveredNodes, std::unordered_map<Node, std::unordered_set<Node>>& coveredEdges, const size_t topCoverageNode, const GfaGraph& graph)
+size_t getShortestPathDistance(const GfaGraph& graph, const Node startNode, const Node endNode)
 {
-	phmap::flat_hash_map<Node, Node> shortestPathPredecessor;
-	std::vector<std::tuple<size_t, Node, Node>> checkStack;
-	shortestPathPredecessor[Node { topCoverageNode, true }] = Node { topCoverageNode, true };
-	shortestPathPredecessor[Node { topCoverageNode, false }] = Node { topCoverageNode, false };
-	for (auto node : coveredEdges.at(Node { topCoverageNode, true }))
+	std::vector<std::pair<size_t, Node>> checkStack;
+	if (graph.edges.count(startNode) == 0) return std::numeric_limits<size_t>::max();
+	if (graph.edges.count(reverse(endNode)) == 0) return std::numeric_limits<size_t>::max();
+	for (auto edge : graph.edges.at(startNode))
 	{
-		assert(coveredNodes.count(node.id()) == 1);
-		size_t overlap = getOverlap(Node { topCoverageNode, true }, node, graph.edges);
-		checkStack.emplace_back(graph.nodeSeqs[node.id()].size() - overlap, Node { topCoverageNode, true }, node);
+		Node target = std::get<0>(edge);
+		size_t overlap = std::get<1>(edge);
+		checkStack.emplace_back(graph.nodeSeqs[target.id()].size() - overlap, target);
 	}
-	for (auto node : coveredEdges.at(Node { topCoverageNode, false }))
-	{
-		assert(coveredNodes.count(node.id()) == 1);
-		size_t overlap = getOverlap(Node { topCoverageNode, false }, node, graph.edges);
-		checkStack.emplace_back(graph.nodeSeqs[node.id()].size() - overlap, Node { topCoverageNode, false }, node);
-	}
-	std::sort(checkStack.begin(), checkStack.end(), [](auto left, auto right) { return std::get<0>(left) > std::get<0>(right); });
+	std::sort(checkStack.begin(), checkStack.end(), [](auto left, auto right) { return left.first > right.first; });
+	phmap::flat_hash_set<Node> visited;
 	while (checkStack.size() >= 1)
 	{
 		auto top = checkStack.back();
 		checkStack.pop_back();
-		if (shortestPathPredecessor.count(std::get<2>(top)) == 1) continue;
-		shortestPathPredecessor[std::get<2>(top)] = std::get<1>(top);
-		assert(coveredNodes.count(std::get<2>(top).id()) == 1);
-		assert(coveredEdges.count(std::get<2>(top)) == 1);
-		for (auto edge : coveredEdges.at(std::get<2>(top)))
+		if (visited.count(top.second) == 1) continue;
+		visited.insert(top.second);
+		if (top.second == endNode)
 		{
-			size_t overlap = getOverlap(std::get<2>(top), edge, graph.edges);
-			checkStack.emplace_back(graph.nodeSeqs[edge.id()].size() - overlap, std::get<2>(top), edge);
+			return top.first;
 		}
+		if (graph.edges.count(top.second) == 0) continue;
+		for (auto edge : graph.edges.at(top.second))
+		{
+			Node target = std::get<0>(edge);
+			size_t overlap = std::get<1>(edge);
+			checkStack.emplace_back(top.first + graph.nodeSeqs[target.id()].size() - overlap, target);
+		}
+		std::sort(checkStack.begin(), checkStack.end(), [](auto left, auto right) { return left.first > right.first; });
 	}
-	std::unordered_set<size_t> repeatNodes;
-	for (size_t node : coveredNodes)
+	return std::numeric_limits<size_t>::max();
+}
+
+size_t getSelfDistance(const GfaGraph& graph, const size_t startNode)
+{
+	return getShortestPathDistance(graph, Node { startNode, true }, Node { startNode, true });
+}
+
+std::vector<bool> getNodeOrientations(const GfaGraph& graph, const size_t startNode)
+{
+	std::vector<bool> result;
+	result.resize(graph.numNodes(), true);
+	std::vector<bool> visited;
+	visited.resize(graph.numNodes(), false);
+	std::vector<Node> checkStack;
+	checkStack.emplace_back(Node { startNode, true });
+	while (checkStack.size() >= 1)
 	{
-		assert(shortestPathPredecessor.count(Node { node, true }) == 1);
-		assert(shortestPathPredecessor.count(Node { node, false }) == 1);
-		std::vector<Node> shortestPathToHere = getShortestPath(shortestPathPredecessor, Node { node, true }, topCoverageNode);
-		std::vector<Node> shortestPathFromHere = getShortestPath(shortestPathPredecessor, Node { node, false }, topCoverageNode);
-		phmap::flat_hash_set<size_t> nodesInPath;
-		for (Node pathnode : shortestPathToHere)
+		auto top = checkStack.back();
+		checkStack.pop_back();
+		if (visited[top.id()]) continue;
+		visited[top.id()] = true;
+		result[top.id()] = top.forward();
+		if (graph.edges.count(top) == 1)
 		{
-			if (pathnode.id() == node) continue;
-			if (pathnode.id() == topCoverageNode) continue;
-			assert(nodesInPath.count(pathnode.id()) == 0);
-			nodesInPath.emplace(pathnode.id());
-		}
-		for (Node pathnode : shortestPathFromHere)
-		{
-			if (pathnode.id() == node) continue;
-			if (pathnode.id() == topCoverageNode) continue;
-			if (nodesInPath.count(pathnode.id()) == 1)
+			for (auto edge : graph.edges.at(top))
 			{
-				repeatNodes.emplace(node);
-				break;
+				checkStack.emplace_back(std::get<0>(edge));
+			}
+		}
+		if (graph.edges.count(reverse(top)) == 1)
+		{
+			for (auto revedge : graph.edges.at(reverse(top)))
+			{
+				checkStack.emplace_back(reverse(std::get<0>(revedge)));
 			}
 		}
 	}
-	std::cerr << "filter out " << repeatNodes.size() << " local repeat nodes" << std::endl;
-	filterOut(coveredNodes, repeatNodes);
-	filterOut(coveredEdges, repeatNodes);
+	return result;
 }
 
-Path getHeavyPath(const GfaGraph& graph, const size_t localResolveLength)
+bool localComponentIsAcyclic(const std::vector<std::vector<size_t>>& nodesInLocalComponent, const std::vector<size_t>& selfDistances, const size_t estimatedMinimalSelfDistance, const size_t component)
 {
-	std::unordered_set<size_t> coveredNodes;
-	std::unordered_map<Node, std::unordered_set<Node>> coveredEdges;
-	std::vector<std::pair<size_t, size_t>> nodeAndCoverage;
-	std::vector<std::tuple<Node, Node, size_t>> edgeAndCoverage;
-	for (size_t i = 0; i < graph.nodeCoverages.size(); i++)
+	if (nodesInLocalComponent.at(component).size() == 1)
 	{
-		nodeAndCoverage.emplace_back(i, graph.nodeCoverages[i]);
-	}
-	for (const auto& pair : graph.edges)
-	{
-		for (const auto& target : pair.second)
+		if (selfDistances[nodesInLocalComponent.at(component)[0]] >= estimatedMinimalSelfDistance)
 		{
-			edgeAndCoverage.emplace_back(pair.first, std::get<0>(target), std::get<2>(target));
+			return true;
 		}
 	}
-	std::sort(nodeAndCoverage.begin(), nodeAndCoverage.end(), [](auto left, auto right) { return left.second > right.second; });
-	std::sort(edgeAndCoverage.begin(), edgeAndCoverage.end(), [](auto left, auto right) { return std::get<2>(left) > std::get<2>(right); });
-	size_t topCoverageNode = nodeAndCoverage[0].first;
-	size_t minCoverage = nodeAndCoverage[0].second;
-	size_t nodeIndex = 0;
-	size_t edgeIndex = 0;
-	while (minCoverage > 0)
+	return false;
+}
+
+void addAllShortestPaths(std::vector<std::vector<std::tuple<PathRecWideCoverage, std::vector<Node>, size_t>>>& componentInEdges, const std::vector<bool>& nodeExists, const GfaGraph& graph, const std::vector<bool>& nodeOrientation, const std::vector<size_t>& nodesInComponent, const std::vector<size_t>& nodeBelongsToStronglyConnectedLocalComponent)
+{
+	assert(nodesInComponent.size() >= 1);
+	phmap::flat_hash_set<Node> nodesBefore;
+	phmap::flat_hash_set<Node> nodesAfter;
+	size_t thisComponent = nodeBelongsToStronglyConnectedLocalComponent[nodesInComponent[0]];
+	for (size_t unorientedNode : nodesInComponent)
 	{
-		size_t nextCoverage = 0;
-		while (nodeIndex < nodeAndCoverage.size() && nodeAndCoverage[nodeIndex].second >= minCoverage)
+		Node node { unorientedNode, nodeOrientation[unorientedNode] };
+		assert(nodeBelongsToStronglyConnectedLocalComponent[node.id()] == thisComponent);
+		assert(graph.edges.count(node) == 1);
+		assert(graph.edges.count(reverse(node)) == 1);
+		for (auto edge : graph.edges.at(node))
 		{
-			coveredNodes.emplace(nodeAndCoverage[nodeIndex].first);
-			nodeIndex += 1;
+			Node target = std::get<0>(edge);
+			if (!nodeExists[target.id()]) continue;
+			if (nodeBelongsToStronglyConnectedLocalComponent[node.id()] == nodeBelongsToStronglyConnectedLocalComponent[target.id()]) continue;
+			nodesAfter.insert(target);
 		}
-		while (edgeIndex < edgeAndCoverage.size() && std::get<2>(edgeAndCoverage[edgeIndex]) >= minCoverage)
+		for (auto edge : graph.edges.at(reverse(node)))
 		{
-			coveredEdges[std::get<0>(edgeAndCoverage[edgeIndex])].emplace(std::get<1>(edgeAndCoverage[edgeIndex]));
-			coveredEdges[reverse(std::get<1>(edgeAndCoverage[edgeIndex]))].emplace(reverse(std::get<0>(edgeAndCoverage[edgeIndex])));
-			edgeIndex += 1;
+			Node target = reverse(std::get<0>(edge));
+			if (!nodeExists[target.id()]) continue;
+			if (nodeBelongsToStronglyConnectedLocalComponent[node.id()] == nodeBelongsToStronglyConnectedLocalComponent[target.id()]) continue;
+			nodesBefore.insert(target);
 		}
-		if (nodeIndex < nodeAndCoverage.size()) nextCoverage = nodeAndCoverage[nodeIndex].second;
-		if (edgeIndex < edgeAndCoverage.size()) nextCoverage = std::max(nextCoverage, std::get<2>(edgeAndCoverage[edgeIndex]));
-		assert(nextCoverage < minCoverage);
-		minCoverage = nextCoverage;
-		if (isCircular(coveredNodes, coveredEdges, Node { topCoverageNode, true })) break;
 	}
-	filterOutNonCircularParts(coveredNodes, coveredEdges, topCoverageNode);
-	while (true)
+	assert(nodesBefore.size() >= 1);
+	assert(nodesAfter.size() >= 1);
+	for (Node before : nodesBefore)
 	{
-		size_t sizeBeforeFilter = coveredNodes.size();
-		filterOutDefinitelyNonConsensusNodes(coveredNodes, coveredEdges, topCoverageNode, graph, localResolveLength);
-		filterOutNonCircularParts(coveredNodes, coveredEdges, topCoverageNode);
-		if (coveredNodes.size() == sizeBeforeFilter) break;
+		std::vector<std::pair<size_t, std::pair<Node, Node>>> checkStack;
+		phmap::flat_hash_map<Node, Node> predecessor;
+		assert(graph.edges.count(before) == 1);
+		for (auto edge : graph.edges.at(before))
+		{
+			Node target = std::get<0>(edge);
+			if (nodeBelongsToStronglyConnectedLocalComponent[target.id()] != thisComponent) continue;
+			size_t overlap = std::get<1>(edge);
+			checkStack.emplace_back(graph.nodeSeqs[target.id()].size() - overlap, std::make_pair(before, target));
+		}
+		std::sort(checkStack.begin(), checkStack.end(), [](auto left, auto right) { return left.first > right.first; });
+		assert(checkStack.size() >= 1);
+		while (checkStack.size() >= 1)
+		{
+			auto top = checkStack.back();
+			assert(nodeBelongsToStronglyConnectedLocalComponent[top.second.second.id()] == thisComponent);
+			checkStack.pop_back();
+			if (predecessor.count(top.second.second) == 1) continue;
+			predecessor[top.second.second] = top.second.first;
+			assert(graph.edges.count(top.second.second) == 1);
+			for (auto edge : graph.edges.at(top.second.second))
+			{
+				Node target = std::get<0>(edge);
+				if (!nodeExists[target.id()]) continue;
+				if (nodeBelongsToStronglyConnectedLocalComponent[target.id()] != thisComponent)
+				{
+					assert(nodesAfter.count(target) == 1);
+					std::vector<Node> pathHere;
+					pathHere.emplace_back(target);
+					pathHere.emplace_back(top.second.second);
+					while (predecessor.count(pathHere.back()) == 1) pathHere.emplace_back(predecessor.at(pathHere.back()));
+					std::reverse(pathHere.begin(), pathHere.end());
+					size_t pathLength = getPathLength(pathHere, graph.nodeSeqs, graph.edges);
+					size_t sourceComponent = nodeBelongsToStronglyConnectedLocalComponent[before.id()];
+					size_t targetComponent = nodeBelongsToStronglyConnectedLocalComponent[target.id()];
+					assert(targetComponent < componentInEdges.size());
+					componentInEdges[targetComponent].emplace_back(PathRecWideCoverage { 1, pathLength }, pathHere, sourceComponent);
+					continue;
+				}
+				size_t overlap = std::get<1>(edge);
+				checkStack.emplace_back(graph.nodeSeqs[target.id()].size() - overlap, std::make_pair(top.second.second, target));
+			}
+		}
+	}
+}
+
+Path getTopologicallyOrderedHeaviestPath(const GfaGraph& graph, const std::vector<ReadPath>& readPaths, const std::vector<bool>& nodeExists, const std::vector<size_t>& selfDistances, const size_t estimatedMinimalSelfDistance, const std::vector<bool>& nodeOrientation, const std::vector<size_t>& localComponentOrder, const std::vector<size_t>& nodeBelongsToStronglyConnectedLocalComponent, const std::vector<std::vector<size_t>>& nodesInLocalComponent)
+{
+	std::vector<size_t> componentOrderInTopologicalOrder;
+	componentOrderInTopologicalOrder.resize(localComponentOrder.size(), std::numeric_limits<size_t>::max());
+	for (size_t i = 0; i < localComponentOrder.size(); i++)
+	{
+		assert(componentOrderInTopologicalOrder[localComponentOrder[i]] == std::numeric_limits<size_t>::max());
+		componentOrderInTopologicalOrder[localComponentOrder[i]] = i;
+	}
+	for (size_t i = 0; i < componentOrderInTopologicalOrder.size(); i++)
+	{
+		assert(componentOrderInTopologicalOrder[i] != std::numeric_limits<size_t>::max());
+	}
+	assert(localComponentOrder.size() >= 1);
+	assert(localComponentOrder.size() == nodesInLocalComponent.size());
+	assert(nodesInLocalComponent[localComponentOrder[0]].size() == 1);
+	std::vector<bool> componentIsCyclic;
+	componentIsCyclic.resize(localComponentOrder.size(), false);
+	for (size_t i = 0; i < localComponentOrder.size(); i++)
+	{
+		if (localComponentIsAcyclic(nodesInLocalComponent, selfDistances, estimatedMinimalSelfDistance, i)) continue;
+		componentIsCyclic[i] = true;
+	}
+	assert(!componentIsCyclic[localComponentOrder[0]]);
+	std::vector<std::vector<std::tuple<PathRecWideCoverage, std::vector<Node>, size_t>>> componentInEdges;
+	componentInEdges.resize(localComponentOrder.size());
+	for (size_t i = 0; i < graph.numNodes(); i++)
+	{
+		if (!nodeExists[i]) continue;
+		size_t thisComponent = nodeBelongsToStronglyConnectedLocalComponent[i];
+		if (componentIsCyclic[thisComponent]) continue;
+		Node nodeHere { i, nodeOrientation[i] };
+		assert(graph.edges.count(nodeHere) == 1);
+		assert(graph.edges.count(reverse(nodeHere)) == 1);
+		for (auto edge : graph.edges.at(nodeHere))
+		{
+			Node target = std::get<0>(edge);
+			if (!nodeExists[target.id()]) continue;
+			size_t targetComponent = nodeBelongsToStronglyConnectedLocalComponent.at(target.id());
+			if (componentIsCyclic[targetComponent]) continue;
+			size_t overlap = std::get<1>(edge);
+			size_t coverage = std::get<2>(edge);
+			assert(componentOrderInTopologicalOrder[thisComponent] < componentOrderInTopologicalOrder[targetComponent] || thisComponent == localComponentOrder.back());
+			componentInEdges[targetComponent].emplace_back(PathRecWideCoverage { coverage, 1 }, std::vector<Node> { nodeHere, target }, thisComponent);
+			std::get<0>(componentInEdges[targetComponent].back()).addCoverage(graph.nodeCoverages[nodeHere.id()], graph.nodeSeqs[nodeHere.id()].size() - overlap);
+		}
+	}
+	std::map<std::vector<Node>, size_t> cyclicComponentThroughGoerCoverages;
+	for (size_t i = 0; i < readPaths.size(); i++)
+	{
+		size_t lastAcyclicIndex = std::numeric_limits<size_t>::max();
+		for (size_t j = 0; j < readPaths[i].path.size(); j++)
+		{
+			if (!nodeExists[readPaths[i].path[j].id()])
+			{
+				lastAcyclicIndex = std::numeric_limits<size_t>::max();
+				continue;
+			}
+			if (componentIsCyclic[nodeBelongsToStronglyConnectedLocalComponent[readPaths[i].path[j].id()]]) continue;
+			if (lastAcyclicIndex == std::numeric_limits<size_t>::max())
+			{
+				lastAcyclicIndex = j;
+				continue;
+			}
+			if (j == lastAcyclicIndex+1)
+			{
+				lastAcyclicIndex = j;
+				continue;
+			}
+			std::vector<Node> path { readPaths[i].path.begin()+lastAcyclicIndex, readPaths[i].path.begin() + j + 1};
+			assert(path.size() >= 3);
+			assert(nodeExists[path[0].id()]);
+			assert(nodeExists[path.back().id()]);
+			assert(nodeBelongsToStronglyConnectedLocalComponent[path.back().id()] != nodeBelongsToStronglyConnectedLocalComponent[path[0].id()]);
+			if (componentOrderInTopologicalOrder[nodeBelongsToStronglyConnectedLocalComponent[path.back().id()]] < componentOrderInTopologicalOrder[nodeBelongsToStronglyConnectedLocalComponent[path[0].id()]])
+			{
+				path = reverse(path);
+			}
+			cyclicComponentThroughGoerCoverages[path] += 1;
+			lastAcyclicIndex = j;
+		}
+	}
+	for (const auto& pair : cyclicComponentThroughGoerCoverages)
+	{
+		assert(pair.first.size() >= 3);
+		for (size_t i = 0; i < pair.first.size(); i++)
+		{
+			assert(nodeExists[pair.first[i].id()]);
+		}
+		size_t preComponent = nodeBelongsToStronglyConnectedLocalComponent[pair.first[0].id()];
+		size_t postComponent = nodeBelongsToStronglyConnectedLocalComponent[pair.first.back().id()];
+		assert(!componentIsCyclic[preComponent]);
+		assert(!componentIsCyclic[postComponent]);
+		for (size_t i = 1; i+1 < pair.first.size(); i++)
+		{
+			assert(componentIsCyclic[nodeBelongsToStronglyConnectedLocalComponent[pair.first[i].id()]]);
+		}
+		size_t pathLength = getPathLength(pair.first, graph.nodeSeqs, graph.edges);
+		assert(componentOrderInTopologicalOrder[preComponent] < componentOrderInTopologicalOrder[postComponent] || preComponent == localComponentOrder.back());
+		componentInEdges[postComponent].emplace_back(PathRecWideCoverage { pair.second, pathLength }, pair.first, preComponent);
+	}
+	for (size_t i = 0; i < nodesInLocalComponent.size(); i++)
+	{
+		if (!componentIsCyclic[i]) continue;
+		addAllShortestPaths(componentInEdges, nodeExists, graph, nodeOrientation, nodesInLocalComponent[i], nodeBelongsToStronglyConnectedLocalComponent);
+	}
+	for (size_t i = 0; i < graph.numNodes(); i++)
+	{
+		if (!nodeExists[i]) continue;
+	}
+	for (size_t i = 0; i < componentInEdges.size(); i++)
+	{
+		for (auto edge : componentInEdges[i])
+		{
+			assert(componentOrderInTopologicalOrder[std::get<2>(edge)] < componentOrderInTopologicalOrder[i] || std::get<2>(edge) == localComponentOrder.back());
+		}
+	}
+	std::vector<std::tuple<PathRecWideCoverage, std::vector<Node>, size_t>> predecessor;
+	predecessor.resize(localComponentOrder.size());
+	for (size_t i = 0; i < localComponentOrder.size(); i++)
+	{
+		size_t component = localComponentOrder[i];
+		if (componentIsCyclic[component]) continue;
+		assert(componentInEdges[component].size() >= 1);
+		std::tuple<PathRecWideCoverage, std::vector<Node>, size_t> bestSoFar = componentInEdges[component][0];
+		std::get<0>(bestSoFar) += std::get<0>(predecessor[std::get<2>(bestSoFar)]);
+		for (size_t j = 1; j < componentInEdges[component].size(); j++)
+		{
+			auto optionHere = componentInEdges[component][j];
+			std::get<0>(optionHere) += std::get<0>(predecessor[std::get<2>(optionHere)]);
+			if (std::get<0>(bestSoFar) < std::get<0>(optionHere)) bestSoFar = optionHere;
+		}
+		predecessor[component] = bestSoFar;
 	}
 	Path result;
-	try
+	size_t pos = localComponentOrder.back();
+	while (true)
 	{
-		result = getRecWidestPath(coveredNodes, coveredEdges, graph, Node { topCoverageNode, true });
-	}
-	catch (CyclicGraphException& e)
-	{
-		std::cerr << "cyclic heavy path, remove local cycles and retry" << std::endl;
-		filterOutLocalCycles(coveredNodes, coveredEdges, topCoverageNode, graph);
-		while (true)
-		{
-			size_t sizeBeforeFilter = coveredNodes.size();
-			filterOutDefinitelyNonConsensusNodes(coveredNodes, coveredEdges, topCoverageNode, graph, localResolveLength);
-			filterOutNonCircularParts(coveredNodes, coveredEdges, topCoverageNode);
-			if (coveredNodes.size() == sizeBeforeFilter) break;
-		}
-		result = getRecWidestPath(coveredNodes, coveredEdges, graph, Node { topCoverageNode, true });
+		std::vector<Node> addHere = reverse(std::get<1>(predecessor[pos]));
+		assert(result.nodes.size() == 0 || addHere[0] == result.nodes.back());
+		result.nodes.insert(result.nodes.end(), addHere.begin()+1, addHere.end());
+		pos = std::get<2>(predecessor[pos]);
+		if (pos == localComponentOrder.back()) break;
+		assert(result.nodes.size() < nodeExists.size());
 	}
 	for (size_t i = 0; i < result.nodes.size(); i++)
 	{
@@ -1427,6 +1236,184 @@ Path getHeavyPath(const GfaGraph& graph, const size_t localResolveLength)
 	assert(result.overlaps.size() == result.nodes.size());
 	result.leftClip = 0;
 	result.rightClip = result.overlaps[0];
+	return result;
+}
+
+std::vector<size_t> getLocalComponentTopologicalOrder(const std::vector<phmap::flat_hash_set<size_t>>& localComponentInEdges, const std::vector<phmap::flat_hash_set<size_t>>& localComponentOutEdges, const size_t startComponent)
+{
+	std::vector<bool> visited;
+	visited.resize(localComponentInEdges.size(), false);
+	visited[startComponent] = true;
+	std::vector<size_t> checkStack;
+	assert(localComponentInEdges[startComponent].size() >= 1);
+	assert(localComponentOutEdges[startComponent].size() >= 1);
+	for (size_t edge : localComponentOutEdges[startComponent])
+	{
+		checkStack.emplace_back(edge);
+	}
+	std::vector<size_t> result;
+	while (checkStack.size() > 0)
+	{
+		size_t top = checkStack.back();
+		checkStack.pop_back();
+		assert(localComponentInEdges[top].size() >= 1);
+		if (visited[top]) continue;
+		bool allPredecessorsVisited = true;
+		for (size_t neighbor : localComponentInEdges[top])
+		{
+			if (!visited[neighbor]) allPredecessorsVisited = false;
+		}
+		if (!allPredecessorsVisited) continue;
+		visited[top] = true;
+		result.emplace_back(top);
+		for (size_t neighbor : localComponentOutEdges[top])
+		{
+			checkStack.emplace_back(neighbor);
+		}
+	}
+	assert(result.size()+1 == localComponentInEdges.size());
+	result.emplace_back(startComponent);
+	assert(result.size() == visited.size());
+	assert(result.size() == localComponentInEdges.size());
+	for (size_t i = 0; i < visited.size(); i++)
+	{
+		assert(visited[i]);
+		assert(i+1 == visited.size() || result[i] != startComponent);
+	}
+	return result;
+}
+
+Path getHeavyPath(const GfaGraph& graph, const std::vector<ReadPath>& readPaths, const size_t localResolveLength)
+{
+	std::vector<size_t> selfDistances;
+	size_t distanceSum = 0;
+	size_t distanceDivisor = 0;
+	for (size_t i = 0; i < graph.numNodes(); i++)
+	{
+		size_t selfDistance = getSelfDistance(graph, i);
+		selfDistances.emplace_back(selfDistance);
+		if (selfDistance == std::numeric_limits<size_t>::max()) continue;
+		if (selfDistance < localResolveLength) continue;
+		distanceSum += selfDistance * graph.nodeSeqs[i].size();
+		distanceDivisor += graph.nodeSeqs[i].size();
+	}
+	size_t estimatedMinimalSelfDistance = distanceSum/distanceDivisor/2;
+	std::cerr << "using " << estimatedMinimalSelfDistance << " as local self-repeat distance threshold" << std::endl;
+	size_t bestStartNode = std::numeric_limits<size_t>::max();
+	for (size_t i = 0; i < graph.numNodes(); i++)
+	{
+		if (selfDistances[i] == std::numeric_limits<size_t>::max()) continue;
+		if (selfDistances[i] < estimatedMinimalSelfDistance) continue;
+		if (bestStartNode == std::numeric_limits<size_t>::max()) bestStartNode = i;
+		if (graph.nodeCoverages[i] > graph.nodeCoverages[bestStartNode]) bestStartNode = i;
+	}
+	assert(bestStartNode != std::numeric_limits<size_t>::max());
+	std::cerr << "best start node " << graph.nodeNames[bestStartNode] << std::endl;
+	std::vector<bool> nodeOrientation = getNodeOrientations(graph, bestStartNode);
+	std::vector<bool> nodeExists;
+	nodeExists.resize(graph.numNodes(), false);
+	nodeExists[bestStartNode] = true;
+	for (size_t i = 0; i < graph.numNodes(); i++)
+	{
+		if (i == bestStartNode) continue;
+		size_t distancePre = getShortestPathDistance(graph, Node { bestStartNode, true }, Node { i, nodeOrientation[i] });
+		if (distancePre == std::numeric_limits<size_t>::max()) continue;
+		size_t distancePost = getShortestPathDistance(graph, Node { i, nodeOrientation[i] }, Node { bestStartNode, true });
+		if (distancePost == std::numeric_limits<size_t>::max()) continue;
+		if (distancePre + distancePost > selfDistances[bestStartNode] + estimatedMinimalSelfDistance && distancePre + distancePost > selfDistances[i] + estimatedMinimalSelfDistance) continue;
+		nodeExists[i] = true;
+	}
+	std::vector<size_t> nodeBelongsToStronglyConnectedLocalComponent;
+	for (size_t i = 0; i < graph.numNodes(); i++)
+	{
+		nodeBelongsToStronglyConnectedLocalComponent.emplace_back(i);
+	}
+	for (size_t i = 0; i < graph.numNodes(); i++)
+	{
+		if (!nodeExists[i]) continue;
+		if (selfDistances[i] == std::numeric_limits<size_t>::max()) continue;
+		if (selfDistances[i] >= estimatedMinimalSelfDistance) continue;
+		assert(graph.edges.count(Node { i, true }) == 1);
+		assert(graph.edges.count(Node { i, false }) == 1);
+		for (auto edge : graph.edges.at(Node { i, true }))
+		{
+			Node target = std::get<0>(edge);
+			if (!nodeExists[target.id()]) continue;
+			if (selfDistances[target.id()] < estimatedMinimalSelfDistance && getShortestPathDistance(graph, target, Node { i, true }) < estimatedMinimalSelfDistance)
+			{
+				merge(nodeBelongsToStronglyConnectedLocalComponent, i, target.id());
+			}
+		}
+		for (auto edge : graph.edges.at(Node { i, false }))
+		{
+			Node target = std::get<0>(edge);
+			if (!nodeExists[target.id()]) continue;
+			if (selfDistances[target.id()] < estimatedMinimalSelfDistance && getShortestPathDistance(graph, target, Node { i, false }) < estimatedMinimalSelfDistance)
+			{
+				merge(nodeBelongsToStronglyConnectedLocalComponent, i, target.id());
+			}
+		}
+	}
+	assert(nodeBelongsToStronglyConnectedLocalComponent.at(bestStartNode) == bestStartNode);
+	size_t countComponents = 0;
+	{
+		phmap::flat_hash_map<size_t, size_t> componentRenaming;
+		for (size_t i = 0; i < nodeBelongsToStronglyConnectedLocalComponent.size(); i++)
+		{
+			if (!nodeExists[i]) continue;
+			size_t component = find(nodeBelongsToStronglyConnectedLocalComponent, i);
+			if (componentRenaming.count(component) == 1) continue;
+			size_t newName = componentRenaming.size();
+			componentRenaming[component] = newName;
+		}
+		for (size_t i = 0; i < nodeBelongsToStronglyConnectedLocalComponent.size(); i++)
+		{
+			if (!nodeExists[i]) continue;
+			nodeBelongsToStronglyConnectedLocalComponent[i] = componentRenaming.at(nodeBelongsToStronglyConnectedLocalComponent[i]);
+		}
+		countComponents = componentRenaming.size();
+	}
+	for (size_t i = 0; i < graph.numNodes(); i++)
+	{
+		if (!nodeExists[i]) continue;
+	}
+	std::vector<std::vector<size_t>> nodesInLocalComponent;
+	nodesInLocalComponent.resize(countComponents);
+	for (size_t i = 0; i < nodeBelongsToStronglyConnectedLocalComponent.size(); i++)
+	{
+		if (!nodeExists[i]) continue;
+		nodesInLocalComponent[nodeBelongsToStronglyConnectedLocalComponent[i]].emplace_back(i);
+	}
+	std::vector<phmap::flat_hash_set<size_t>> localComponentInEdges;
+	std::vector<phmap::flat_hash_set<size_t>> localComponentOutEdges;
+	localComponentInEdges.resize(countComponents);
+	localComponentOutEdges.resize(countComponents);
+	for (size_t i = 0; i < graph.numNodes(); i++)
+	{
+		if (!nodeExists[i]) continue;
+		assert(graph.edges.count(Node { i, true }) == 1);
+		assert(graph.edges.count(Node { i, false }) == 1);
+		size_t thisComponent = nodeBelongsToStronglyConnectedLocalComponent[i];
+		for (auto edge : graph.edges.at(Node { i, nodeOrientation[i] }))
+		{
+			Node target = std::get<0>(edge);
+			if (!nodeExists[target.id()]) continue;
+			size_t otherComponent = nodeBelongsToStronglyConnectedLocalComponent[target.id()];
+			if (otherComponent == thisComponent) continue;
+			localComponentOutEdges[thisComponent].emplace(otherComponent);
+		}
+		for (auto edge : graph.edges.at(Node { i, !nodeOrientation[i] }))
+		{
+			Node target = std::get<0>(edge);
+			if (!nodeExists[target.id()]) continue;
+			size_t otherComponent = nodeBelongsToStronglyConnectedLocalComponent[target.id()];
+			if (otherComponent == thisComponent) continue;
+			localComponentInEdges[thisComponent].emplace(otherComponent);
+		}
+	}
+	std::vector<size_t> localComponentOrder = getLocalComponentTopologicalOrder(localComponentInEdges, localComponentOutEdges, nodeBelongsToStronglyConnectedLocalComponent.at(bestStartNode));
+	assert(localComponentOrder.size() == localComponentInEdges.size());
+	Path result = getTopologicallyOrderedHeaviestPath(graph, readPaths, nodeExists, selfDistances, estimatedMinimalSelfDistance, nodeOrientation, localComponentOrder, nodeBelongsToStronglyConnectedLocalComponent, nodesInLocalComponent);
 	return result;
 }
 
@@ -2905,56 +2892,6 @@ size_t getEditDistancePossiblyMemoized(const std::vector<Node>& left, const std:
 		add = memoizedEditDistances.at(key);
 	}
 	return add;
-}
-
-template <typename T>
-T find(phmap::flat_hash_map<T, T>& parent, T key)
-{
-	while (parent.at(key) != parent.at(parent.at(key))) parent[key] = parent[parent[key]];
-	return parent[key];
-}
-
-template <typename T>
-void merge(phmap::flat_hash_map<T, T>& parent, T left, T right)
-{
-	left = find(parent, left);
-	right = find(parent, right);
-	assert(parent.at(left) == left);
-	assert(parent.at(right) == right);
-	parent[right] = left;
-}
-
-size_t find(std::vector<size_t>& parent, size_t key)
-{
-	while (parent.at(key) != parent.at(parent.at(key))) parent[key] = parent[parent[key]];
-	return parent[key];
-}
-
-void merge(std::vector<size_t>& parent, size_t left, size_t right)
-{
-	left = find(parent, left);
-	right = find(parent, right);
-	assert(parent.at(left) == left);
-	assert(parent.at(right) == right);
-	parent[right] = left;
-}
-
-template <typename T>
-T find(std::map<T, T>& parent, const T& key)
-{
-	while (parent.at(key) != parent.at(parent.at(key)))
-	{
-		parent[key] = parent.at(parent.at(key));
-	}
-	return parent.at(key);
-}
-
-template <typename T>
-void merge(std::map<T, T>& parent, const T& left, const T& right)
-{
-	auto leftp = find(parent, left);
-	auto rightp = find(parent, right);
-	parent[rightp] = leftp;
 }
 
 std::vector<std::pair<size_t, size_t>> getNodeMatches(const std::vector<Node>& left, size_t leftIndex, size_t leftStart, size_t leftEnd, const std::vector<Node>& right, size_t rightIndex, size_t rightStart, size_t rightEnd, const std::vector<phmap::flat_hash_map<Node, size_t>>& nodeCountIndex, const std::vector<phmap::flat_hash_map<Node, size_t>>& nodePosIndex)
@@ -4745,8 +4682,10 @@ void HandleCluster(const ClusterParams& params)
 	std::cerr << "reading graph" << std::endl;
 	GfaGraph graph;
 	graph.loadFromFile(params.basePath + "/graph.gfa");
+	std::cerr << "reading read paths" << std::endl;
+	std::vector<ReadPath> readPaths = loadReadPaths(params.basePath + "/paths.gaf", graph);
 	std::cerr << "getting consensus" << std::endl;
-	Path heavyPath = getHeavyPath(graph, params.maxResolveLength);
+	Path heavyPath = getHeavyPath(graph, readPaths, params.maxResolveLength);
 	std::cerr << "consensus length " << heavyPath.getSequence(graph.nodeSeqs).size() << "bp" << std::endl;
 	if (params.orientReferencePath.size() > 0)
 	{
@@ -4756,8 +4695,6 @@ void HandleCluster(const ClusterParams& params)
 	std::cerr << "writing consensus" << std::endl;
 	writePathSequence(heavyPath, graph, params.basePath + "/consensus.fa", params.namePrefix);
 	writePathGaf(heavyPath, graph, params.basePath + "/consensus_path.gaf");
-	std::cerr << "reading read paths" << std::endl;
-	std::vector<ReadPath> readPaths = loadReadPaths(params.basePath + "/paths.gaf", graph);
 	std::cerr << "process graph" << std::endl;
 	processGraphAndWrite(heavyPath, graph, params.basePath + "/processed-graph.gfa");
 	// std::cerr << "getting variants" << std::endl;
