@@ -948,8 +948,9 @@ size_t getSelfDistance(const GfaGraph& graph, const size_t startNode)
 	return getShortestPathDistance(graph, Node { startNode, true }, Node { startNode, true });
 }
 
-std::vector<bool> getNodeOrientations(const GfaGraph& graph, const size_t startNode)
+std::vector<bool> getNodeOrientations(const GfaGraph& graph, const size_t startNode, const std::vector<bool>& nodeExists)
 {
+	assert(nodeExists[startNode]);
 	std::vector<bool> result;
 	result.resize(graph.numNodes(), true);
 	std::vector<bool> visited;
@@ -959,14 +960,25 @@ std::vector<bool> getNodeOrientations(const GfaGraph& graph, const size_t startN
 	while (checkStack.size() >= 1)
 	{
 		auto top = checkStack.back();
+		assert(nodeExists[top.id()]);
 		checkStack.pop_back();
-		if (visited[top.id()]) continue;
+		if (visited[top.id()])
+		{
+			if (!(result[top.id()] == top.forward()))
+			{
+				std::cerr << graph.nodeNames[top.id()] << std::endl;
+			}
+			assert(result[top.id()] == top.forward());
+			continue;
+		}
 		visited[top.id()] = true;
 		result[top.id()] = top.forward();
 		if (graph.edges.count(top) == 1)
 		{
 			for (auto edge : graph.edges.at(top))
 			{
+				if (std::get<0>(edge).id() == top.id()) continue;
+				if (!nodeExists[std::get<0>(edge).id()]) continue;
 				checkStack.emplace_back(std::get<0>(edge));
 			}
 		}
@@ -974,6 +986,8 @@ std::vector<bool> getNodeOrientations(const GfaGraph& graph, const size_t startN
 		{
 			for (auto revedge : graph.edges.at(reverse(top)))
 			{
+				if (std::get<0>(revedge).id() == top.id()) continue;
+				if (!nodeExists[std::get<0>(revedge).id()]) continue;
 				checkStack.emplace_back(reverse(std::get<0>(revedge)));
 			}
 		}
@@ -1309,13 +1323,20 @@ Path getHeavyPath(const GfaGraph& graph, const std::vector<ReadPath>& readPaths,
 	}
 	assert(bestStartNode != std::numeric_limits<size_t>::max());
 	std::cerr << "best start node " << graph.nodeNames[bestStartNode] << std::endl;
-	std::vector<bool> nodeOrientation = getNodeOrientations(graph, bestStartNode);
 	std::vector<bool> nodeExists;
+	nodeExists.resize(graph.numNodes(), false);
+	for (size_t i = 0; i < graph.numNodes(); i++)
+	{
+		nodeExists[i] = selfDistances[i] != std::numeric_limits<size_t>::max();
+	}
+	std::vector<bool> nodeOrientation = getNodeOrientations(graph, bestStartNode, nodeExists);
+	nodeExists.resize(0);
 	nodeExists.resize(graph.numNodes(), false);
 	nodeExists[bestStartNode] = true;
 	for (size_t i = 0; i < graph.numNodes(); i++)
 	{
 		if (i == bestStartNode) continue;
+		if (selfDistances[i] == std::numeric_limits<size_t>::max()) continue;
 		size_t distancePre = getShortestPathDistance(graph, Node { bestStartNode, true }, Node { i, nodeOrientation[i] });
 		if (distancePre == std::numeric_limits<size_t>::max()) continue;
 		size_t distancePost = getShortestPathDistance(graph, Node { i, nodeOrientation[i] }, Node { bestStartNode, true });
@@ -1436,7 +1457,7 @@ void writePathGaf(const Path& path, const GfaGraph& graph, std::string outputFil
 void runMBG(std::string basePath, std::string readPath, std::string MBGPath, const size_t k, const size_t maxResolveLength, const size_t numThreads)
 {
 	std::string mbgCommand;
-	mbgCommand = MBGPath + " -o " + basePath + "/graph.gfa -t " + std::to_string(numThreads) + " -i " + readPath + " -k " + std::to_string(k) + " -w " + std::to_string(k-30) + " -a 2 -u 3 -r " + std::to_string(maxResolveLength) + " -R 4000 --error-masking=msat --output-sequence-paths " + basePath + "/paths.gaf --only-local-resolve 1> " + basePath + "/mbg_stdout.txt 2> " + basePath + "/mbg_stderr.txt";
+	mbgCommand = MBGPath + " -o " + basePath + "/graph.gfa -t " + std::to_string(numThreads) + " -i " + readPath + " -k " + std::to_string(k) + " -w " + std::to_string(k-30) + " -a 2 -u 3 -r " + std::to_string(maxResolveLength) + " -R 4000 --error-masking=msat --output-sequence-paths " + basePath + "/paths.gaf --only-local-resolve --resolve-palindromes-global 1> " + basePath + "/mbg_stdout.txt 2> " + basePath + "/mbg_stderr.txt";
 	std::cerr << "MBG command:" << std::endl;
 	std::cerr << mbgCommand << std::endl;
 	int result = system(mbgCommand.c_str());
