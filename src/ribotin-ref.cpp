@@ -11,7 +11,7 @@
 
 void getKmers(std::string outputPrefix)
 {
-	std::ofstream file { outputPrefix + "/kmers.fa" };
+	std::ofstream file { outputPrefix + "/tmp/kmers.fa" };
 	FastQ::streamFastqFromFile(outputPrefix + "/consensus.fa", false, [&file](FastQ& fastq)
 	{
 		file << ">consensus" << std::endl;
@@ -123,7 +123,7 @@ int main(int argc, char** argv)
 		// getKmers(clusterParams.basePath);
 		// std::vector<std::string> kmerFiles;
 		// kmerFiles.push_back(refPath);
-		// kmerFiles.push_back(clusterParams.basePath + "/kmers.fa");
+		// kmerFiles.push_back(clusterParams.basePath + "/tmp/kmers.fa");
 		// size_t consensusLength = getSequenceLength(clusterParams.basePath + "/consensus.fa");
 		// std::cerr << "consensus length " << consensusLength << ", using " << consensusLength/2 << " as minimum ONT match length" << std::endl;
 		// iterateMatchingReads(kmerFiles, ontReadPaths, 21, consensusLength/2, [&readsfile](const FastQ& seq)

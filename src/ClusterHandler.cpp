@@ -1457,7 +1457,7 @@ void writePathGaf(const Path& path, const GfaGraph& graph, std::string outputFil
 void runMBG(std::string basePath, std::string readPath, std::string MBGPath, const size_t k, const size_t maxResolveLength, const size_t numThreads)
 {
 	std::string mbgCommand;
-	mbgCommand = MBGPath + " -o " + basePath + "/graph.gfa -t " + std::to_string(numThreads) + " -i " + readPath + " -k " + std::to_string(k) + " -w " + std::to_string(k-30) + " -a 2 -u 3 -r " + std::to_string(maxResolveLength) + " -R 4000 --error-masking=msat --output-sequence-paths " + basePath + "/paths.gaf --only-local-resolve --resolve-palindromes-global 1> " + basePath + "/mbg_stdout.txt 2> " + basePath + "/mbg_stderr.txt";
+	mbgCommand = MBGPath + " -o " + basePath + "/graph.gfa -t " + std::to_string(numThreads) + " -i " + readPath + " -k " + std::to_string(k) + " -w " + std::to_string(k-30) + " -a 2 -u 3 -r " + std::to_string(maxResolveLength) + " -R 4000 --error-masking=msat --output-sequence-paths " + basePath + "/paths.gaf --only-local-resolve --resolve-palindromes-global 1> " + basePath + "/tmp/mbg_stdout.txt 2> " + basePath + "/tmp/mbg_stderr.txt";
 	std::cerr << "MBG command:" << std::endl;
 	std::cerr << mbgCommand << std::endl;
 	int result = system(mbgCommand.c_str());
@@ -2311,7 +2311,7 @@ void liftoverAnnotationsToConsensus(const std::string& basePath, const std::stri
 void AlignONTReads(std::string basePath, std::string graphAlignerPath, std::string ontReadPath, std::string graphPath, std::string outputAlnPath, size_t numThreads)
 {
 	std::string graphalignerCommand;
-	graphalignerCommand = graphAlignerPath + " -g " + graphPath + " -f " + ontReadPath + " -a " + outputAlnPath + " -t " + std::to_string(numThreads) + " --seeds-mxm-length 30 --seeds-mem-count 10000 --bandwidth 15 --multimap-score-fraction 0.99 --precise-clipping 0.85 --min-alignment-score 5000 --discard-cigar --clip-ambiguous-ends 100 --overlap-incompatible-cutoff 0.15 --mem-index-no-wavelet-tree --max-trace-count 5 1> " + basePath + "/graphaligner_stdout.txt 2> " + basePath + "/graphaligner_stderr.txt";
+	graphalignerCommand = graphAlignerPath + " -g " + graphPath + " -f " + ontReadPath + " -a " + outputAlnPath + " -t " + std::to_string(numThreads) + " --seeds-mxm-length 30 --seeds-mem-count 10000 --bandwidth 15 --multimap-score-fraction 0.99 --precise-clipping 0.85 --min-alignment-score 5000 --discard-cigar --clip-ambiguous-ends 100 --overlap-incompatible-cutoff 0.15 --mem-index-no-wavelet-tree --max-trace-count 5 1> " + basePath + "/tmp/graphaligner_stdout.txt 2> " + basePath + "/tmp/graphaligner_stderr.txt";
 	std::cerr << "GraphAligner command:" << std::endl;
 	std::cerr << graphalignerCommand << std::endl;
 	int result = system(graphalignerCommand.c_str());
@@ -7620,7 +7620,7 @@ void DoClusterONTAnalysis(const ClusterParams& params)
 	auto coreNodes = getCoreNodes(loopSequences);
 	std::cerr << loopSequences.size() << " loops in ONTs" << std::endl;
 	{
-		std::ofstream file { params.basePath + "/loops.fa" };
+		std::ofstream file { params.basePath + "/tmp/loops.fa" };
 		for (size_t i = 0; i < loopSequences.size(); i++)
 		{
 			file << ">loop_" << i << "_read_" << loopSequences[i].readName << "_start_" << loopSequences[i].approxStart << "_end_" << loopSequences[i].approxEnd << std::endl;
@@ -7649,8 +7649,6 @@ void DoClusterONTAnalysis(const ClusterParams& params)
 		clusters = densityClusterLoops(clusters, graph, pathStartClip, pathEndClip, coreNodes, params.maxClusterDifference, 5, params.minReclusterDistance);
 	}
 	std::cerr << clusters.size() << " clusters" << std::endl;
-	std::cerr << clusters.size() << " clusters" << std::endl;
-	std::cerr << clusters.size() << " phased clusters" << std::endl;
 	std::sort(clusters.begin(), clusters.end(), [](const auto& left, const auto& right) { return left.size() > right.size(); });
 	addRawSequenceNamesToLoops(clusters);
 	std::cerr << "write raw ONT loop sequences" << std::endl;
@@ -7658,13 +7656,13 @@ void DoClusterONTAnalysis(const ClusterParams& params)
 	std::cerr << "get self-corrected ONT loop sequences" << std::endl;
 	addSelfCorrectedOntLoopSequences(clusters);
 	std::cerr << "write self-corrected ONT loop sequences" << std::endl;
-	writeSelfCorrectedOntLoopSequences(params.basePath + "/loops_selfcorrected.fa", clusters);
+	writeSelfCorrectedOntLoopSequences(params.basePath + "/tmp/loops_selfcorrected.fa", clusters);
 	std::cerr << "getting morph consensuses" << std::endl;
 	auto morphConsensuses = getMorphConsensuses(clusters, graph, pathStartClip, pathEndClip, params.namePrefix);
 	std::cerr << "polishing morph consensuses" << std::endl;
 	polishMorphConsensuses(morphConsensuses, clusters, params.MBGPath, params.basePath + "/tmp", params.numThreads);
 	std::cerr << "write morph consensuses" << std::endl;
-	writeMorphConsensuses(params.basePath + "/morphs.fa", params.basePath + "/morphs_preconsensus.fa", morphConsensuses);
+	writeMorphConsensuses(params.basePath + "/morphs.fa", params.basePath + "/tmp/morphs_preconsensus.fa", morphConsensuses);
 	std::cerr << "write morph paths" << std::endl;
 	writeMorphPaths(params.basePath + "/morphs.gaf", morphConsensuses, graph, pathStartClip, pathEndClip);
 	std::cerr << "write morph graph and read paths" << std::endl;
@@ -7674,7 +7672,7 @@ void DoClusterONTAnalysis(const ClusterParams& params)
 		std::cerr << "realign raw ONT loop sequences to morph consensuses" << std::endl;
 		alignRawOntLoopsToMorphConsensuses(clusters, params.basePath + "/raw_loop_to_morphs_alignments.bam", params.basePath + "/tmp", params.numThreads, morphConsensuses, params.winnowmapPath, params.samtoolsPath);
 		std::cerr << "realign self-corrected ONT loop sequences to morph consensuses" << std::endl;
-		alignSelfCorrectedOntLoopsToMorphConsensuses(clusters, params.basePath + "/selfcorrected_loop_to_morphs_alignments.bam", params.basePath + "/tmp", params.numThreads, morphConsensuses, params.winnowmapPath, params.samtoolsPath);
+		alignSelfCorrectedOntLoopsToMorphConsensuses(clusters, params.basePath + "/tmp/selfcorrected_loop_to_morphs_alignments.bam", params.basePath + "/tmp", params.numThreads, morphConsensuses, params.winnowmapPath, params.samtoolsPath);
 	}
 	else
 	{
