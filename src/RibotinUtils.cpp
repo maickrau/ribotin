@@ -38,3 +38,10 @@ std::string formatTime(std::chrono::steady_clock::time_point start, std::chrono:
 	size_t milliseconds = std::chrono::duration_cast<std::chrono::milliseconds>(end-start).count();
 	return std::to_string(milliseconds / 1000) + "," + std::to_string(milliseconds % 1000) + " s";
 }
+
+std::string nameWithoutTags(const std::string& rawname)
+{
+	auto spacepos = rawname.find(' ');
+	if (spacepos == std::string::npos) return rawname;
+	return rawname.substr(0, spacepos);
+}

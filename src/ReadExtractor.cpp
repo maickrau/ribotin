@@ -5,13 +5,7 @@
 #include <phmap.h>
 #include "ReadExtractor.h"
 #include "fastqloader.h"
-
-std::string nameWithoutTags(const std::string& rawname)
-{
-	auto spacepos = rawname.find(' ');
-	if (spacepos == std::string::npos) return rawname;
-	return rawname.substr(0, spacepos);
-}
+#include "RibotinUtils.h"
 
 bool splitReads(std::vector<std::string> readFiles, const std::vector<std::vector<std::string>>& readsPerCluster, const std::vector<std::string>& outputFileNames)
 {
