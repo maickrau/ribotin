@@ -152,7 +152,7 @@ std::unordered_map<size_t, bool> getNodeOrientations(const std::vector<Node>& re
 	std::unordered_map<size_t, bool> result;
 	for (const auto& str : referencePath)
 	{
-		assert(result.count(str.id()) == 0 || (str == referencePath[0] && str == referencePath.back()));
+		assert(result.count(str.id()) == 0 || result.at(str.id()) == str.forward());
 		result[str.id()] = str.forward();
 	}
 	return result;
