@@ -128,24 +128,6 @@ void AlignONTReads(std::string basePath, std::string graphAlignerPath, std::stri
 	}
 }
 
-std::string getPathSequence(const ReadPath& readPath, const GfaGraph& graph, const std::unordered_map<std::pair<Node, Node>, size_t>& edgeOverlaps)
-{
-	std::string result;
-	for (size_t i = 0; i < readPath.path.size(); i++)
-	{
-		size_t overlap = 0;
-		if (i > 0) overlap = edgeOverlaps.at(canon(readPath.path[i-1], readPath.path[i]));
-		std::string add = graph.nodeSeqs.at(readPath.path[i].id());
-		if (!readPath.path[i].forward())
-		{
-			add = revcomp(add);
-		}
-		if (overlap > 0) add = add.substr(overlap);
-		result += add;
-	}
-	return result;
-}
-
 size_t getDPRowBacktracePos(const std::string& compareQuerySeq, const std::string& compareRefSeq, const size_t columnNum)
 {
 	std::vector<std::vector<size_t>> DPmatrix;
@@ -1058,80 +1040,6 @@ void writeMorphGraphAndReadPaths(const std::string& graphFile, const std::string
 	}
 }
 
-phmap::flat_hash_map<uint64_t, size_t> getConsensusKmerPositions(const std::string& consensusSeq, const size_t refiningK)
-{
-	const uint64_t mask = (1ull << (2ull*refiningK))-1;
-	phmap::flat_hash_map<uint64_t, size_t> result;
-	assert(consensusSeq.size() > refiningK);
-	uint64_t kmer = 0;
-	for (size_t i = 0; i < refiningK; i++)
-	{
-		kmer <<= 2;
-		switch(consensusSeq[i])
-		{
-			case 'A':
-				kmer += 0;
-				break;
-			case 'C':
-				kmer += 1;
-				break;
-			case 'G':
-				kmer += 2;
-				break;
-			case 'T':
-				kmer += 3;
-				break;
-			default:
-				assert(false);
-				break;
-		}
-	}
-	result[kmer] = 0;
-	for (size_t i = refiningK; i < consensusSeq.size(); i++)
-	{
-		kmer <<= 2;
-		kmer &= mask;
-		switch(consensusSeq[i])
-		{
-			case 'A':
-				kmer += 0;
-				break;
-			case 'C':
-				kmer += 1;
-				break;
-			case 'G':
-				kmer += 2;
-				break;
-			case 'T':
-				kmer += 3;
-				break;
-			default:
-				assert(false);
-				break;
-		}
-		if (result.count(kmer) == 1)
-		{
-			result[kmer] = std::numeric_limits<size_t>::max();
-		}
-		else
-		{
-			result[kmer] = i-refiningK+1;
-		}
-	}
-	phmap::flat_hash_set<uint64_t> removeThese;
-	for (auto pair : result)
-	{
-		if (pair.second != std::numeric_limits<size_t>::max()) continue;
-		removeThese.emplace(pair.first);
-	}
-	for (uint64_t kmer : removeThese)
-	{
-		assert(result.count(kmer) == 1);
-		result.erase(kmer);
-	}
-	return result;
-}
-
 std::pair<size_t, size_t> refineStartEndPoses(const std::string& readSequence, const std::string& consensusSequence, const phmap::flat_hash_map<uint64_t, size_t>& consensusKmerPositions, const size_t refiningK, const size_t initialStartPos, const size_t initialEndPos)
 {
 	const uint64_t mask = (1ull << (2ull*refiningK)) - 1ull;
@@ -1240,7 +1148,7 @@ std::vector<std::vector<std::string>> getRawLoopSequences(const std::vector<std:
 	{
 		auto path = getConsensusPath(clusters[i], graph);
 		clusterConsensuses.emplace_back(getConsensusSequence(path, graph, pathStartClip, pathEndClip));
-		clusterConsensusKmerPositions.emplace_back(getConsensusKmerPositions(clusterConsensuses.back(), refiningK));
+		clusterConsensusKmerPositions.emplace_back(getRefKmers(clusterConsensuses.back(), refiningK));
 	}
 	std::vector<std::vector<std::string>> result;
 	result.resize(clusters.size());
