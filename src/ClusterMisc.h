@@ -1,6 +1,8 @@
 #ifndef ClusterMisc_h
 #define ClusterMisc_h
 
+#include <unordered_map>
+#include <unordered_set>
 #include <map>
 #include <string>
 #include <cstddef>
@@ -50,7 +52,6 @@ public:
 private:
 	size_t value;
 };
-
 
 namespace std
 {
@@ -214,6 +215,9 @@ void merge(std::vector<size_t>& parent, size_t left, size_t right);
 size_t getPathLength(const std::vector<Node>& nodes, const std::vector<std::string>& nodeSeqs, const std::unordered_map<Node, phmap::flat_hash_set<std::tuple<Node, size_t, size_t>>>& edges);
 size_t getOverlap(const Node& from, const Node& to, const std::unordered_map<Node, phmap::flat_hash_set<std::tuple<Node, size_t, size_t>>>& edges);
 PathSequenceView getSequenceView(const std::vector<Node>& nodes, const std::vector<TwobitString>& nodeSeqs, const std::vector<TwobitString>& revCompNodeSeqs, const std::unordered_map<Node, phmap::flat_hash_set<std::tuple<Node, size_t, size_t>>>& edges, size_t leftClip, size_t rightClip);
+Path orientPath(const GfaGraph& graph, const Path& rawPath, const std::string& orientReferencePath, size_t k);
+std::unordered_set<size_t> getCoreNodes(const std::vector<OntLoop>& paths);
+bool orientPath(std::vector<Node>& path, const std::unordered_map<size_t, bool>& referenceOrientations);
 
 template <typename T>
 T find(phmap::flat_hash_map<T, T>& parent, T key)
