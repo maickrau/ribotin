@@ -27,3 +27,14 @@ bool fileExists(std::string filename)
 	std::ifstream file { filename };
 	return file.good();
 }
+
+std::chrono::time_point<std::chrono::steady_clock> getTime()
+{
+	return std::chrono::steady_clock::now();
+}
+
+std::string formatTime(std::chrono::steady_clock::time_point start, std::chrono::steady_clock::time_point end)
+{
+	size_t milliseconds = std::chrono::duration_cast<std::chrono::milliseconds>(end-start).count();
+	return std::to_string(milliseconds / 1000) + "," + std::to_string(milliseconds % 1000) + " s";
+}
