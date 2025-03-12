@@ -1,6 +1,7 @@
 #include <iostream>
 #include <cassert>
 #include "CommonParams.h"
+#include "Logger.h"
 
 CommonParams::CommonParams() :
 	GraphAlignerPathpriv(""),
@@ -38,6 +39,7 @@ void CommonParams::addParamsToOptions(cxxopts::Options& options)
 		("graphaligner", "GraphAligner path", cxxopts::value<std::string>())
 		("winnowmap", "winnowmap/minimap path", cxxopts::value<std::string>())
 		("samtools", "samtools path", cxxopts::value<std::string>())
+		("verbose", "Print extra debug information")
 	;
 }
 
@@ -209,6 +211,7 @@ bool CommonParams::parseParamsAndPrintErrors(const cxxopts::ParseResult& params)
 		assert(params.count("annotation-gff3") == 0);
 	}
 	if (params.count("extra-phasing") == 1) extraPhasing = true;
+	Logger::Log.setVerbosity(params.count("verbose"));
 	return true;
 }
 

@@ -1,4 +1,3 @@
-#include <iostream>
 #include <fstream>
 #include <unordered_map>
 #include <unordered_set>
@@ -6,6 +5,7 @@
 #include "ReadExtractor.h"
 #include "fastqloader.h"
 #include "RibotinUtils.h"
+#include "Logger.h"
 
 bool splitReads(std::vector<std::string> readFiles, const std::vector<std::vector<std::string>>& readsPerCluster, const std::vector<std::string>& outputFileNames)
 {
@@ -27,7 +27,7 @@ bool splitReads(std::vector<std::string> readFiles, const std::vector<std::vecto
 	phmap::flat_hash_set<std::string> foundReads;
 	for (const auto& file : readFiles)
 	{
-		std::cerr << "extracting reads from " << file << std::endl;
+		Logger::Log.log(Logger::LogLevel::Always) << "extracting reads from " << file << std::endl;
 		FastQ::streamFastqFromFile(std::string{ file }, false, [&readBelongsToCluster, &outfiles, &foundReads](FastQ& fastq)
 		{
 			if (readBelongsToCluster.count(nameWithoutTags(fastq.seq_id)) == 0) return;
@@ -46,7 +46,7 @@ bool splitReads(std::vector<std::string> readFiles, const std::vector<std::vecto
 		for (const auto& read : readsPerCluster[i])
 		{
 			if (foundReads.count(nameWithoutTags(read)) == 1) continue;
-			std::cerr << "WARNING: read " << nameWithoutTags(read) << " not found in input files" << std::endl;
+			Logger::Log.log(Logger::LogLevel::Always) << "WARNING: read " << nameWithoutTags(read) << " not found in input files" << std::endl;
 			allReadsFound = false;
 		}
 	}

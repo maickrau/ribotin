@@ -1,4 +1,3 @@
-#include <iostream>
 #include <fstream>
 #include <thread>
 #include "fastqloader.h"
@@ -7,6 +6,7 @@
 #include "SequenceAligner.h"
 #include "RibotinUtils.h"
 #include "ReadExtractor.h"
+#include "Logger.h"
 
 size_t getDPRowBacktracePos(const std::string& compareQuerySeq, const std::string& compareRefSeq, const size_t columnNum)
 {
@@ -361,7 +361,7 @@ std::vector<std::vector<OntLoop>> roughClusterLoopSequences(const std::vector<On
 		while (parent[i] != parent[parent[i]]) parent[i] = parent[parent[i]];
 		for (size_t j = i-1; j < i; j--)
 		{
-			if (sumAligned % 1000000 == 0) std::cerr << "aligning morph path pair " << sumAligned << " / " << needsAligning << std::endl;
+			if (sumAligned % 1000000 == 0) Logger::Log.log(Logger::LogLevel::Always) << "aligning morph path pair " << sumAligned << " / " << needsAligning << std::endl;
 			sumAligned += 1;
 			assert(loopLengths[j] <= loopLengths[i]);
 			if (loopLengths[j]+maxEdits < loopLengths[i]) break;
@@ -518,32 +518,32 @@ std::vector<std::vector<OntLoop>> densityClusterLoops(const std::vector<std::vec
 	{
 		if (editHistogram[i] >= editHistogram[histogramPeak]) histogramPeak = i;
 	}
-	std::cerr << "edit distance peak at " << histogramPeak << std::endl;
+	Logger::Log.log(Logger::LogLevel::Always) << "edit distance peak at " << histogramPeak << std::endl;
 	size_t newEditDistance = histogramPeak;
 	if (newEditDistance >= maxEdits)
 	{
 		return clusters;
 	}
 	if (newEditDistance < minEdits) newEditDistance = minEdits;
-	std::cerr << "recluster with max edit distance " << newEditDistance << ", min points " << minPoints << std::endl;
+	Logger::Log.log(Logger::LogLevel::Always) << "recluster with max edit distance " << newEditDistance << ", min points " << minPoints << std::endl;
 	std::vector<std::vector<OntLoop>> result;
 	for (size_t i = 0; i < clusters.size(); i++)
 	{
 		auto partialResult = clusterByDbscan(clusters[i], newEditDistance, minPoints, editDistanceMatrices[i]);
-		std::cerr << "cluster " << i << " with " << clusters[i].size() << " reads reclustered to " << partialResult.size() << " clusters, sizes:";
+		Logger::Log.log(Logger::LogLevel::DebugInfo) << "cluster " << i << " with " << clusters[i].size() << " reads reclustered to " << partialResult.size() << " clusters, sizes:";
 		size_t countInClusters = 0;
 		for (size_t j = 0; j < partialResult.size(); j++)
 		{
-			std::cerr << " " << partialResult[j].size();
+			Logger::Log.log(Logger::LogLevel::DebugInfo) << " " << partialResult[j].size();
 			countInClusters += partialResult[j].size();
 		}
 		if (partialResult.size() < 2 || countInClusters < clusters[i].size()*0.9)
 		{
-			std::cerr << ", don't split" << std::endl;
+			Logger::Log.log(Logger::LogLevel::DebugInfo) << ", don't split" << std::endl;
 			result.emplace_back(clusters[i]);
 			continue;
 		}
-		std::cerr << std::endl;
+		Logger::Log.log(Logger::LogLevel::DebugInfo) << std::endl;
 		while (partialResult.size() > 0)
 		{
 			result.emplace_back();
@@ -577,7 +577,7 @@ void polishMorphConsensuses(std::vector<MorphConsensus>& morphConsensuses, const
 	{
 		if (ontLoopSequences[i].size() < 3)
 		{
-			std::cerr << "skip polishing morph " << i << " with coverage " << ontLoopSequences[i].size() << std::endl;
+			Logger::Log.log(Logger::LogLevel::DebugInfo) << "skip polishing morph " << i << " with coverage " << ontLoopSequences[i].size() << std::endl;
 			continue;
 		}
 		std::vector<std::string> seqs;
@@ -587,7 +587,7 @@ void polishMorphConsensuses(std::vector<MorphConsensus>& morphConsensuses, const
 		}
 		size_t sizeBeforePolish = morphConsensuses[i].sequence.size();
 		morphConsensuses[i].sequence = polishConsensus(morphConsensuses[i].sequence, seqs, numThreads);
-		std::cerr << "polished from size " << sizeBeforePolish << " to " << morphConsensuses[i].sequence.size() << std::endl;
+		Logger::Log.log(Logger::LogLevel::DebugInfo) << "polished from size " << sizeBeforePolish << " to " << morphConsensuses[i].sequence.size() << std::endl;
 	}
 }
 
@@ -910,12 +910,12 @@ void alignSelfCorrectedOntLoopsToMorphConsensuses(const std::vector<std::vector<
 			tmpConsensusFile << morphConsensuses[i].sequence << std::endl;
 		}
 		std::string winnowmapCommand = winnowmapPath + " -x map-ont -a -t " + std::to_string(numThreads) + " " + tmppath + "/tmpconsensus.fa " + tmppath + "/tmpreads.fa | " + samtoolsPath + " view -b | " + samtoolsPath + " sort > " + tmppath + "/tmpalns_" + std::to_string(i) + ".bam";
-		std::cerr << "winnowmap command:" << std::endl;
-		std::cerr << winnowmapCommand << std::endl;
+		Logger::Log.log(Logger::LogLevel::Always) << "winnowmap command:" << std::endl;
+		Logger::Log.log(Logger::LogLevel::Always) << winnowmapCommand << std::endl;
 		int result = system(winnowmapCommand.c_str());
 		if (result != 0)
 		{
-			std::cerr << "alignment did not run successfully" << std::endl;
+			Logger::Log.log(Logger::LogLevel::Always) << "alignment did not run successfully" << std::endl;
 			std::abort();
 		}
 	}
@@ -924,21 +924,21 @@ void alignSelfCorrectedOntLoopsToMorphConsensuses(const std::vector<std::vector<
 	{
 		mergeCommand += " " + tmppath + "/tmpalns_" + std::to_string(i) + ".bam";
 	}
-	std::cerr << "samtools command:" << std::endl;
-	std::cerr << mergeCommand << std::endl;
+	Logger::Log.log(Logger::LogLevel::Always) << "samtools command:" << std::endl;
+	Logger::Log.log(Logger::LogLevel::Always) << mergeCommand << std::endl;
 	int result = system(mergeCommand.c_str());
 	if (result != 0)
 	{
-		std::cerr << "samtools merge did not run successfully" << std::endl;
+		Logger::Log.log(Logger::LogLevel::Always) << "samtools merge did not run successfully" << std::endl;
 		std::abort();
 	}
 	std::string indexCommand = samtoolsPath + " index -b " + outputFile;
-	std::cerr << "samtools command:" << std::endl;
-	std::cerr << indexCommand << std::endl;
+	Logger::Log.log(Logger::LogLevel::Always) << "samtools command:" << std::endl;
+	Logger::Log.log(Logger::LogLevel::Always) << indexCommand << std::endl;
 	result = system(indexCommand.c_str());
 	if (result != 0)
 	{
-		std::cerr << "samtools index did not run successfully" << std::endl;
+		Logger::Log.log(Logger::LogLevel::Always) << "samtools index did not run successfully" << std::endl;
 		std::abort();
 	}
 }
@@ -959,12 +959,12 @@ void alignRawOntLoopsToMorphConsensuses(const std::vector<std::vector<OntLoop>>&
 			tmpConsensusFile << morphConsensuses[i].sequence << std::endl;
 		}
 		std::string winnowmapCommand = winnowmapPath + " -x map-ont -a -t " + std::to_string(numThreads) + " " + tmppath + "/tmpconsensus.fa " + tmppath + "/tmpreads.fa | " + samtoolsPath + " view -b | " + samtoolsPath + " sort > " + tmppath + "/tmpalns_" + std::to_string(i) + ".bam";
-		std::cerr << "winnowmap command:" << std::endl;
-		std::cerr << winnowmapCommand << std::endl;
+		Logger::Log.log(Logger::LogLevel::Always) << "winnowmap command:" << std::endl;
+		Logger::Log.log(Logger::LogLevel::Always) << winnowmapCommand << std::endl;
 		int result = system(winnowmapCommand.c_str());
 		if (result != 0)
 		{
-			std::cerr << "alignment did not run successfully" << std::endl;
+			Logger::Log.log(Logger::LogLevel::Always) << "alignment did not run successfully" << std::endl;
 			std::abort();
 		}
 	}
@@ -973,21 +973,21 @@ void alignRawOntLoopsToMorphConsensuses(const std::vector<std::vector<OntLoop>>&
 	{
 		mergeCommand += " " + tmppath + "/tmpalns_" + std::to_string(i) + ".bam";
 	}
-	std::cerr << "samtools command:" << std::endl;
-	std::cerr << mergeCommand << std::endl;
+	Logger::Log.log(Logger::LogLevel::Always) << "samtools command:" << std::endl;
+	Logger::Log.log(Logger::LogLevel::Always) << mergeCommand << std::endl;
 	int result = system(mergeCommand.c_str());
 	if (result != 0)
 	{
-		std::cerr << "samtools merge did not run successfully" << std::endl;
+		Logger::Log.log(Logger::LogLevel::Always) << "samtools merge did not run successfully" << std::endl;
 		std::abort();
 	}
 	std::string indexCommand = samtoolsPath + " index -b " + outputFile;
-	std::cerr << "samtools command:" << std::endl;
-	std::cerr << indexCommand << std::endl;
+	Logger::Log.log(Logger::LogLevel::Always) << "samtools command:" << std::endl;
+	Logger::Log.log(Logger::LogLevel::Always) << indexCommand << std::endl;
 	result = system(indexCommand.c_str());
 	if (result != 0)
 	{
-		std::cerr << "samtools index did not run successfully" << std::endl;
+		Logger::Log.log(Logger::LogLevel::Always) << "samtools index did not run successfully" << std::endl;
 		std::abort();
 	}
 }
@@ -1021,13 +1021,13 @@ void addSelfCorrectedOntLoopSequences(std::vector<std::vector<OntLoop>>& cluster
 {
 	for (size_t i = 0; i < clusters.size(); i++)
 	{
-		std::cerr << "self-correct cluster " << i << " with size " << clusters[i].size() << std::endl;
+		Logger::Log.log(Logger::LogLevel::DebugInfo) << "self-correct cluster " << i << " with size " << clusters[i].size() << std::endl;
 		auto selfCorrectedLoops = getSelfCorrectedLoops(clusters[i]);
 		assert(selfCorrectedLoops.size() == clusters[i].size());
 		for (size_t j = 0; j < clusters[i].size(); j++)
 		{
 			clusters[i][j].selfCorrectedSequence = selfCorrectedLoops[j];
-			std::cerr << "corrected read " << j << " from size " << clusters[i][j].rawSequence.size() << " to " << clusters[i][j].selfCorrectedSequence.size() << std::endl;
+			Logger::Log.log(Logger::LogLevel::DebugInfo) << "corrected read " << j << " from size " << clusters[i][j].rawSequence.size() << " to " << clusters[i][j].selfCorrectedSequence.size() << std::endl;
 		}
 	}
 }
@@ -1167,26 +1167,26 @@ void liftoverAnnotationsToMorphs(const std::string& basePath, const std::vector<
 			tmpfile << morphConsensuses[i].sequence << std::endl;
 		}
 		std::string command = liftoffPath + " -f " + tmpPath + "/liftoff_types.txt -g " + annotationGff3 + " -o " + tmpPath + "/tmp-morph-annotations-part" + std::to_string(i) + ".gff3 -u "+ tmpPath + "/morph-unmapped_features" + std::to_string(i) + ".txt -dir " + tmpPath + "/liftoff_intermediate_files/ " + tmpfilepath + " " + annotationFasta + " 1> " + tmpPath + "/liftoff_morphs_stdout" + std::to_string(i) + ".txt 2> " + tmpPath + "/liftoff_morphs_stderr" + std::to_string(i) + ".txt";
-		std::cerr << "running liftoff with command:" << std::endl;
-		std::cerr << command << std::endl;
+		Logger::Log.log(Logger::LogLevel::Always) << "running liftoff with command:" << std::endl;
+		Logger::Log.log(Logger::LogLevel::Always) << command << std::endl;
 		int result = system(command.c_str());
 		if (result != 0)
 		{
-			std::cerr << "liftoff did not run successfully" << std::endl;
+			Logger::Log.log(Logger::LogLevel::Always) << "liftoff did not run successfully" << std::endl;
 			std::abort();
 		}
 		command = "rm -r " + tmpPath + "/liftoff_intermediate_files/ " + tmpfilepath + ".fai " + tmpfilepath + ".mmi";
-		std::cerr << command << std::endl;
+		Logger::Log.log(Logger::LogLevel::Always) << command << std::endl;
 		result = system(command.c_str());
 	}
-	std::cerr << "combining liftoff results" << std::endl;
+	Logger::Log.log(Logger::LogLevel::Always) << "combining liftoff results" << std::endl;
 	std::string outputFile = basePath + "/morph-annotations.gff3";
 	std::string command = "echo \"##gff-version 3\" > " + outputFile + "\ncat " + tmpPath + "/tmp-morph-annotations-part*.gff3 | grep -v '#' >> " + outputFile;
-	std::cerr << command << std::endl;
+	Logger::Log.log(Logger::LogLevel::Always) << command << std::endl;
 	int result = system(command.c_str());
 	if (result != 0)
 	{
-		std::cerr << "failed to combine liftoff results" << std::endl;
+		Logger::Log.log(Logger::LogLevel::Always) << "failed to combine liftoff results" << std::endl;
 		std::abort();
 	}
 }

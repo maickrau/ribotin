@@ -1,11 +1,11 @@
 #include <set>
 #include <fstream>
-#include <iostream>
 #include "LoopPhasing.h"
 #include "RibotinUtils.h"
 #include "FileHelper.h"
 #include "ConsensusHelper.h"
 #include "SequenceAligner.h"
+#include "Logger.h"
 
 bool isIndel(const std::tuple<size_t, size_t, std::string>& variant)
 {
@@ -180,14 +180,14 @@ std::vector<std::vector<size_t>> splitByBubbleAlleles(const std::vector<OntLoop>
 	std::string consensusSeq = getConsensusSequence(path, graph, pathStartClip, pathEndClip);
 	consensusSeq = polishConsensus(consensusSeq, loopSequences, numThreads);
 	std::vector<std::vector<size_t>> kmerChain = getAllPresentKmerChain(consensusSeq, loopSequences, k);
-	std::cerr << "cluster with " << loopSequences.size() << " reads has " << kmerChain.size() << " all-present kmers in chain" << std::endl;
+	Logger::Log.log(Logger::LogLevel::DetailedDebugInfo) << "cluster with " << loopSequences.size() << " reads has " << kmerChain.size() << " all-present kmers in chain" << std::endl;
 	std::vector<std::vector<size_t>> allelesPerRead;
 	allelesPerRead.resize(loopSequences.size());
 	for (size_t i = 1; i < kmerChain.size(); i++)
 	{
 		clusterBubbleAlleles(allelesPerRead, loopSequences, kmerChain[i-1], kmerChain[i], k);
 	}
-	std::cerr << "cluster with " << loopSequences.size() << " reads has " << allelesPerRead[0].size() << " alleles" << std::endl;
+	Logger::Log.log(Logger::LogLevel::DetailedDebugInfo) << "cluster with " << loopSequences.size() << " reads has " << allelesPerRead[0].size() << " alleles" << std::endl;
 	std::map<std::vector<size_t>, size_t> allelesToCluster;
 	std::vector<std::vector<size_t>> result;
 	for (size_t i = 0; i < allelesPerRead.size(); i++)
@@ -563,7 +563,7 @@ std::vector<std::vector<size_t>> trySplitTwoSites(const std::vector<std::pair<st
 	if (bestSiteMinorAlleleCoverage == 0) return std::vector<std::vector<size_t>> {};
 	assert(bestSiteOne < phasableVariantInfo.size());
 	assert(bestSiteTwo < phasableVariantInfo.size());
-	std::cerr << "split two sites " << phasableVariantInfo[bestSiteOne].second << " " << phasableVariantInfo[bestSiteTwo].second << std::endl;
+	Logger::Log.log(Logger::LogLevel::DetailedDebugInfo) << "split two sites " << phasableVariantInfo[bestSiteOne].second << " " << phasableVariantInfo[bestSiteTwo].second << std::endl;
 	std::vector<std::vector<size_t>> result;
 	result.resize(2);
 	result[0] = readsInFirstCluster;
@@ -714,7 +714,7 @@ std::vector<std::vector<size_t>> trySplitThreeSites(const std::vector<std::pair<
 							}
 							if (allClustersCovered)
 							{
-								std::cerr << "split three sites " << phasableVariantInfo[i].second << " " << phasableVariantInfo[j].second << " " << phasableVariantInfo[k].second << std::endl;
+								Logger::Log.log(Logger::LogLevel::DetailedDebugInfo) << "split three sites " << phasableVariantInfo[i].second << " " << phasableVariantInfo[j].second << " " << phasableVariantInfo[k].second << std::endl;
 								return result;
 							}
 						}
@@ -728,36 +728,36 @@ std::vector<std::vector<size_t>> trySplitThreeSites(const std::vector<std::pair<
 
 std::vector<std::vector<size_t>> splitAndAdd(const std::vector<OntLoop>& previous, const std::vector<std::pair<std::vector<std::vector<size_t>>, size_t>>& phasableVariantInfo)
 {
-	std::cerr << "recurse phase of cluster with size " << previous.size() << std::endl;
-	std::cerr << "count sites " << phasableVariantInfo.size() << std::endl;
-	std::cerr << "try split two sites" << std::endl;
+	Logger::Log.log(Logger::LogLevel::DetailedDebugInfo) << "recurse phase of cluster with size " << previous.size() << std::endl;
+	Logger::Log.log(Logger::LogLevel::DetailedDebugInfo) << "count sites " << phasableVariantInfo.size() << std::endl;
+	Logger::Log.log(Logger::LogLevel::DetailedDebugInfo) << "try split two sites" << std::endl;
 	auto startTime = getTime();
 	std::vector<std::vector<size_t>> splitted = trySplitTwoSites(phasableVariantInfo, previous.size());
 	auto endTime = getTime();
-	std::cerr << "two sites took " << formatTime(startTime, endTime) << std::endl;
+	Logger::Log.log(Logger::LogLevel::DetailedDebugInfo) << "two sites took " << formatTime(startTime, endTime) << std::endl;
 	if (splitted.size() >= 2)
 	{
-		std::cerr << "two sites splitted to clusters of sizes";
+		Logger::Log.log(Logger::LogLevel::DetailedDebugInfo) << "two sites splitted to clusters of sizes";
 		for (size_t i = 0; i < splitted.size(); i++)
 		{
-			std::cerr << " " << splitted[i].size();
+			Logger::Log.log(Logger::LogLevel::DetailedDebugInfo) << " " << splitted[i].size();
 		}
-		std::cerr << std::endl;
+		Logger::Log.log(Logger::LogLevel::DetailedDebugInfo) << std::endl;
 		return splitted;
 	}
-	std::cerr << "try split three sites" << std::endl;
+	Logger::Log.log(Logger::LogLevel::DetailedDebugInfo) << "try split three sites" << std::endl;
 	startTime = getTime();
 	splitted = trySplitThreeSites(phasableVariantInfo, previous.size());
 	endTime = getTime();
-	std::cerr << "three sites took " << formatTime(startTime, endTime) << std::endl;
+	Logger::Log.log(Logger::LogLevel::DetailedDebugInfo) << "three sites took " << formatTime(startTime, endTime) << std::endl;
 	if (splitted.size() >= 2)
 	{
-		std::cerr << "three sites splitted to clusters of sizes";
+		Logger::Log.log(Logger::LogLevel::DetailedDebugInfo) << "three sites splitted to clusters of sizes";
 		for (size_t i = 0; i < splitted.size(); i++)
 		{
-			std::cerr << " " << splitted[i].size();
+			Logger::Log.log(Logger::LogLevel::DetailedDebugInfo) << " " << splitted[i].size();
 		}
-		std::cerr << std::endl;
+		Logger::Log.log(Logger::LogLevel::DetailedDebugInfo) << std::endl;
 		return splitted;
 	}
 	std::vector<std::vector<size_t>> result;
@@ -1025,7 +1025,7 @@ std::vector<std::vector<size_t>> splitByBigIndels(const std::vector<std::vector<
 			indelAllelesPerRead[i].emplace_back(allele);
 		}
 	}
-	std::cerr << "indel sites " << indelAllelesPerRead[0].size() << std::endl;
+	Logger::Log.log(Logger::LogLevel::DetailedDebugInfo) << "indel sites " << indelAllelesPerRead[0].size() << std::endl;
 	std::map<std::vector<size_t>, size_t> allelesToCluster;
 	std::vector<std::vector<size_t>> result;
 	for (size_t i = 0; i < indelAllelesPerRead.size(); i++)
@@ -1078,7 +1078,7 @@ bool minorAllelesPerfectlyLinked(const phmap::flat_hash_map<std::tuple<size_t, s
 				if (t1.first.first != t2.first.first) edits += 1;
 				if (t1.first.second != t2.first.second) edits += 1;
 				assert(edits == 1 || edits == 2);
-				if (edits == 2) std::cerr << "minor alleles linked 2 edits" << std::endl;
+				if (edits == 2) Logger::Log.log(Logger::LogLevel::DetailedDebugInfo) << "minor alleles linked 2 edits" << std::endl;
 				return edits == 2;
 			}
 		}
@@ -1174,7 +1174,7 @@ bool allelesMatchWellEnough(const std::vector<std::vector<size_t>>& readsWithEdi
 	size_t countRefAlt = intersectSize(readsWithRef[left], readsWithEdit[right]);
 	size_t countAltRef = intersectSize(readsWithEdit[left], readsWithRef[right]);
 	size_t countAltAlt = intersectSize(readsWithEdit[left], readsWithEdit[right]);
-	std::cerr << "check sites " << countRefRef << " " << countRefAlt << " " << countAltRef << " " << countAltAlt << std::endl;
+	Logger::Log.log(Logger::LogLevel::DetailedDebugInfo) << "check sites " << countRefRef << " " << countRefAlt << " " << countAltRef << " " << countAltAlt << std::endl;
 	double refFractionLeft = (double)(countRefRef + countRefAlt) / (double)(countRefRef + countRefAlt + countAltRef + countAltAlt);
 	double refFractionRight = (double)(countRefRef + countAltRef) / (double)(countRefRef + countRefAlt + countAltRef + countAltAlt);
 	double requiredPValue = 0.000001;
@@ -1187,7 +1187,7 @@ bool allelesMatchWellEnough(const std::vector<std::vector<size_t>>& readsWithEdi
 	if (leftPpart2 < requiredPValue) result = true;
 	if (rightPpart1 < requiredPValue) result = true;
 	if (rightPpart2 < requiredPValue) result = true;
-	std::cerr << "P-values " << leftPpart1 << " " << leftPpart2 << " " << rightPpart1 << " " << rightPpart2 << " result " << (result ? "yes" : "no") << std::endl;
+	Logger::Log.log(Logger::LogLevel::DetailedDebugInfo) << "P-values " << leftPpart1 << " " << leftPpart2 << " " << rightPpart1 << " " << rightPpart2 << " result " << (result ? "yes" : "no") << std::endl;
 	return result;
 }
 
@@ -1234,7 +1234,7 @@ std::vector<std::vector<size_t>> splitBySNPCorrelation(const std::vector<std::ve
 			{
 				if (editCoverage.at(t) + refCoverage.at(t) == editsPerRead.size())
 				{
-					std::cerr << "add perfect index " << goodishEdits.size() << " " << editCoverage.at(t) << " " << refCoverage.at(t) << std::endl;
+					Logger::Log.log(Logger::LogLevel::DetailedDebugInfo) << "add perfect index " << goodishEdits.size() << " " << editCoverage.at(t) << " " << refCoverage.at(t) << std::endl;
 					perfectEditIndices.emplace_back(goodishEdits.size());
 				}
 				else if (editCoverage.at(t) + refCoverage.at(t) + 3 > editsPerRead.size())
@@ -1285,14 +1285,14 @@ std::vector<std::vector<size_t>> splitBySNPCorrelation(const std::vector<std::ve
 	{
 		assert(i < readsWithEdit.size());
 		assert(i < readsWithRef.size());
-		std::cerr << std::get<0>(goodishEdits[i]) << "-" << std::get<1>(goodishEdits[i]) << "\"" << std::get<2>(goodishEdits[i]) << "\" " << i << " " << readsWithEdit[i].size() << " " << readsWithRef[i].size() << " " << editsPerRead.size() << std::endl;
+		Logger::Log.log(Logger::LogLevel::DetailedDebugInfo) << std::get<0>(goodishEdits[i]) << "-" << std::get<1>(goodishEdits[i]) << "\"" << std::get<2>(goodishEdits[i]) << "\" " << i << " " << readsWithEdit[i].size() << " " << readsWithRef[i].size() << " " << editsPerRead.size() << std::endl;
 		assert(readsWithEdit[i].size() + readsWithRef[i].size() == editsPerRead.size());
 		for (size_t j = 0; j < goodishEdits.size(); j++)
 		{
 			if (i == j) continue;
 			if (std::get<0>(goodishEdits[j]) < std::get<1>(goodishEdits[i])+100 && std::get<0>(goodishEdits[i]) < std::get<1>(goodishEdits[j])+100) continue;
 			if (!allelesMatchWellEnough(readsWithEdit, readsWithRef, i, j)) continue;
-			std::cerr << "split by perfect edits: " << std::get<0>(goodishEdits[i]) << "-" << std::get<1>(goodishEdits[i]) << "\"" << std::get<2>(goodishEdits[i]) << "\" " << std::get<0>(goodishEdits[j]) << "-" << std::get<1>(goodishEdits[j]) << "\"" << std::get<2>(goodishEdits[j]) << std::endl;
+			Logger::Log.log(Logger::LogLevel::DetailedDebugInfo) << "split by perfect edits: " << std::get<0>(goodishEdits[i]) << "-" << std::get<1>(goodishEdits[i]) << "\"" << std::get<2>(goodishEdits[i]) << "\" " << std::get<0>(goodishEdits[j]) << "-" << std::get<1>(goodishEdits[j]) << "\"" << std::get<2>(goodishEdits[j]) << std::endl;
 			std::vector<std::vector<size_t>> result;
 			result.resize(2);
 			for (size_t read : readsWithRef[i])
@@ -1315,7 +1315,7 @@ std::vector<std::vector<size_t>> splitBySNPCorrelation(const std::vector<std::ve
 			if (i == j) continue;
 			if (std::get<0>(goodishEdits[j]) < std::get<1>(goodishEdits[i])+100 && std::get<0>(goodishEdits[i]) < std::get<1>(goodishEdits[j])+100) continue;
 			if (!allelesMatchWellEnough(readsWithEdit, readsWithRef, i, j)) continue;
-			std::cerr << "split by edits: " << std::get<0>(goodishEdits[i]) << "-" << std::get<1>(goodishEdits[i]) << "\"" << std::get<2>(goodishEdits[i]) << "\" " << std::get<0>(goodishEdits[j]) << "-" << std::get<1>(goodishEdits[j]) << "\"" << std::get<2>(goodishEdits[j]) << std::endl;
+			Logger::Log.log(Logger::LogLevel::DetailedDebugInfo) << "split by edits: " << std::get<0>(goodishEdits[i]) << "-" << std::get<1>(goodishEdits[i]) << "\"" << std::get<2>(goodishEdits[i]) << "\" " << std::get<0>(goodishEdits[j]) << "-" << std::get<1>(goodishEdits[j]) << "\"" << std::get<2>(goodishEdits[j]) << std::endl;
 			std::vector<std::vector<size_t>> result;
 			result.resize(2);
 			std::vector<bool> readFound;
@@ -1390,7 +1390,7 @@ std::vector<std::vector<size_t>> splitByLinkedMinorAlleles(const std::vector<std
 		{
 			if (std::get<0>(coveredEdits[j]) < std::get<1>(coveredEdits[i])+minDistance) continue;
 			if (!minorAllelesPerfectlyLinked(readsWithEdit, coveredEdits[i], coveredEdits[j], editsPerRead.size())) continue;
-			std::cerr << "minor alleles perfectly linked poses " << std::get<0>(coveredEdits[i]) << "-" << std::get<1>(coveredEdits[i]) << "\"" << std::get<2>(coveredEdits[i]) << "\"" << " " << std::get<0>(coveredEdits[j]) << "-" << std::get<1>(coveredEdits[j]) << "\"" << std::get<2>(coveredEdits[j]) << "\"" << std::endl;
+			Logger::Log.log(Logger::LogLevel::DetailedDebugInfo) << "minor alleles perfectly linked poses " << std::get<0>(coveredEdits[i]) << "-" << std::get<1>(coveredEdits[i]) << "\"" << std::get<2>(coveredEdits[i]) << "\"" << " " << std::get<0>(coveredEdits[j]) << "-" << std::get<1>(coveredEdits[j]) << "\"" << std::get<2>(coveredEdits[j]) << "\"" << std::endl;
 			std::vector<bool> hasFirstEdit;
 			hasFirstEdit.resize(editsPerRead.size(), false);
 			for (size_t read : readsWithEdit.at(coveredEdits[i]))
@@ -1525,7 +1525,7 @@ std::vector<std::vector<size_t>> splitByEditLinkage(const std::vector<std::vecto
 		}
 		clusterStart = i;
 	}
-	std::cerr << "edit linkage clusters " << readAlleles[0].size() << std::endl;
+	Logger::Log.log(Logger::LogLevel::DetailedDebugInfo) << "edit linkage clusters " << readAlleles[0].size() << std::endl;
 	std::map<std::vector<size_t>, size_t> allelesToCluster;
 	std::vector<std::vector<size_t>> result;
 	for (size_t i = 0; i < readAlleles.size(); i++)
@@ -1598,12 +1598,12 @@ std::vector<std::pair<std::vector<std::vector<size_t>>, size_t>> getDBGvariants(
 		}
 	}
 	std::string mbgCommand = MBGPath + " -i " + readsFile + " -o " + graphFile + " --output-sequence-paths " + pathsFile + " --error-masking=no -a 5 -u 5 --no-multiplex-cleaning -r 18446744073709551615 -R 18446744073709551615 -k 31 --only-local-resolve --do-unsafe-guesswork-resolutions 1> " + tmpPath + "/tmpstdout.txt 2> " + tmpPath + "/tmpstderr.txt";
-	std::cerr << "MBG command:" << std::endl;
-	std::cerr << mbgCommand << std::endl;
+	Logger::Log.log(Logger::LogLevel::DetailedDebugInfo) << "MBG command:" << std::endl;
+	Logger::Log.log(Logger::LogLevel::DetailedDebugInfo) << mbgCommand << std::endl;
 	int runresult = system(mbgCommand.c_str());
 	if (runresult != 0)
 	{
-		std::cerr << "MBG did not run successfully" << std::endl;
+		Logger::Log.log(Logger::LogLevel::DetailedDebugInfo) << "MBG did not run successfully" << std::endl;
 		std::abort();
 	}
 	GfaGraph graph;
@@ -1713,11 +1713,11 @@ void callVariantsAndSplitRecursively(std::vector<std::vector<OntLoop>>& result, 
 {
 	if (cluster.size() <= 5)
 	{
-		std::cerr << "skip small cluster with size " << cluster.size() << std::endl;
+		Logger::Log.log(Logger::LogLevel::DetailedDebugInfo) << "skip small cluster with size " << cluster.size() << std::endl;
 		result.emplace_back(cluster);
 		return;
 	}
-	std::cerr << "begin phasing cluster with size " << cluster.size() << std::endl;
+	Logger::Log.log(Logger::LogLevel::DetailedDebugInfo) << "begin phasing cluster with size " << cluster.size() << std::endl;
 	std::vector<std::string> sequences;
 	if (correctBeforePhasing)
 	{
@@ -1735,55 +1735,55 @@ void callVariantsAndSplitRecursively(std::vector<std::vector<OntLoop>>& result, 
 	auto edits = getEditsForPhasing(refSequence, sequences, numThreads);
 	auto phasableVariantInfo = getPhasableVariantInfoBiallelicAltRefSNPsBigIndels(edits);
 	auto endTime = getTime();
-	std::cerr << "getting variants took " << formatTime(startTime, endTime) << std::endl;
-	std::cerr << "got variant info of cluster with size " << cluster.size() << std::endl;
+	Logger::Log.log(Logger::LogLevel::DetailedDebugInfo) << "getting variants took " << formatTime(startTime, endTime) << std::endl;
+	Logger::Log.log(Logger::LogLevel::DetailedDebugInfo) << "got variant info of cluster with size " << cluster.size() << std::endl;
 	std::vector<std::vector<size_t>> resultHere;
 	std::vector<size_t> allIndices;
 	resultHere = splitAndAdd(cluster, phasableVariantInfo);
 	assert(resultHere.size() >= 1);
 	if (resultHere.size() == 1)
 	{
-		std::cerr << "split by bubble alleles size " << cluster.size() << std::endl;
+		Logger::Log.log(Logger::LogLevel::DetailedDebugInfo) << "split by bubble alleles size " << cluster.size() << std::endl;
 		resultHere = splitByBubbleAlleles(cluster, sequences, graph, pathStartClip, pathEndClip, numThreads);
-		std::cerr << "bubble alleles splitted to " << resultHere.size() << " clusters:";
+		Logger::Log.log(Logger::LogLevel::DetailedDebugInfo) << "bubble alleles splitted to " << resultHere.size() << " clusters:";
 		for (size_t i = 0; i < resultHere.size(); i++)
 		{
-			std::cerr << " " << resultHere[i].size();
+			Logger::Log.log(Logger::LogLevel::DetailedDebugInfo) << " " << resultHere[i].size();
 		}
-		std::cerr << std::endl;
+		Logger::Log.log(Logger::LogLevel::DetailedDebugInfo) << std::endl;
 	}
 	if (resultHere.size() == 1)
 	{
-		std::cerr << "split by SNP MSA size " << cluster.size() << std::endl;
+		Logger::Log.log(Logger::LogLevel::DetailedDebugInfo) << "split by SNP MSA size " << cluster.size() << std::endl;
 		auto SNPMSA = getSNPMSA(edits);
-		std::cerr << SNPMSA.size() << " sites in SNP MSA" << std::endl;
+		Logger::Log.log(Logger::LogLevel::DetailedDebugInfo) << SNPMSA.size() << " sites in SNP MSA" << std::endl;
 		resultHere.clear();
 		resultHere = splitAndAdd(cluster, SNPMSA);
 		if (resultHere.size() > 1)
 		{
-			std::cerr << "SNP MSA splitted to " << resultHere.size() << " clusters:";
+			Logger::Log.log(Logger::LogLevel::DetailedDebugInfo) << "SNP MSA splitted to " << resultHere.size() << " clusters:";
 			for (size_t i = 0; i < resultHere.size(); i++)
 			{
-				std::cerr << " " << resultHere[i].size();
+				Logger::Log.log(Logger::LogLevel::DetailedDebugInfo) << " " << resultHere[i].size();
 			}
-			std::cerr << std::endl;
+			Logger::Log.log(Logger::LogLevel::DetailedDebugInfo) << std::endl;
 		}
 	}
 	if (resultHere.size() == 1)
 	{
-		std::cerr << "split by DBG variants size " << cluster.size() << std::endl;
+		Logger::Log.log(Logger::LogLevel::DetailedDebugInfo) << "split by DBG variants size " << cluster.size() << std::endl;
 		auto DBGvariants = getDBGvariants(cluster, MBGPath, tmpPath);
-		std::cerr << DBGvariants.size() << " sites in DBG variants" << std::endl;
+		Logger::Log.log(Logger::LogLevel::DetailedDebugInfo) << DBGvariants.size() << " sites in DBG variants" << std::endl;
 		resultHere.clear();
 		resultHere = splitAndAdd(cluster, DBGvariants);
 		if (resultHere.size() > 1)
 		{
-			std::cerr << "DBG variants splitted to " << resultHere.size() << " clusters:";
+			Logger::Log.log(Logger::LogLevel::DetailedDebugInfo) << "DBG variants splitted to " << resultHere.size() << " clusters:";
 			for (size_t i = 0; i < resultHere.size(); i++)
 			{
-				std::cerr << " " << resultHere[i].size();
+				Logger::Log.log(Logger::LogLevel::DetailedDebugInfo) << " " << resultHere[i].size();
 			}
-			std::cerr << std::endl;
+			Logger::Log.log(Logger::LogLevel::DetailedDebugInfo) << std::endl;
 		}
 	}
 /*	if (resultHere.size() == 1)
@@ -1799,47 +1799,47 @@ void callVariantsAndSplitRecursively(std::vector<std::vector<OntLoop>>& result, 
 	}*/
 	if (resultHere.size() == 1)
 	{
-		std::cerr << "split by edit linkage size " << cluster.size() << std::endl;
+		Logger::Log.log(Logger::LogLevel::DetailedDebugInfo) << "split by edit linkage size " << cluster.size() << std::endl;
 		resultHere = splitByEditLinkage(edits);
-		std::cerr << "edit linkage splitted to " << resultHere.size() << " clusters:";
+		Logger::Log.log(Logger::LogLevel::DetailedDebugInfo) << "edit linkage splitted to " << resultHere.size() << " clusters:";
 		for (size_t i = 0; i < resultHere.size(); i++)
 		{
-			std::cerr << " " << resultHere[i].size();
+			Logger::Log.log(Logger::LogLevel::DetailedDebugInfo) << " " << resultHere[i].size();
 		}
-		std::cerr << std::endl;
+		Logger::Log.log(Logger::LogLevel::DetailedDebugInfo) << std::endl;
 	}
 	if (resultHere.size() == 1)
 	{
-		std::cerr << "split by linked minor alleles size " << cluster.size() << std::endl;
+		Logger::Log.log(Logger::LogLevel::DetailedDebugInfo) << "split by linked minor alleles size " << cluster.size() << std::endl;
 		resultHere = splitByLinkedMinorAlleles(edits, refSequence);
-		std::cerr << "linked minor alleles splitted to " << resultHere.size() << " clusters:";
+		Logger::Log.log(Logger::LogLevel::DetailedDebugInfo) << "linked minor alleles splitted to " << resultHere.size() << " clusters:";
 		for (size_t i = 0; i < resultHere.size(); i++)
 		{
-			std::cerr << " " << resultHere[i].size();
+			Logger::Log.log(Logger::LogLevel::DetailedDebugInfo) << " " << resultHere[i].size();
 		}
-		std::cerr << std::endl;
+		Logger::Log.log(Logger::LogLevel::DetailedDebugInfo) << std::endl;
 	}
 	if (resultHere.size() == 1 && correctBeforePhasing)
 	{
-		std::cerr << "split by SNP correlation size " << cluster.size() << std::endl;
+		Logger::Log.log(Logger::LogLevel::DetailedDebugInfo) << "split by SNP correlation size " << cluster.size() << std::endl;
 		resultHere = splitBySNPCorrelation(edits, refSequence);
-		std::cerr << "SNP correlation splitted to " << resultHere.size() << " clusters:";
+		Logger::Log.log(Logger::LogLevel::DetailedDebugInfo) << "SNP correlation splitted to " << resultHere.size() << " clusters:";
 		for (size_t i = 0; i < resultHere.size(); i++)
 		{
-			std::cerr << " " << resultHere[i].size();
+			Logger::Log.log(Logger::LogLevel::DetailedDebugInfo) << " " << resultHere[i].size();
 		}
-		std::cerr << std::endl;
+		Logger::Log.log(Logger::LogLevel::DetailedDebugInfo) << std::endl;
 	}
 	if (resultHere.size() == 1)
 	{
 		if (correctBeforePhasing)
 		{
-			std::cerr << "final cluster with size " << cluster.size() << " with reads:";
+			Logger::Log.log(Logger::LogLevel::DetailedDebugInfo) << "final cluster with size " << cluster.size() << " with reads:";
 			for (const auto& read : cluster)
 			{
-				std::cerr << " " << read.readName << "_" << read.approxStart << "_" << read.approxEnd;
+				Logger::Log.log(Logger::LogLevel::DetailedDebugInfo) << " " << read.readName << "_" << read.approxStart << "_" << read.approxEnd;
 			}
-			std::cerr << std::endl;
+			Logger::Log.log(Logger::LogLevel::DetailedDebugInfo) << std::endl;
 			result.emplace_back(cluster);
 			return;
 		}
@@ -1849,12 +1849,12 @@ void callVariantsAndSplitRecursively(std::vector<std::vector<OntLoop>>& result, 
 			return;
 		}
 	}
-	std::cerr << "split cluster with size " << cluster.size() << " corrected " << (correctBeforePhasing ? "yes" : "no")  << " into " << resultHere.size() << " clusters with reads:";
+	Logger::Log.log(Logger::LogLevel::DetailedDebugInfo) << "split cluster with size " << cluster.size() << " corrected " << (correctBeforePhasing ? "yes" : "no")  << " into " << resultHere.size() << " clusters with reads:";
 	for (const auto& read : cluster)
 	{
-		std::cerr << " " << read.readName << "_" << read.approxStart << "_" << read.approxEnd;
+		Logger::Log.log(Logger::LogLevel::DetailedDebugInfo) << " " << read.readName << "_" << read.approxStart << "_" << read.approxEnd;
 	}
-	std::cerr << std::endl;
+	Logger::Log.log(Logger::LogLevel::DetailedDebugInfo) << std::endl;
 	for (size_t i = 0; i < resultHere.size(); i++)
 	{
 		std::vector<OntLoop> filteredClusters;
@@ -1873,7 +1873,7 @@ std::vector<std::vector<OntLoop>> editSplitClusters(const std::vector<std::vecto
 	{
 		if (clusters[i].size() <= 5)
 		{
-			std::cerr << "skip low coverage cluster with size " << clusters[i].size() << std::endl;
+			Logger::Log.log(Logger::LogLevel::DetailedDebugInfo) << "skip low coverage cluster with size " << clusters[i].size() << std::endl;
 			result.emplace_back(clusters[i]);
 			continue;
 		}

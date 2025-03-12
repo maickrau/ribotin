@@ -1,10 +1,10 @@
-#include <iostream>
 #include <sstream>
 #include <map>
 #include <fstream>
 #include <set>
 #include "ClusterMisc.h"
 #include "fastqloader.h"
+#include "Logger.h"
 
 Node::Node(size_t id, bool forward) :
 	value(id + (forward ? 0x8000000000000000 : 0))
@@ -403,12 +403,12 @@ Path orientPath(const GfaGraph& graph, const Path& rawPath, const std::string& o
 		}
 		if (fwMatches == 0 && bwMatches == 0)
 		{
-			std::cerr << "Can't be matched to the reference!" << std::endl;
+			Logger::Log.log(Logger::LogLevel::DebugInfo) << "Can't be matched to the reference!" << std::endl;
 			return rawPath;
 		}
 		if (bwMatches > fwMatches)
 		{
-			std::cerr << "reverse complement" << std::endl;
+			Logger::Log.log(Logger::LogLevel::DebugInfo) << "reverse complement" << std::endl;
 			std::reverse(result.nodes.begin(), result.nodes.end());
 			for (size_t i = 0; i < result.nodes.size(); i++)
 			{
@@ -463,7 +463,7 @@ Path orientPath(const GfaGraph& graph, const Path& rawPath, const std::string& o
 	}
 	assert(rotateNodes != std::numeric_limits<size_t>::max());
 	assert(rotateNodes < result.nodes.size());
-	std::cerr << "rotate by " << rotateNodes << " nodes and " << extraRotate << " base pairs" << std::endl;
+	Logger::Log.log(Logger::LogLevel::DebugInfo) << "rotate by " << rotateNodes << " nodes and " << extraRotate << " base pairs" << std::endl;
 	if (rotateNodes != 0)
 	{
 		Path result2;

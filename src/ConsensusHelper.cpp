@@ -1,7 +1,7 @@
-#include <iostream>
 #include "ConsensusHelper.h"
 #include "SequenceAligner.h"
 #include "WfaHelper.h"
+#include "Logger.h"
 
 std::vector<std::tuple<size_t, size_t, std::string, size_t>> getEdits(const std::string_view& refSequence, const std::string_view& querySequence, size_t maxEdits)
 {
@@ -873,19 +873,11 @@ std::string getPolishedSequence(const std::string& rawConsensus, const std::vect
 		pickedEdits.emplace_back(pair.first);
 	}
 	std::sort(pickedEdits.begin(), pickedEdits.end());
-	std::cerr << "picked " << pickedEdits.size() << " edits" << std::endl;
+	Logger::Log.log(Logger::LogLevel::DetailedDebugInfo) << "picked " << pickedEdits.size() << " edits" << std::endl;
 	std::string result;
 	size_t lastMatch = 0;
 	for (size_t i = 0; i < pickedEdits.size(); i++)
 	{
-		if (!(i == 0 || std::get<0>(pickedEdits[i]) >= std::get<1>(pickedEdits[i-1])))
-		{
-			std::cerr << pickedEdits.size() << " " << i << " " << loopSequences.size() << std::endl;
-			for (size_t j = 0; j < pickedEdits.size(); j++)
-			{
-				std::cerr << j << " " << std::get<0>(pickedEdits[j]) << " " << std::get<1>(pickedEdits[j]) << " " << std::get<2>(pickedEdits[j]) << " " << editCounts.at(pickedEdits[j]) << std::endl;
-			}
-		}
 		assert(i == 0 || std::get<0>(pickedEdits[i]) >= std::get<1>(pickedEdits[i-1]));
 		assert(std::get<0>(pickedEdits[i]) >= lastMatch);
 		result += rawConsensus.substr(lastMatch, std::get<0>(pickedEdits[i]) - lastMatch);
@@ -1009,13 +1001,13 @@ std::vector<std::vector<size_t>> getAllPresentKmerChain(const std::string consen
 			assert(kmerPositionWithinLoop[i][j] != std::numeric_limits<size_t>::max());
 		}
 	}
-	std::cerr << "cluster with " << loopSequences.size() << " reads has " << kmerPositionWithinLoop.size() << " all-present kmers before chain filter" << std::endl;
-	std::cerr << "positions before chain checking:";
+	Logger::Log.log(Logger::LogLevel::DetailedDebugInfo) << "cluster with " << loopSequences.size() << " reads has " << kmerPositionWithinLoop.size() << " all-present kmers before chain filter" << std::endl;
+	Logger::Log.log(Logger::LogLevel::DetailedDebugInfo) << "positions before chain checking:";
 	for (auto pair : kmerPositionsInConsensus)
 	{
-		std::cerr << " " << pair.first;
+		Logger::Log.log(Logger::LogLevel::DetailedDebugInfo) << " " << pair.first;
 	}
-	std::cerr << std::endl;
+	Logger::Log.log(Logger::LogLevel::DetailedDebugInfo) << std::endl;
 	while (true)
 	{
 		std::vector<size_t> indexConflictCount;
@@ -1060,7 +1052,7 @@ std::string polishByBubbles(const std::string& refSequence, const std::vector<st
 	sequencesWithRef.emplace_back(refSequence);
 	sequencesWithRef.insert(sequencesWithRef.end(), ontSequences.begin(), ontSequences.end());
 	std::vector<std::vector<size_t>> kmerChain = getAllPresentKmerChain(refSequence, sequencesWithRef, k);
-	std::cerr << "bubble polishing has " << kmerChain.size() << " shared kmers" << std::endl;
+	Logger::Log.log(Logger::LogLevel::DetailedDebugInfo) << "bubble polishing has " << kmerChain.size() << " shared kmers" << std::endl;
 	if (kmerChain.size() < 2) return refSequence;
 	assert(kmerChain[0].size() == sequencesWithRef.size());
 	std::string result;

@@ -1,4 +1,3 @@
-#include <iostream>
 #include <limits>
 #include <unordered_set>
 #include <unordered_map>
@@ -7,6 +6,7 @@
 #include <sstream>
 #include "VerkkoReadAssignment.h"
 #include "RibotinUtils.h"
+#include "Logger.h"
 
 bool getRukkiEnabled(std::string configfile)
 {
@@ -292,22 +292,22 @@ std::vector<std::vector<std::string>> getReadNamesPerTangle(std::string verkkoBa
 	std::string hifipathFile = verkkoBaseFolder + "/1-buildGraph/paths.gaf";
 	if (!fileExists(scfMapFile))
 	{
-		std::cerr << "ERROR: could not find layout scfmap file in the verkko assembly folder!" << std::endl;
+		Logger::Log.log(Logger::LogLevel::Always) << "ERROR: could not find layout scfmap file in the verkko assembly folder!" << std::endl;
 		std::abort();
 	}
 	if (!fileExists(layoutFile))
 	{
-		std::cerr << "ERROR: could not find layout file in the verkko assembly folder!" << std::endl;
+		Logger::Log.log(Logger::LogLevel::Always) << "ERROR: could not find layout file in the verkko assembly folder!" << std::endl;
 		std::abort();
 	}
 	if (!fileExists(nodemapFile))
 	{
-		std::cerr << "ERROR: could not find node map file in the verkko assembly folder!" << std::endl;
+		Logger::Log.log(Logger::LogLevel::Always) << "ERROR: could not find node map file in the verkko assembly folder!" << std::endl;
 		std::abort();
 	}
 	if (!fileExists(hifipathFile))
 	{
-		std::cerr << "ERROR: could not find hifi path file in the verkko assembly folder!" << std::endl;
+		Logger::Log.log(Logger::LogLevel::Always) << "ERROR: could not find hifi path file in the verkko assembly folder!" << std::endl;
 		std::abort();
 	}
 	std::string pathsFile;
@@ -319,7 +319,7 @@ std::vector<std::vector<std::string>> getReadNamesPerTangle(std::string verkkoBa
 			pathsFile = verkkoBaseFolder + "/6-rukki/unitig-unrolled-unitig-unrolled-popped-unitig-normal-connected-tip.paths.gaf";
 			if (!fileExists(pathsFile))
 			{
-				std::cerr << "ERROR: could not find rukki paths file in the verkko assembly folder!" << std::endl;
+				Logger::Log.log(Logger::LogLevel::Always) << "ERROR: could not find rukki paths file in the verkko assembly folder!" << std::endl;
 				std::abort();
 			}
 		}
@@ -330,7 +330,7 @@ std::vector<std::vector<std::string>> getReadNamesPerTangle(std::string verkkoBa
 	}
 	if (!fileExists(pathsFile))
 	{
-		std::cerr << "ERROR: could not find paths file in the verkko assembly folder!" << std::endl;
+		Logger::Log.log(Logger::LogLevel::Always) << "ERROR: could not find paths file in the verkko assembly folder!" << std::endl;
 		std::abort();
 	}
 	auto piecesPerRead = getReadAssignmentToPieces(layoutFile);

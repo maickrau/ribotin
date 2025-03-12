@@ -1,9 +1,9 @@
 #include <map>
-#include <iostream>
 #include <limits>
 #include "phmap.h"
 #include "HeavyPath.h"
 #include "TwobitString.h"
+#include "Logger.h"
 
 class PathRecWideCoverage
 {
@@ -373,10 +373,6 @@ std::vector<bool> getNodeOrientations(const GfaGraph& graph, const size_t startN
 		checkStack.pop_back();
 		if (visited[top.id()])
 		{
-			if (!(result[top.id()] == top.forward()))
-			{
-				std::cerr << graph.nodeNames[top.id()] << std::endl;
-			}
 			assert(result[top.id()] == top.forward());
 			continue;
 		}
@@ -459,7 +455,7 @@ Path getHeavyPath(const GfaGraph& graph, const std::vector<ReadPath>& readPaths,
 		distanceDivisor += graph.nodeSeqs[i].size();
 	}
 	size_t estimatedMinimalSelfDistance = distanceSum/distanceDivisor/2;
-	std::cerr << "using " << estimatedMinimalSelfDistance << " as local self-repeat distance threshold" << std::endl;
+	Logger::Log.log(Logger::LogLevel::Always) << "using " << estimatedMinimalSelfDistance << " as local self-repeat distance threshold" << std::endl;
 	size_t bestStartNode = std::numeric_limits<size_t>::max();
 	for (size_t i = 0; i < graph.numNodes(); i++)
 	{
@@ -469,7 +465,7 @@ Path getHeavyPath(const GfaGraph& graph, const std::vector<ReadPath>& readPaths,
 		if (graph.nodeCoverages[i] > graph.nodeCoverages[bestStartNode]) bestStartNode = i;
 	}
 	assert(bestStartNode != std::numeric_limits<size_t>::max());
-	std::cerr << "best start node " << graph.nodeNames[bestStartNode] << std::endl;
+	Logger::Log.log(Logger::LogLevel::DebugInfo) << "best start node " << graph.nodeNames[bestStartNode] << std::endl;
 	std::vector<bool> nodeExists;
 	nodeExists.resize(graph.numNodes(), false);
 	for (size_t i = 0; i < graph.numNodes(); i++)
