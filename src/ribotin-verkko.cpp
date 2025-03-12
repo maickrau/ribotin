@@ -392,6 +392,7 @@ int main(int argc, char** argv)
 	if (doUL)
 	{
 		std::filesystem::create_directories(ulTmpFolder);
+		std::filesystem::create_directories(ulTmpFolder + "/tmp");
 		std::cerr << "getting kmers from tangles" << std::endl;
 		getKmers(outputPrefix, numTangles, ulTmpFolder + "/rdna_kmers.fa");
 		std::cerr << "extracting ultralong ONT reads" << std::endl;
