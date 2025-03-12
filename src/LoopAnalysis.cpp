@@ -484,6 +484,24 @@ std::vector<std::vector<OntLoop>> densityClusterLoops(const std::vector<std::vec
 	editHistogram.resize(maxEdits, 0);
 	std::vector<std::vector<std::vector<uint16_t>>> editDistanceMatrices;
 	editDistanceMatrices.resize(clusters.size());
+	std::vector<std::vector<size_t>> loopLengthsPerCluster;
+	std::vector<size_t> allLoopLengths;
+	for (size_t i = 0; i < clusters.size(); i++)
+	{
+		loopLengthsPerCluster.emplace_back();
+		for (size_t j = 0; j < clusters[i].size(); j++)
+		{
+			std::string loopSeq = getSequence(clusters[i][j].path, graph.nodeSeqs, graph.revCompNodeSeqs, graph.edges);
+			size_t leftClipBp = pathStartClip.at(clusters[i][j].path[0]);
+			size_t rightClipBp = pathEndClip.at(clusters[i][j].path.back());
+			loopSeq = loopSeq.substr(leftClipBp, loopSeq.size() - leftClipBp - rightClipBp);
+			loopLengthsPerCluster.back().emplace_back(loopSeq.size());
+			allLoopLengths.emplace_back(loopSeq.size());
+		}
+	}
+	std::sort(allLoopLengths.begin(), allLoopLengths.end());
+	size_t medianLength = allLoopLengths[allLoopLengths.size()/2];
+	Logger::Log.log(Logger::LogLevel::DebugInfo) << "median loop length " << medianLength << std::endl;
 	for (size_t clusteri = 0; clusteri < clusters.size(); clusteri++)
 	{
 		editDistanceMatrices[clusteri].resize(clusters[clusteri].size());
@@ -519,17 +537,20 @@ std::vector<std::vector<OntLoop>> densityClusterLoops(const std::vector<std::vec
 		if (editHistogram[i] >= editHistogram[histogramPeak]) histogramPeak = i;
 	}
 	Logger::Log.log(Logger::LogLevel::Always) << "edit distance peak at " << histogramPeak << std::endl;
-	size_t newEditDistance = histogramPeak;
-	if (newEditDistance >= maxEdits)
+	if (histogramPeak >= maxEdits)
 	{
 		return clusters;
 	}
-	if (newEditDistance < minEdits) newEditDistance = minEdits;
-	Logger::Log.log(Logger::LogLevel::Always) << "recluster with max edit distance " << newEditDistance << ", min points " << minPoints << std::endl;
+	double newEditDistanceFraction = (double)histogramPeak/(double)medianLength;
+	Logger::Log.log(Logger::LogLevel::Always) << "recluster with max edit distance divergence " << newEditDistanceFraction << ", min edits " << minEdits << ", min points " << minPoints << std::endl;
 	std::vector<std::vector<OntLoop>> result;
 	for (size_t i = 0; i < clusters.size(); i++)
 	{
-		auto partialResult = clusterByDbscan(clusters[i], newEditDistance, minPoints, editDistanceMatrices[i]);
+		std::sort(loopLengthsPerCluster[i].begin(), loopLengthsPerCluster[i].end());
+		size_t medianClusterLength = loopLengthsPerCluster[i][loopLengthsPerCluster[i].size()/2];
+		size_t deltaHere = std::max<size_t>(minEdits, medianClusterLength * newEditDistanceFraction);
+		Logger::Log.log(Logger::LogLevel::DebugInfo) << "cluster " << i << " median loop length " << medianClusterLength << " use distance " << deltaHere << std::endl;
+		auto partialResult = clusterByDbscan(clusters[i], deltaHere, minPoints, editDistanceMatrices[i]);
 		Logger::Log.log(Logger::LogLevel::DebugInfo) << "cluster " << i << " with " << clusters[i].size() << " reads reclustered to " << partialResult.size() << " clusters, sizes:";
 		size_t countInClusters = 0;
 		for (size_t j = 0; j < partialResult.size(); j++)
