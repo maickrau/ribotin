@@ -301,6 +301,7 @@ void DoClusterONTAnalysis(const ClusterParams& params)
 	std::cerr << "polishing morph consensuses" << std::endl;
 	polishMorphConsensuses(morphConsensuses, clusters, params.MBGPath, params.basePath + "/tmp", params.numThreads);
 	std::cerr << "write morph consensuses" << std::endl;
+	nameMorphConsensuses(morphConsensuses, graph, borderNodes, anchorNodes);
 	writeMorphConsensuses(params.basePath + "/morphs.fa", params.basePath + "/tmp/morphs_preconsensus.fa", morphConsensuses);
 	std::cerr << "write morph paths" << std::endl;
 	writeMorphPaths(params.basePath + "/morphs.gaf", morphConsensuses, graph, pathStartClip, pathEndClip);

@@ -1204,3 +1204,28 @@ void writeLoopGraphSequences(const GfaGraph& graph, const std::string& outputFil
 		file << loopSeq << std::endl;
 	}
 }
+
+void nameMorphConsensuses(std::vector<MorphConsensus>& morphConsensuses, const GfaGraph& graph, const std::unordered_set<size_t>& borderNodes, const std::unordered_set<size_t>& anchorNodes)
+{
+	for (size_t i = 0; i < morphConsensuses.size(); i++)
+	{
+		assert(borderNodes.count(morphConsensuses[i].path[0].id()) == 1);
+		assert(borderNodes.count(morphConsensuses[i].path.back().id()) == 1);
+		bool hasAnchorStart = anchorNodes.count(morphConsensuses[i].path[0].id());
+		bool hasAnchorEnd = anchorNodes.count(morphConsensuses[i].path.back().id());
+		std::string type = "inner";
+		if (hasAnchorStart && hasAnchorEnd)
+		{
+			type = "isolated";
+		}
+		else if (hasAnchorStart)
+		{
+			type = "borderone";
+		}
+		else if (hasAnchorEnd)
+		{
+			type = "bordertwo";
+		}
+		morphConsensuses[i].name = "morphconsensus" + std::to_string(i) + "_" + type + "_" + "coverage" + std::to_string(morphConsensuses[i].ontLoops.size());
+	}
+}
