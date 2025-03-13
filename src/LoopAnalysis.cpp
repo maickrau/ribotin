@@ -239,6 +239,143 @@ std::tuple<std::unordered_set<size_t>, std::unordered_set<size_t>, std::unordere
 	return std::make_tuple(borderNodes, anchorNodes, pathStartClip, pathEndClip);
 }
 
+std::vector<OntLoop> getMissingLoopSequences(const std::vector<std::vector<OntLoop>>& presentClusters, const GfaGraph& graph, const std::unordered_set<size_t>& borderNodes, const std::unordered_set<size_t>& anchorNodes, const std::unordered_map<Node, size_t>&  pathStartClip, const std::unordered_map<Node, size_t>& pathEndClip, const std::vector<ReadPath>& correctedPaths, const size_t minLength)
+{
+	phmap::flat_hash_map<std::string, std::vector<std::pair<size_t, bool>>> approxBreakpointPositions;
+	for (const auto& read : correctedPaths)
+	{
+		std::string name = nameWithoutTags(read.readName);
+		size_t pathLength = getPathLength(read.path, graph.nodeSeqs, graph.edges);
+		assert(pathLength > read.pathEndClip + read.pathStartClip);
+		pathLength -= read.pathEndClip + read.pathStartClip;
+		for (size_t i = 0; i < read.path.size(); i++)
+		{
+			if (borderNodes.count(read.path[i].id()) == 0) continue;
+			bool anchored = anchorNodes.count(read.path[i].id()) == 1;
+			std::vector<Node> looppath { read.path.begin(), read.path.begin()+i+1 };
+			size_t len = getPathLength(looppath, graph.nodeSeqs, graph.edges);
+			size_t clip = 0;
+			if (!anchored)
+			{
+				assert(pathEndClip.count(read.path[i]) == 1);
+				clip = pathEndClip.at(read.path[i]);
+			}
+			else
+			{
+				assert(pathEndClip.count(read.path[i]) == 1 || pathStartClip.count(read.path[i]) == 1);
+				if (pathStartClip.count(read.path[i]) == 1)
+				{
+					clip = graph.nodeSeqs[read.path[i].id()].size() - pathStartClip.at(read.path[i]);
+					if (i == 0)
+					{
+						assert(clip >= read.pathStartClip);
+						clip -= read.pathStartClip;
+					}
+				}
+				else
+				{
+					clip = pathEndClip.at(read.path[i]);
+				}
+			}
+			clip += read.pathStartClip;
+			assert(i == 0 || len >= clip);
+			if (i == 0 && len < clip)
+			{
+				len = 0;
+			}
+			else
+			{
+				len -= clip;
+			}
+			assert(i+1 == read.path.size() || len < pathLength);
+			if (i+1 == read.path.size() && len >= pathLength)
+			{
+				len = pathLength-1;
+			}
+			assert(len < pathLength);
+			size_t approxReadPos = read.readStart + (double)(read.readEnd - read.readStart) * ((double)len / (double)pathLength);
+			if (read.reverse)
+			{
+				approxReadPos = read.readEnd - (double)(read.readEnd - read.readStart) * ((double)len / (double)pathLength);
+			}
+			approxBreakpointPositions[name].emplace_back(approxReadPos, anchored);
+			Logger::Log.log(Logger::LogLevel::DetailedDebugInfo) << "breakpoint " << name << " " << approxReadPos << " " << (anchored ? "yes" : "no") << " " << (read.path[i].forward() ? ">" : "<") << graph.nodeNames[read.path[i].id()] << std::endl;
+		}
+	}
+	phmap::flat_hash_map<std::string, std::vector<std::pair<size_t, size_t>>> approxLoopsPerRead;
+	for (auto& pair : approxBreakpointPositions)
+	{
+		std::sort(pair.second.begin(), pair.second.end());
+		for (size_t i = 1; i < pair.second.size(); i++)
+		{
+			assert(pair.second[i].first >= pair.second[i-1].first);
+			if (!pair.second[i-1].second && !pair.second[i].second)
+			{
+				if (pair.second[i].first - pair.second[i-1].first < minLength)
+				{
+					continue;
+				}
+			}
+			approxLoopsPerRead[pair.first].emplace_back(pair.second[i-1].first, pair.second[i].first);
+		}
+	}
+	phmap::flat_hash_map<std::string, std::vector<bool>> loopPresent;
+	for (const auto& pair : approxLoopsPerRead)
+	{
+		loopPresent[pair.first].resize(pair.second.size());
+	}
+	for (size_t cluster = 0; cluster < presentClusters.size(); cluster++)
+	{
+		for (const auto& loop : presentClusters[cluster])
+		{
+			if (approxLoopsPerRead.count(loop.readName) == 0)
+			{
+				Logger::Log.log(Logger::LogLevel::DebugInfo) << "read " << loop.readName << " has a present loop " << loop.approxStart << "-" << loop.approxEnd << " but did not find loops during missing loops check" << std::endl;
+				continue;
+			}
+			assert(approxLoopsPerRead.count(loop.readName) == 1);
+			assert(loopPresent.count(loop.readName) == 1);
+			assert(loopPresent.at(loop.readName).size() == approxLoopsPerRead.at(loop.readName).size());
+			for (size_t i = 0; i < approxLoopsPerRead.at(loop.readName).size(); i++)
+			{
+				size_t loopStart = approxLoopsPerRead.at(loop.readName)[i].first;
+				size_t loopEnd = approxLoopsPerRead.at(loop.readName)[i].second;
+				if (loopStart+5000 > loop.approxStart && loop.approxStart+5000 > loopStart)
+				{
+					if (loopEnd+5000 > loop.approxEnd && loop.approxEnd+5000 > loopEnd)
+					{
+						loopPresent[loop.readName][i] = true;
+						break;
+					}
+				}
+				if (loopStart+5000 > loop.approxEnd && loop.approxEnd+5000 > loopStart)
+				{
+					if (loopEnd+5000 > loop.approxStart && loop.approxStart+5000 > loopEnd)
+					{
+						loopPresent[loop.readName][i] = true;
+						break;
+					}
+				}
+			}
+		}
+	}
+	std::vector<OntLoop> result;
+	for (const auto& pair : loopPresent)
+	{
+		for (size_t i = 0; i < pair.second.size(); i++)
+		{
+			if (pair.second[i]) continue;
+			result.emplace_back();
+			result.back().readName = pair.first;
+			result.back().approxStart = approxLoopsPerRead.at(pair.first)[i].first;
+			result.back().approxEnd = approxLoopsPerRead.at(pair.first)[i].second;
+			result.back().rawSequence = "N";
+			result.back().rawLoopName = "missingloop_" + std::to_string(result.size()-1) + "_" + result.back().readName + "_" + std::to_string(result.back().approxStart) + "_" + std::to_string(result.back().approxEnd);
+		}
+	}
+	return result;
+}
+
 std::vector<OntLoop> extractLoopSequences(const std::vector<ReadPath>& correctedPaths, const Path& heavyPath, const size_t minLength, const GfaGraph& graph, const std::unordered_set<size_t>& borderNodes, const std::unordered_set<size_t>& anchorNodes, const std::unordered_map<Node, size_t>& pathStartClip, const std::unordered_map<Node, size_t>& pathEndClip)
 {
 	std::vector<OntLoop> result;
@@ -899,6 +1036,16 @@ void writeSelfCorrectedOntLoopSequences(const std::string outputFile, const std:
 			file << ">" << loopSequences[i][j].rawLoopName << std::endl;
 			file << loopSequences[i][j].selfCorrectedSequence << std::endl;
 		}
+	}
+}
+
+void writeMissingOntLoopSequences(const std::string outputFile, const std::vector<OntLoop>& loopSequences)
+{
+	std::ofstream file { outputFile };
+	for (size_t i = 0; i < loopSequences.size(); i++)
+	{
+		file << ">" << loopSequences[i].rawLoopName << std::endl;
+		file << loopSequences[i].rawSequence << std::endl;
 	}
 }
 

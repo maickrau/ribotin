@@ -29,5 +29,7 @@ void orderLoopsByLength(std::vector<OntLoop>& loops, const GfaGraph& graph, cons
 void liftoverAnnotationsToMorphs(const std::string& basePath, const std::vector<MorphConsensus>& morphConsensuses, const std::string& annotationFasta, const std::string& annotationGff3, const std::string& tmpPath, const std::string& liftoffPath);
 void writeLoopGraphSequences(const GfaGraph& graph, const std::string& outputFile, const std::vector<OntLoop>& loopSequences, const std::unordered_map<Node, size_t>& pathStartClip, const std::unordered_map<Node, size_t>& pathEndClip);
 void nameMorphConsensuses(std::vector<MorphConsensus>& morphConsensuses, const GfaGraph& graph, const std::unordered_set<size_t>& borderNodes, const std::unordered_set<size_t>& anchorNodes);
+std::vector<OntLoop> getMissingLoopSequences(const std::vector<std::vector<OntLoop>>& presentClusters, const GfaGraph& graph, const std::unordered_set<size_t>& borderNodes, const std::unordered_set<size_t>& anchorNodes, const std::unordered_map<Node, size_t>&  pathStartClip, const std::unordered_map<Node, size_t>& pathEndClip, const std::vector<ReadPath>& correctedPaths, const size_t minLength);
+void writeMissingOntLoopSequences(const std::string outputFile, const std::vector<OntLoop>& loopSequences);
 
 #endif

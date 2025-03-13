@@ -292,6 +292,11 @@ void DoClusterONTAnalysis(const ClusterParams& params)
 	addRawSequenceNamesToLoops(clusters);
 	Logger::Log.log(Logger::LogLevel::Always) << "write raw ONT loop sequences" << std::endl;
 	writeRawOntLoopSequences(params.basePath + "/raw_loops.fa", clusters);
+	Logger::Log.log(Logger::LogLevel::Always) << "get possible missing ONT loop sequences" << std::endl;
+	auto missingLoops = getMissingLoopSequences(clusters, graph, borderNodes, anchorNodes, pathStartClip, pathEndClip, ontPaths, minLength);
+	std::cerr << missingLoops.size() << " possible missing ONT loop sequences" << std::endl;
+	Logger::Log.log(Logger::LogLevel::Always) << "write possible missing ONT loop sequences" << std::endl;
+	writeMissingOntLoopSequences(params.basePath + "/missing_loops.fa", missingLoops);
 	Logger::Log.log(Logger::LogLevel::Always) << "get self-corrected ONT loop sequences" << std::endl;
 	addSelfCorrectedOntLoopSequences(clusters);
 	Logger::Log.log(Logger::LogLevel::Always) << "write self-corrected ONT loop sequences" << std::endl;
