@@ -1087,7 +1087,7 @@ void alignSelfCorrectedOntLoopsToMorphConsensuses(const std::vector<std::vector<
 			std::abort();
 		}
 	}
-	std::string mergeCommand = samtoolsPath + " merge -o " + outputFile;
+	std::string mergeCommand = samtoolsPath + " merge -f -o " + outputFile;
 	for (size_t i = 0; i < morphConsensuses.size(); i++)
 	{
 		mergeCommand += " " + tmppath + "/tmpalns_" + std::to_string(i) + ".bam";
@@ -1136,7 +1136,7 @@ void alignRawOntLoopsToMorphConsensuses(const std::vector<std::vector<OntLoop>>&
 			std::abort();
 		}
 	}
-	std::string mergeCommand = samtoolsPath + " merge -o " + outputFile;
+	std::string mergeCommand = samtoolsPath + " merge -f -o " + outputFile;
 	for (size_t i = 0; i < morphConsensuses.size(); i++)
 	{
 		mergeCommand += " " + tmppath + "/tmpalns_" + std::to_string(i) + ".bam";
