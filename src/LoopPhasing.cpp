@@ -77,9 +77,9 @@ bool isBigIndel(const std::tuple<size_t, size_t, std::string>& variant)
 
 void clusterBubbleAlleles(std::vector<std::vector<size_t>>& result, const std::vector<std::string>& loopSequences, const std::vector<size_t>& previousMatchIndices, const std::vector<size_t>& currentMatchIndices, const size_t k)
 {
-	const size_t minCoverage = std::max<size_t>(3, loopSequences.size()*0.05);
+	const size_t minCoverage = std::max<size_t>(5, loopSequences.size()*0.05);
 	const double maxDivergence = 0.1;
-	size_t maxClusterDistance = 10;
+	size_t maxClusterDistance = 20;
 	if (currentMatchIndices[0] < previousMatchIndices[0] + k)
 	{
 		bool allIdentical = true;
@@ -339,7 +339,7 @@ std::vector<std::pair<std::vector<std::vector<size_t>>, size_t>> getSNPMSA(const
 	return result;
 }
 
-std::vector<std::pair<std::vector<std::vector<size_t>>, size_t>> getPhasableVariantInfoBiallelicAltRefSNPsBigIndels(const std::vector<std::vector<std::tuple<size_t, size_t, std::string>>>& editsPerRead)
+std::vector<std::pair<std::vector<std::vector<size_t>>, size_t>> getPhasableVariantInfoBiallelicAltRefSNPsBigIndels(const std::vector<std::vector<std::tuple<size_t, size_t, std::string>>>& editsPerRead, const std::string& refSequence)
 {
 	const size_t minCoverage = 3;
 	std::map<std::tuple<size_t, size_t, std::string>, size_t> editCounts;
@@ -372,7 +372,7 @@ std::vector<std::pair<std::vector<std::vector<size_t>>, size_t>> getPhasableVari
 				for (size_t j = currentClusterStart; j < i; j++)
 				{
 					if (isSNP(distinctEdits[j])) countSNPs += 1;
-					if (isBigIndel(distinctEdits[j])) countBigIndels += 1;
+					if (isBigIndel(distinctEdits[j]) && !isMicrosatelliteOrHomopolymerIndel(distinctEdits[j], refSequence)) countBigIndels += 1;
 				}
 				if (countSNPs >= 1 || countBigIndels >= 1)
 				{
@@ -1434,12 +1434,13 @@ std::vector<std::vector<size_t>> splitByLinkedMinorAlleles(const std::vector<std
 	return result;
 }
 
-std::vector<std::vector<size_t>> splitByEditLinkage(const std::vector<std::vector<std::tuple<size_t, size_t, std::string>>>& editsPerRead)
+std::vector<std::vector<size_t>> splitByEditLinkage(const std::vector<std::vector<std::tuple<size_t, size_t, std::string>>>& editsPerRead, const std::string& refSequence)
 {
 	const size_t minEditsWithinCluster = (editsPerRead.size() < 20) ? 4 : 5;
 	const size_t minReadsWithinCluster = (editsPerRead.size() < 20) ? 4 : 5;
 	const size_t minDistanceBetweenEdits = 100;
 	phmap::flat_hash_map<std::tuple<size_t, size_t, std::string>, size_t> editToIndex;
+	std::vector<std::tuple<size_t, size_t, std::string>> edits;
 	std::vector<std::vector<size_t>> readsWithEdit;
 	std::vector<size_t> editPosition;
 	for (size_t read = 0; read < editsPerRead.size(); read++)
@@ -1448,6 +1449,8 @@ std::vector<std::vector<size_t>> splitByEditLinkage(const std::vector<std::vecto
 		{
 			if (editToIndex.count(edit) == 0)
 			{
+				edits.emplace_back(edit);
+				edits.emplace_back(edit);
 				editToIndex[edit] = readsWithEdit.size();
 				readsWithEdit.emplace_back();
 				readsWithEdit.emplace_back();
@@ -1506,7 +1509,21 @@ std::vector<std::vector<size_t>> splitByEditLinkage(const std::vector<std::vecto
 					if (positions[j] < positions[j-1] + minDistanceBetweenEdits) continue;
 					reallyDifferentLocations += 1;
 				}
-				if (reallyDifferentLocations >= minEditsWithinCluster)
+				bool hasGoodEdit = false;
+				for (size_t j = clusterStart; j < i; j++)
+				{
+					if (isSNP(edits[order[j]]))
+					{
+						hasGoodEdit = true;
+						break;
+					}
+					if (isBigIndel(edits[order[j]]) && !isMicrosatelliteOrHomopolymerIndel(edits[order[j]], refSequence))
+					{
+						hasGoodEdit = true;
+						break;
+					}
+				}
+				if (hasGoodEdit && reallyDifferentLocations >= minEditsWithinCluster)
 				{
 					std::vector<bool> hasAlt;
 					hasAlt.resize(editsPerRead.size(), false);
@@ -1733,7 +1750,7 @@ void callVariantsAndSplitRecursively(std::vector<std::vector<OntLoop>>& result, 
 	auto startTime = getTime();
 	auto refSequence = getConsensus(cluster, sequences, graph, pathStartClip, pathEndClip, numThreads);
 	auto edits = getEditsForPhasing(refSequence, sequences, numThreads);
-	auto phasableVariantInfo = getPhasableVariantInfoBiallelicAltRefSNPsBigIndels(edits);
+	auto phasableVariantInfo = getPhasableVariantInfoBiallelicAltRefSNPsBigIndels(edits, refSequence);
 	auto endTime = getTime();
 	Logger::Log.log(Logger::LogLevel::DetailedDebugInfo) << "getting variants took " << formatTime(startTime, endTime) << std::endl;
 	Logger::Log.log(Logger::LogLevel::DetailedDebugInfo) << "got variant info of cluster with size " << cluster.size() << std::endl;
@@ -1797,18 +1814,18 @@ void callVariantsAndSplitRecursively(std::vector<std::vector<OntLoop>>& result, 
 		}
 		std::cerr << std::endl;
 	}*/
-	if (resultHere.size() == 1)
+/*	if (resultHere.size() == 1)
 	{
 		Logger::Log.log(Logger::LogLevel::DetailedDebugInfo) << "split by edit linkage size " << cluster.size() << std::endl;
-		resultHere = splitByEditLinkage(edits);
+		resultHere = splitByEditLinkage(edits, refSequence);
 		Logger::Log.log(Logger::LogLevel::DetailedDebugInfo) << "edit linkage splitted to " << resultHere.size() << " clusters:";
 		for (size_t i = 0; i < resultHere.size(); i++)
 		{
 			Logger::Log.log(Logger::LogLevel::DetailedDebugInfo) << " " << resultHere[i].size();
 		}
 		Logger::Log.log(Logger::LogLevel::DetailedDebugInfo) << std::endl;
-	}
-	if (resultHere.size() == 1)
+	}*/
+/*	if (resultHere.size() == 1)
 	{
 		Logger::Log.log(Logger::LogLevel::DetailedDebugInfo) << "split by linked minor alleles size " << cluster.size() << std::endl;
 		resultHere = splitByLinkedMinorAlleles(edits, refSequence);
@@ -1818,8 +1835,8 @@ void callVariantsAndSplitRecursively(std::vector<std::vector<OntLoop>>& result, 
 			Logger::Log.log(Logger::LogLevel::DetailedDebugInfo) << " " << resultHere[i].size();
 		}
 		Logger::Log.log(Logger::LogLevel::DetailedDebugInfo) << std::endl;
-	}
-	if (resultHere.size() == 1 && correctBeforePhasing)
+	}*/
+/*	if (resultHere.size() == 1 && correctBeforePhasing)
 	{
 		Logger::Log.log(Logger::LogLevel::DetailedDebugInfo) << "split by SNP correlation size " << cluster.size() << std::endl;
 		resultHere = splitBySNPCorrelation(edits, refSequence);
@@ -1829,7 +1846,7 @@ void callVariantsAndSplitRecursively(std::vector<std::vector<OntLoop>>& result, 
 			Logger::Log.log(Logger::LogLevel::DetailedDebugInfo) << " " << resultHere[i].size();
 		}
 		Logger::Log.log(Logger::LogLevel::DetailedDebugInfo) << std::endl;
-	}
+	}*/
 	if (resultHere.size() == 1)
 	{
 		if (correctBeforePhasing)
