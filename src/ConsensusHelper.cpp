@@ -888,7 +888,7 @@ std::string getPolishedSequence(const std::string& rawConsensus, const std::vect
 	return result;
 }
 
-std::string getCentralModalAllele(const std::vector<std::string>& sequences, const std::vector<size_t>& startIndices, const std::vector<size_t>& endIndices, const size_t k)
+std::string getCentralModalAllele(const std::vector<std::string>& sequences, const std::vector<size_t>& startIndices, const std::vector<size_t>& endIndices)
 {
 	assert(startIndices.size() == sequences.size());
 	assert(endIndices.size() == sequences.size());
@@ -896,13 +896,20 @@ std::string getCentralModalAllele(const std::vector<std::string>& sequences, con
 	for (size_t i = 0; i < sequences.size(); i++)
 	{
 		assert(endIndices[i] > startIndices[i]);
-		assert(endIndices[i] + k <= sequences[i].size());
-		alleleCounts[sequences[i].substr(startIndices[i], endIndices[i]+k-startIndices[i])] += 1;
+		assert(endIndices[i] + 1 <= sequences[i].size());
+		std::string alleleHere = sequences[i].substr(startIndices[i], endIndices[i]+1-startIndices[i]);
+		if (!(alleleHere.size() >= 2))
+		{
+			std::cerr << sequences[i].size() << " " << startIndices[i] << " " << endIndices[i] << " " << alleleHere.size() << std::endl;
+		}
+		assert(alleleHere.size() >= 2);
+		alleleCounts[alleleHere] += 1;
 	}
 	std::vector<std::string> modalAlleles;
 	size_t modalAlleleCoverage = 0;
 	for (const auto& pair : alleleCounts)
 	{
+		assert(pair.first.size() >= 2);
 		if (pair.second < modalAlleleCoverage) continue;
 		if (pair.second > modalAlleleCoverage)
 		{
@@ -911,9 +918,10 @@ std::string getCentralModalAllele(const std::vector<std::string>& sequences, con
 		}
 		modalAlleles.emplace_back(pair.first);
 	}
+	assert(modalAlleles.size() >= 1);
 	if (modalAlleles.size() == 1) return modalAlleles[0];
 	std::vector<size_t> weightedEdits;
-	weightedEdits.resize(modalAlleles.size());
+	weightedEdits.resize(modalAlleles.size(), 0);
 	for (size_t i = 0; i < modalAlleles.size(); i++)
 	{
 		for (const auto& pair : alleleCounts)
@@ -928,130 +936,17 @@ std::string getCentralModalAllele(const std::vector<std::string>& sequences, con
 	{
 		if (weightedEdits[i] < weightedEdits[bestIndex]) bestIndex = i;
 	}
+	assert(bestIndex < modalAlleles.size());
+	assert(modalAlleles[bestIndex].size() >= 2);
 	return modalAlleles[bestIndex];
-}
-
-std::vector<std::vector<size_t>> getAllPresentKmerChain(const std::string consensusSeq, const std::vector<std::string>& loopSequences, const size_t k)
-{
-	phmap::flat_hash_map<uint64_t, size_t> kmerPosition;
-	phmap::flat_hash_set<uint64_t> duplicateKmers;
-	phmap::flat_hash_set<uint64_t> kmersEverywhere;
-	iterateKmers(consensusSeq, k, [&kmerPosition, &duplicateKmers](const uint64_t kmer, const size_t position)
-	{
-		if (kmerPosition.count(kmer) == 1)
-		{
-			duplicateKmers.insert(kmer);
-			return;
-		}
-		kmerPosition[kmer] = position;
-	});
-	for (auto pair : kmerPosition)
-	{
-		if (duplicateKmers.count(pair.first) == 1) continue;
-		kmersEverywhere.insert(pair.first);
-	}
-	for (size_t i = 0; i < loopSequences.size(); i++)
-	{
-		phmap::flat_hash_set<uint64_t> kmersHere;
-		iterateKmers(loopSequences[i], k, [&duplicateKmers, &kmersHere](const uint64_t kmer, const size_t position)
-		{
-			if (kmersHere.count(kmer) == 1)
-			{
-				duplicateKmers.insert(kmer);
-				return;
-			}
-			kmersHere.insert(kmer);
-		});
-		for (auto kmer : kmersEverywhere)
-		{
-			if (kmersHere.count(kmer) == 0) duplicateKmers.insert(kmer);
-		}
-	}
-	std::vector<std::pair<size_t, uint64_t>> kmerPositionsInConsensus;
-	for (auto pair : kmerPosition)
-	{
-		if (duplicateKmers.count(pair.first) == 1) continue;
-		kmerPositionsInConsensus.emplace_back(pair.second, pair.first);
-	}
-	std::sort(kmerPositionsInConsensus.begin(), kmerPositionsInConsensus.end());
-	phmap::flat_hash_map<uint64_t, size_t> kmerToIndex;
-	for (size_t i = 0; i < kmerPositionsInConsensus.size(); i++)
-	{
-		kmerToIndex[kmerPositionsInConsensus[i].second] = i;
-	}
-	std::vector<std::vector<size_t>> kmerPositionWithinLoop;
-	kmerPositionWithinLoop.resize(kmerPositionsInConsensus.size());
-	for (size_t i = 0; i < kmerPositionWithinLoop.size(); i++)
-	{
-		kmerPositionWithinLoop[i].resize(loopSequences.size(), std::numeric_limits<size_t>::max());
-	}
-	for (size_t i = 0; i < loopSequences.size(); i++)
-	{
-		iterateKmers(loopSequences[i], k, [&kmerPositionWithinLoop, &kmerToIndex, i](const uint64_t kmer, const size_t position)
-		{
-			if (kmerToIndex.count(kmer) == 0) return;
-			assert(kmerPositionWithinLoop[kmerToIndex.at(kmer)][i] == std::numeric_limits<size_t>::max());
-			kmerPositionWithinLoop[kmerToIndex.at(kmer)][i] = position;
-		});
-	}
-	for (size_t i = 0; i < kmerPositionWithinLoop.size(); i++)
-	{
-		for (size_t j = 0; j < kmerPositionWithinLoop[i].size(); j++)
-		{
-			assert(kmerPositionWithinLoop[i][j] != std::numeric_limits<size_t>::max());
-		}
-	}
-	Logger::Log.log(Logger::LogLevel::DetailedDebugInfo) << "cluster with " << loopSequences.size() << " reads has " << kmerPositionWithinLoop.size() << " all-present kmers before chain filter" << std::endl;
-	Logger::Log.log(Logger::LogLevel::DetailedDebugInfo) << "positions before chain checking:";
-	for (auto pair : kmerPositionsInConsensus)
-	{
-		Logger::Log.log(Logger::LogLevel::DetailedDebugInfo) << " " << pair.first;
-	}
-	Logger::Log.log(Logger::LogLevel::DetailedDebugInfo) << std::endl;
-	while (true)
-	{
-		std::vector<size_t> indexConflictCount;
-		indexConflictCount.resize(kmerPositionWithinLoop.size(), false);
-		for (size_t i = 1; i < kmerPositionWithinLoop.size(); i++)
-		{
-			assert(kmerPositionWithinLoop[i].size() == loopSequences.size());
-			assert(kmerPositionWithinLoop[i-1].size() == loopSequences.size());
-			for (size_t j = 0; j < loopSequences.size(); j++)
-			{
-				assert(kmerPositionWithinLoop[i-1][j] != kmerPositionWithinLoop[i][j]);
-				if (kmerPositionWithinLoop[i-1][j] < kmerPositionWithinLoop[i][j]) continue;
-				indexConflictCount[i] += 1;
-				indexConflictCount[i-1] += 1;
-			}
-		}
-		std::vector<bool> removeIndex;
-		removeIndex.resize(kmerPositionWithinLoop.size(), false);
-		for (size_t i = 0; i < kmerPositionWithinLoop.size(); i++)
-		{
-			if (indexConflictCount[i] == 0) continue;
-			if (i > 0 && indexConflictCount[i-1] > indexConflictCount[i]) continue;
-			if (i+1 < kmerPositionWithinLoop.size() && indexConflictCount[i+1] > indexConflictCount[i]) continue;
-			removeIndex[i] = true;
-		}
-		bool removedAny = false;
-		for (size_t i = kmerPositionWithinLoop.size()-1; i < kmerPositionWithinLoop.size(); i--)
-		{
-			if (!removeIndex[i]) continue;
-			kmerPositionWithinLoop.erase(kmerPositionWithinLoop.begin() + i);
-			removedAny = true;
-		}
-		if (!removedAny) break;
-	}
-	return kmerPositionWithinLoop;
 }
 
 std::string polishByBubbles(const std::string& refSequence, const std::vector<std::string>& ontSequences)
 {
-	const size_t k = 31;
 	std::vector<std::string> sequencesWithRef;
 	sequencesWithRef.emplace_back(refSequence);
 	sequencesWithRef.insert(sequencesWithRef.end(), ontSequences.begin(), ontSequences.end());
-	std::vector<std::vector<size_t>> kmerChain = getAllPresentKmerChain(refSequence, sequencesWithRef, k);
+	std::vector<std::vector<size_t>> kmerChain = getMatchBases(refSequence, sequencesWithRef);
 	Logger::Log.log(Logger::LogLevel::DetailedDebugInfo) << "bubble polishing has " << kmerChain.size() << " shared kmers" << std::endl;
 	if (kmerChain.size() < 2) return refSequence;
 	assert(kmerChain[0].size() == sequencesWithRef.size());
@@ -1065,11 +960,9 @@ std::string polishByBubbles(const std::string& refSequence, const std::vector<st
 			result += refSequence.substr(kmerChain[i-1][0], kmerChain[i][0]-kmerChain[i-1][0]);
 			continue;
 		}
-		std::string alleleHere = getCentralModalAllele(sequencesWithRef, kmerChain[i-1], kmerChain[i], k);
-		assert(alleleHere.size() > k);
-		assert(alleleHere.substr(0, k) == refSequence.substr(kmerChain[i-1][0], k));
-		assert(alleleHere.substr(alleleHere.size()-k, k) == refSequence.substr(kmerChain[i][0], k));
-		result += alleleHere.substr(0, alleleHere.size()-k);
+		std::string alleleHere = getCentralModalAllele(sequencesWithRef, kmerChain[i-1], kmerChain[i]);
+		assert(alleleHere.size() >= 2);
+		result += alleleHere.substr(0, alleleHere.size()-1);
 	}
 	result += refSequence.substr(kmerChain.back()[0]);
 	return result;
@@ -1155,71 +1048,6 @@ phmap::flat_hash_map<uint64_t, size_t> getRefKmers(const std::string_view& ref, 
 	{
 		assert(result.count(kmer) == 1);
 		result.erase(kmer);
-	}
-	return result;
-}
-
-std::vector<std::tuple<size_t, size_t, std::string, size_t>> getEditsRec(const std::string_view& refSeq, const std::string_view& querySeq, const size_t k)
-{
-	assert(refSeq.size() >= k);
-	assert(querySeq.size() >= k);
-	assert(refSeq.substr(0, k) == querySeq.substr(0, k));
-	assert(refSeq.substr(refSeq.size()-k) == querySeq.substr(querySeq.size()-k));
-	if (k <= 11 || k > 31)
-	{
-		return getEdits(refSeq, querySeq, refSeq.size()*2);
-	}
-	auto refKmers = getRefKmers(refSeq, k);
-	auto anchors = getKmerAnchors(refSeq, refKmers, querySeq, k);
-	if (anchors.size() >= 1 && anchors.back().first+k == refSeq.size() && anchors.back().second+k == querySeq.size())
-	{
-		anchors.pop_back();
-	}
-	if (anchors.size() >= 1 && anchors[0].first == 0 && anchors[0].second == 0)
-	{
-		anchors.erase(anchors.begin());
-	}
-	if (anchors.size() == 0)
-	{
-		return getEdits(refSeq, querySeq, refSeq.size()*2);
-	}
-	std::vector<std::tuple<size_t, size_t, std::string, size_t>> result;
-	size_t lastRefPos = 0;
-	size_t lastQueryPos = 0;
-	for (size_t i = 0; i < anchors.size(); i++)
-	{
-		if (anchors[i].first - lastRefPos == anchors[i].second - lastQueryPos && anchors[i].first - lastRefPos < k)
-		{
-			lastRefPos = anchors[i].first;
-			lastQueryPos = anchors[i].second;
-			continue;
-		}
-		auto partialResult = getEditsRec(refSeq.substr(lastRefPos, anchors[i].first - lastRefPos + k), querySeq.substr(lastQueryPos, anchors[i].second - lastQueryPos + k), k-10);
-		for (size_t j = 0; j < partialResult.size(); j++)
-		{
-			result.emplace_back();
-			std::swap(result.back(), partialResult[j]);
-			std::get<0>(result.back()) += lastRefPos;
-			std::get<1>(result.back()) += lastRefPos;
-			std::get<3>(result.back()) += lastQueryPos;
-		}
-		lastRefPos = anchors[i].first;
-		lastQueryPos = anchors[i].second;
-	}
-	if (refSeq.size()-lastRefPos == querySeq.size()-lastQueryPos && refSeq.size()-lastRefPos < k)
-	{
-	}
-	else
-	{
-		auto partialResult = getEditsRec(refSeq.substr(lastRefPos), querySeq.substr(lastQueryPos), k-10);
-		for (size_t j = 0; j < partialResult.size(); j++)
-		{
-			result.emplace_back();
-			std::swap(result.back(), partialResult[j]);
-			std::get<0>(result.back()) += lastRefPos;
-			std::get<1>(result.back()) += lastRefPos;
-			std::get<3>(result.back()) += lastQueryPos;
-		}
 	}
 	return result;
 }
@@ -1378,4 +1206,363 @@ std::string getConsensusSequence(const std::vector<Node>& consensusPath, const G
 	std::string consensusSeq = getSequence(consensusPath, graph.nodeSeqs, graph.revCompNodeSeqs, graph.edges);
 	consensusSeq = consensusSeq.substr(pathStartClip.at(consensusPath[0]), consensusSeq.size() - pathStartClip.at(consensusPath[0]) - pathEndClip.at(consensusPath.back()));
 	return consensusSeq;
+}
+
+std::vector<std::tuple<size_t, size_t, size_t>> getMatchRegionsRec(const std::string_view& refSequence, const std::string_view& querySequence, const size_t k)
+{
+	if (refSequence.size() < k) return std::vector<std::tuple<size_t, size_t, size_t>> {};
+	if (querySequence.size() < k) return std::vector<std::tuple<size_t, size_t, size_t>> {};
+	auto refKmers = getRefKmers(refSequence, k);
+	auto kmerMatches = getKmerAnchors(refSequence, refKmers, querySequence, k);
+	for (size_t i = 0; i < kmerMatches.size(); i++)
+	{
+		assert(refSequence.substr(kmerMatches[i].first, k) == querySequence.substr(kmerMatches[i].second, k));
+	}
+	for (size_t i = 1; i < kmerMatches.size(); i++)
+	{
+		assert(kmerMatches[i].first > kmerMatches[i-1].first);
+		assert(kmerMatches[i].second > kmerMatches[i-1].second);
+	}
+	std::vector<std::tuple<size_t, size_t, size_t>> result;
+	size_t lastRefPos = 0;
+	size_t lastQueryPos = 0;
+	for (size_t i = 0; i < kmerMatches.size(); i++)
+	{
+		if (i == 0 || (int)kmerMatches[i].first-(int)kmerMatches[i].second != (int)kmerMatches[i-1].first-(int)kmerMatches[i-1].second || kmerMatches[i].first > kmerMatches[i-1].first+k)
+		{
+			size_t refOffset = lastRefPos+1;
+			size_t queryOffset = lastQueryPos+1;
+			auto recResult = getMatchRegionsRec(std::string_view { refSequence.begin()+lastRefPos+1, kmerMatches[i].first+k-2 - lastRefPos }, std::string_view { querySequence.begin()+lastQueryPos+1, kmerMatches[i].second+k-2 - lastQueryPos }, k);
+			if (recResult.size() == 0 && k > 11)
+			{
+				refOffset = lastRefPos;
+				queryOffset = lastQueryPos;
+				recResult = getMatchRegionsRec(std::string_view { refSequence.begin()+lastRefPos, kmerMatches[i].first+k - lastRefPos }, std::string_view { querySequence.begin()+lastQueryPos, kmerMatches[i].second+k - lastQueryPos }, k-10);
+			}
+			for (size_t j = 1; j < recResult.size(); j++)
+			{
+				if (!(std::get<0>(recResult[j]) > std::get<0>(recResult[j-1]) || (std::get<0>(recResult[j]) == std::get<0>(recResult[j-1]) && std::get<1>(recResult[j]) == std::get<1>(recResult[j-1]) && std::get<2>(recResult[j]) != std::get<2>(recResult[j-1]))))
+				{
+					for (size_t m = 0; m < recResult.size(); m++)
+					{
+						std::cerr << m << " " << std::get<0>(recResult[m]) << " " << std::get<1>(recResult[m]) << " " << std::get<2>(recResult[m]) << std::endl;
+					}
+					std::cerr << j << std::endl;
+				}
+				assert(std::get<0>(recResult[j]) > std::get<0>(recResult[j-1]) || (std::get<0>(recResult[j]) == std::get<0>(recResult[j-1]) && std::get<1>(recResult[j]) == std::get<1>(recResult[j-1]) && std::get<2>(recResult[j]) != std::get<2>(recResult[j-1])));
+				assert(std::get<1>(recResult[j]) > std::get<1>(recResult[j-1]) || (std::get<0>(recResult[j]) == std::get<0>(recResult[j-1]) && std::get<1>(recResult[j]) == std::get<1>(recResult[j-1]) && std::get<2>(recResult[j]) != std::get<2>(recResult[j-1])));
+			}
+			for (auto t : recResult)
+			{
+				if (std::get<0>(t)+refOffset >= kmerMatches[i].first) continue;
+				if (std::get<1>(t)+queryOffset >= kmerMatches[i].second) continue;
+				if (i > 0 && std::get<0>(t)+std::get<2>(t)+refOffset <= kmerMatches[i-1].first+k) continue;
+				if (i > 0 && std::get<1>(t)+std::get<2>(t)+queryOffset <= kmerMatches[i-1].second+k) continue;
+				result.emplace_back(std::get<0>(t)+refOffset, std::get<1>(t)+queryOffset, std::get<2>(t));
+				assert(refSequence.substr(std::get<0>(result.back()), std::get<2>(result.back())) == querySequence.substr(std::get<1>(result.back()), std::get<2>(result.back())));
+			}
+		}
+		lastRefPos = kmerMatches[i].first;
+		lastQueryPos = kmerMatches[i].second;
+		result.emplace_back(kmerMatches[i].first, kmerMatches[i].second, k);
+	}
+	std::vector<std::tuple<size_t, size_t, size_t>> recResult;
+	size_t refOffset = lastRefPos;
+	size_t queryOffset = lastQueryPos;
+	if (kmerMatches.size() >= 1)
+	{
+		refOffset = lastRefPos+1;
+		queryOffset = lastQueryPos+1;
+		recResult = getMatchRegionsRec(std::string_view { refSequence.begin()+lastRefPos+1, refSequence.size() - lastRefPos - 1 }, std::string_view { querySequence.begin()+lastQueryPos + 1, querySequence.size() - lastQueryPos-1 }, k);
+	}
+	if (recResult.size() == 0 && k > 11)
+	{
+		refOffset = lastRefPos;
+		queryOffset = lastQueryPos;
+		recResult = getMatchRegionsRec(std::string_view { refSequence.begin()+lastRefPos, refSequence.size() - lastRefPos }, std::string_view { querySequence.begin()+lastQueryPos, querySequence.size() - lastQueryPos }, k-10);
+	}
+	for (auto t : recResult)
+	{
+		if (kmerMatches.size() > 0 && std::get<0>(t)+std::get<2>(t)+refOffset <= kmerMatches.back().first+k) continue;
+		if (kmerMatches.size() > 0 && std::get<1>(t)+std::get<2>(t)+queryOffset <= kmerMatches.back().second+k) continue;
+		result.emplace_back(std::get<0>(t)+refOffset, std::get<1>(t)+queryOffset, std::get<2>(t));
+		assert(refSequence.substr(std::get<0>(result.back()), std::get<2>(result.back())) == querySequence.substr(std::get<1>(result.back()), std::get<2>(result.back())));
+	}
+	return result;
+}
+
+std::vector<std::tuple<size_t, size_t, size_t>> getMatchRegions(const std::string& refSequence, const std::string& querySequence)
+{
+	auto kmerMatches = getMatchRegionsRec(refSequence, querySequence, 31);
+	if (kmerMatches.size() == 0) return kmerMatches;
+	std::sort(kmerMatches.begin(), kmerMatches.end());
+	for (size_t j = 1; j < kmerMatches.size(); j++)
+	{
+		assert(std::get<0>(kmerMatches[j]) > std::get<0>(kmerMatches[j-1]));
+		assert(std::get<1>(kmerMatches[j]) > std::get<1>(kmerMatches[j-1]));
+	}
+	for (size_t j = 0; j < kmerMatches.size(); j++)
+	{
+		assert(refSequence.substr(std::get<0>(kmerMatches[j]), std::get<2>(kmerMatches[j])) == querySequence.substr(std::get<1>(kmerMatches[j]), std::get<2>(kmerMatches[j])));
+	}
+	std::sort(kmerMatches.begin(), kmerMatches.end(), [](auto left, auto right) {
+		int leftDiagonal = (int)std::get<0>(left)-(int)std::get<1>(left);
+		int rightDiagonal = (int)std::get<0>(right)-(int)std::get<1>(right);
+		if (leftDiagonal < rightDiagonal) return true;
+		if (leftDiagonal > rightDiagonal) return false;
+		assert(leftDiagonal == rightDiagonal);
+		return std::get<0>(left) < std::get<0>(right);
+	});
+	std::vector<std::tuple<size_t, size_t, size_t>> diagonals;
+	for (auto t : kmerMatches)
+	{
+		if (diagonals.size() == 0)
+		{
+			diagonals.emplace_back(t);
+			continue;
+		}
+		if ((int)std::get<0>(t)-(int)std::get<1>(t) != (int)std::get<0>(diagonals.back())-(int)std::get<1>(diagonals.back()))
+		{
+			diagonals.emplace_back(t);
+			continue;
+		}
+		if (std::get<0>(t) > std::get<0>(diagonals.back()) + std::get<2>(diagonals.back()))
+		{
+			diagonals.emplace_back(t);
+			continue;
+		}
+		assert(std::get<0>(t) >= std::get<0>(diagonals.back()));
+		std::get<2>(diagonals.back()) = std::max(std::get<2>(diagonals.back()), std::get<0>(t) + std::get<2>(t) - std::get<0>(diagonals.back()));
+	}
+	assert(diagonals.size() >= 1);
+	std::vector<bool> contained;
+	contained.resize(diagonals.size(), false);
+	std::sort(diagonals.begin(), diagonals.end(), [](auto left, auto right)
+	{
+		if (std::get<1>(left) < std::get<1>(right)) return true;
+		if (std::get<1>(left) > std::get<1>(right)) return false;
+		if (std::get<2>(left) > std::get<2>(right)) return true;
+		if (std::get<2>(left) < std::get<2>(right)) return false;
+		return std::get<0>(left) < std::get<0>(right);
+	});
+	size_t lastMatchEnd = std::get<1>(diagonals[0])+std::get<2>(diagonals[0]);
+	for (size_t i = 1; i < diagonals.size(); i++)
+	{
+		size_t endHere = std::get<1>(diagonals[i]) + std::get<2>(diagonals[i]);
+		if (endHere <= lastMatchEnd) contained[i] = true;
+		lastMatchEnd = std::max(lastMatchEnd, endHere);
+	}
+	for (size_t i = diagonals.size()-1; i < diagonals.size(); i--)
+	{
+		if (!contained[i]) continue;
+		std::swap(diagonals[i], diagonals.back());
+		diagonals.pop_back();
+	}
+	assert(diagonals.size() >= 1);
+	std::sort(diagonals.begin(), diagonals.end(), [](auto left, auto right)
+	{
+		if (std::get<0>(left) < std::get<0>(right)) return true;
+		if (std::get<0>(left) > std::get<0>(right)) return false;
+		if (std::get<2>(left) > std::get<2>(right)) return true;
+		if (std::get<2>(left) < std::get<2>(right)) return false;
+		return std::get<1>(left) < std::get<1>(right);
+	});
+	contained.resize(0, false);
+	contained.resize(diagonals.size(), false);
+	lastMatchEnd = std::get<0>(diagonals[0])+std::get<2>(diagonals[0]);
+	for (size_t i = 1; i < diagonals.size(); i++)
+	{
+		size_t endHere = std::get<0>(diagonals[i]) + std::get<2>(diagonals[i]);
+		if (endHere <= lastMatchEnd) contained[i] = true;
+		lastMatchEnd = std::max(lastMatchEnd, endHere);
+	}
+	for (size_t i = diagonals.size()-1; i < diagonals.size(); i--)
+	{
+		if (!contained[i]) continue;
+		std::swap(diagonals[i], diagonals.back());
+		diagonals.pop_back();
+	}
+	std::sort(diagonals.begin(), diagonals.end());
+	assert(diagonals.size() >= 1);
+	for (size_t j = 0; j < diagonals.size(); j++)
+	{
+		assert(refSequence.substr(std::get<0>(diagonals[j]), std::get<2>(diagonals[j])) == querySequence.substr(std::get<1>(diagonals[j]), std::get<2>(diagonals[j])));
+	}
+	return diagonals;
+}
+
+std::vector<std::vector<size_t>> getMatchBases(const std::string& consensusSeq, const std::vector<std::string>& loopSequences)
+{
+	std::vector<std::vector<std::tuple<size_t, size_t, size_t>>> matchRegions;
+	std::vector<std::pair<size_t, size_t>> refAllowedAreas;
+	std::tie(refAllowedAreas, matchRegions) = getRegionsConservedInAllSequences(consensusSeq, loopSequences);
+	Logger::Log.log(Logger::LogLevel::DetailedDebugInfo) << "size " << loopSequences.size() << " all-present ref regions:";
+	for (size_t i = 0; i < refAllowedAreas.size(); i++)
+	{
+		Logger::Log.log(Logger::LogLevel::DetailedDebugInfo) << " " << refAllowedAreas[i].first << "-" << refAllowedAreas[i].second;
+	}
+	Logger::Log.log(Logger::LogLevel::DetailedDebugInfo) << std::endl;
+	if (refAllowedAreas.size() == 0) return std::vector<std::vector<size_t>> {};
+	for (size_t i = 0; i < refAllowedAreas.size(); i++)
+	{
+		assert(refAllowedAreas[i].second > refAllowedAreas[i].first);
+		assert(i == 0 || refAllowedAreas[i].first > refAllowedAreas[i-1].second);
+	}
+	std::vector<std::vector<size_t>> matchesPerRead;
+	matchesPerRead.resize(matchRegions.size());
+	for (size_t i = 0; i < matchRegions.size(); i++)
+	{
+		std::sort(matchRegions[i].begin(), matchRegions[i].end(), [](auto left, auto right)
+		{
+			if (std::get<0>(left) < std::get<0>(right)) return true;
+			if (std::get<0>(left) > std::get<0>(right)) return false;
+			if (std::get<2>(left) > std::get<2>(right)) return true;
+			if (std::get<2>(left) < std::get<2>(right)) return false;
+			return std::get<1>(left) < std::get<1>(right);
+		});
+		size_t readIndex = 0;
+		size_t refIndex = 0;
+		while (refIndex < refAllowedAreas.size() && readIndex < matchRegions[i].size())
+		{
+			if (std::get<0>(matchRegions[i][readIndex])+std::get<2>(matchRegions[i][readIndex]) <= refAllowedAreas[refIndex].first)
+			{
+				readIndex += 1;
+				continue;
+			}
+			if (refAllowedAreas[refIndex].second <= std::get<0>(matchRegions[i][readIndex]))
+			{
+				refIndex += 1;
+				continue;
+			}
+			assert(refAllowedAreas[refIndex].second > std::get<0>(matchRegions[i][readIndex]));
+			assert(std::get<0>(matchRegions[i][readIndex]) + std::get<2>(matchRegions[i][readIndex]) > refAllowedAreas[refIndex].first);
+			size_t intersectRefStart = std::max(refAllowedAreas[refIndex].first, std::get<0>(matchRegions[i][readIndex]));
+			size_t intersectRefEnd = std::min(refAllowedAreas[refIndex].second, std::get<0>(matchRegions[i][readIndex]) + std::get<2>(matchRegions[i][readIndex]));
+			assert(intersectRefEnd > intersectRefStart);
+			for (size_t j = 0; j < intersectRefEnd - intersectRefStart; j++)
+			{
+				size_t matchPos = std::get<1>(matchRegions[i][readIndex]) + (intersectRefStart - std::get<0>(matchRegions[i][readIndex])) + j;
+				if (!(matchesPerRead[i].size() == 0 || matchPos > matchesPerRead[i].back()))
+				{
+					std::cerr << matchPos << " " << matchesPerRead[i].back() << std::endl;
+				}
+				assert(matchesPerRead[i].size() == 0 || matchPos > matchesPerRead[i].back());
+				matchesPerRead[i].emplace_back(matchPos);
+			}
+			if (std::get<0>(matchRegions[i][readIndex]) + std::get<2>(matchRegions[i][readIndex]) < refAllowedAreas[refIndex].second)
+			{
+				readIndex += 1;
+			}
+			else
+			{
+				refIndex += 1;
+			}
+		}
+	}
+	for (size_t i = 1; i < matchesPerRead.size(); i++)
+	{
+		assert(matchesPerRead[i].size() == matchesPerRead[0].size());
+	}
+	std::vector<std::vector<size_t>> result;
+	result.resize(matchesPerRead[0].size());
+	for (size_t i = 0; i < result.size(); i++)
+	{
+		result[i].resize(loopSequences.size());
+		for (size_t j = 0; j < loopSequences.size(); j++)
+		{
+			result[i][j] = matchesPerRead[j][i];
+		}
+	}
+	return result;
+}
+
+std::vector<std::pair<size_t, size_t>> mergeSpans(const std::vector<std::pair<size_t, size_t>>& raws)
+{
+	std::vector<std::pair<size_t, size_t>> result;
+	for (auto pair : raws)
+	{
+		if (pair.second == pair.first) continue;
+		if (result.size() == 0)
+		{
+			result.emplace_back(pair.first, pair.second);
+			continue;
+		}
+		assert(pair.first >= result.back().first);
+		if (pair.first <= result.back().second)
+		{
+			result.back().second = std::max(result.back().second, pair.second);
+			continue;
+		}
+		result.emplace_back(pair);
+	}
+	return result;
+}
+
+std::pair<std::vector<std::pair<size_t, size_t>>, std::vector<std::vector<std::tuple<size_t, size_t, size_t>>>> getRegionsConservedInAllSequences(const std::string& consensusSeq, const std::vector<std::string>& loopSequences)
+{
+	std::vector<std::vector<std::tuple<size_t, size_t, size_t>>> matchRegions;
+	for (size_t i = 0; i < loopSequences.size(); i++)
+	{
+		matchRegions.emplace_back(getMatchRegions(consensusSeq, loopSequences[i]));
+		if (matchRegions.back().size() == 0) return std::pair<std::vector<std::pair<size_t, size_t>>, std::vector<std::vector<std::tuple<size_t, size_t, size_t>>>>{};
+	}
+	std::vector<std::pair<size_t, size_t>> refForbiddenAreas;
+	for (size_t i = 0; i < matchRegions.size(); i++)
+	{
+		std::sort(matchRegions[i].begin(), matchRegions[i].end(), [](auto left, auto right)
+		{
+			if (std::get<0>(left) < std::get<0>(right)) return true;
+			if (std::get<0>(left) > std::get<0>(right)) return false;
+			if (std::get<2>(left) > std::get<2>(right)) return true;
+			if (std::get<2>(left) < std::get<2>(right)) return false;
+			return std::get<1>(left) < std::get<1>(right);
+		});
+		assert(matchRegions[i].size() >= 1);
+		refForbiddenAreas.emplace_back(0, std::get<0>(matchRegions[i][0]));
+		refForbiddenAreas.emplace_back(std::get<0>(matchRegions[i].back()) + std::get<2>(matchRegions[i].back()), consensusSeq.size());
+		for (size_t j = 1; j < matchRegions[i].size(); j++)
+		{
+			size_t startHere = std::get<0>(matchRegions[i][j]);
+			size_t prevEnd = std::get<0>(matchRegions[i][j-1]) + std::get<2>(matchRegions[i][j-1]); 
+			if (startHere > prevEnd)
+			{
+				refForbiddenAreas.emplace_back(prevEnd, startHere);
+			}
+			else
+			{
+				refForbiddenAreas.emplace_back(startHere, prevEnd);
+			}
+		}
+		std::sort(matchRegions[i].begin(), matchRegions[i].end(), [](auto left, auto right)
+		{
+			if (std::get<1>(left) < std::get<1>(right)) return true;
+			if (std::get<1>(left) > std::get<1>(right)) return false;
+			if (std::get<2>(left) > std::get<2>(right)) return true;
+			if (std::get<2>(left) < std::get<2>(right)) return false;
+			return std::get<0>(left) < std::get<0>(right);
+		});
+		for (size_t j = 1; j < matchRegions[i].size(); j++)
+		{
+			size_t startHere = std::get<1>(matchRegions[i][j]);
+			size_t prevEnd = std::get<1>(matchRegions[i][j-1]) + std::get<2>(matchRegions[i][j-1]); 
+			if (startHere >= prevEnd) continue;
+			assert(std::get<1>(matchRegions[i][j]) > std::get<1>(matchRegions[i][j-1]));
+			size_t prevEndRefOffset = std::get<0>(matchRegions[i][j-1]) + std::get<2>(matchRegions[i][j-1]);
+			size_t startHereRefOffset = std::get<1>(matchRegions[i][j]) - std::get<1>(matchRegions[i][j-1]) + std::get<0>(matchRegions[i][j-1]);
+			assert(prevEndRefOffset > startHereRefOffset);
+			refForbiddenAreas.emplace_back(startHereRefOffset, prevEndRefOffset);
+		}
+	}
+	std::sort(refForbiddenAreas.begin(), refForbiddenAreas.end());
+	refForbiddenAreas = mergeSpans(refForbiddenAreas);
+	std::vector<std::pair<size_t, size_t>> refAllowedAreas;
+	size_t lastForbiddenEnd = 0;
+	for (auto pair : refForbiddenAreas)
+	{
+		if (pair.first > lastForbiddenEnd) refAllowedAreas.emplace_back(lastForbiddenEnd, pair.first);
+		assert(pair.second > lastForbiddenEnd);
+		lastForbiddenEnd = pair.second;
+	}
+	if (lastForbiddenEnd < consensusSeq.size()) refAllowedAreas.emplace_back(lastForbiddenEnd, consensusSeq.size());
+	return std::make_pair(std::move(refAllowedAreas), std::move(matchRegions));
 }
