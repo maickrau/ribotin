@@ -351,13 +351,13 @@ std::vector<std::pair<size_t, size_t>> mergeSpans(const std::vector<std::pair<si
 	return result;
 }
 
-std::vector<std::vector<size_t>> getMatchBases(const std::string& consensusSeq, const std::vector<std::string>& loopSequences)
+std::pair<std::vector<std::pair<size_t, size_t>>, std::vector<std::vector<std::tuple<size_t, size_t, size_t>>>> getRegionsConservedInAllSequences(const std::string& consensusSeq, const std::vector<std::string>& loopSequences)
 {
 	std::vector<std::vector<std::tuple<size_t, size_t, size_t>>> matchRegions;
 	for (size_t i = 0; i < loopSequences.size(); i++)
 	{
 		matchRegions.emplace_back(getMatchRegions(consensusSeq, loopSequences[i]));
-		if (matchRegions.back().size() == 0) return std::vector<std::vector<size_t>>{};
+		if (matchRegions.back().size() == 0) return std::pair<std::vector<std::pair<size_t, size_t>>, std::vector<std::vector<std::tuple<size_t, size_t, size_t>>>>{};
 	}
 	std::vector<std::pair<size_t, size_t>> refForbiddenAreas;
 	for (size_t i = 0; i < matchRegions.size(); i++)
@@ -417,13 +417,15 @@ std::vector<std::vector<size_t>> getMatchBases(const std::string& consensusSeq, 
 		lastForbiddenEnd = pair.second;
 	}
 	if (lastForbiddenEnd < consensusSeq.size()) refAllowedAreas.emplace_back(lastForbiddenEnd, consensusSeq.size());
+	return std::make_pair(std::move(refAllowedAreas), std::move(matchRegions));
+}
+
+std::vector<std::vector<size_t>> getMatchBases(const std::string& consensusSeq, const std::vector<std::string>& loopSequences)
+{
+	std::vector<std::vector<std::tuple<size_t, size_t, size_t>>> matchRegions;
+	std::vector<std::pair<size_t, size_t>> refAllowedAreas;
+	std::tie(refAllowedAreas, matchRegions) = getRegionsConservedInAllSequences(consensusSeq, loopSequences);
 	if (refAllowedAreas.size() == 0) return std::vector<std::vector<size_t>> {};
-	Logger::Log.log(Logger::LogLevel::DetailedDebugInfo) << "match positions in consensus (consensus len " << consensusSeq.size() << " size " << loopSequences.size() << "):";
-	for (size_t i = 0; i < refAllowedAreas.size(); i++)
-	{
-		Logger::Log.log(Logger::LogLevel::DetailedDebugInfo) << " " << refAllowedAreas[i].first << "-" << refAllowedAreas[i].second;
-	}
-	Logger::Log.log(Logger::LogLevel::DetailedDebugInfo) << std::endl;
 	for (size_t i = 0; i < refAllowedAreas.size(); i++)
 	{
 		assert(refAllowedAreas[i].second > refAllowedAreas[i].first);
@@ -662,7 +664,7 @@ std::vector<std::pair<std::vector<std::vector<size_t>>, size_t>> getSNPMSA(const
 	return result;
 }
 
-std::vector<std::pair<std::vector<std::vector<size_t>>, size_t>> getPhasableVariantInfoBiallelicAltRefSNPsBigIndels(const std::vector<std::vector<std::tuple<size_t, size_t, std::string>>>& editsPerRead, const std::string& refSequence)
+std::vector<std::pair<std::vector<std::vector<size_t>>, size_t>> getPhasableVariantInfoBiallelicAltRefSNPsBigIndels(const std::vector<std::vector<std::tuple<size_t, size_t, std::string>>>& editsPerRead, const std::string& refSequence, const std::vector<std::string>& sequences)
 {
 	const size_t minCoverage = 3;
 	std::map<std::tuple<size_t, size_t, std::string>, size_t> editCounts;
@@ -778,6 +780,35 @@ std::vector<std::pair<std::vector<std::vector<size_t>>, size_t>> getPhasableVari
 		for (size_t j = 0; j < result[i].first.size(); j++)
 		{
 			std::sort(result[i].first[j].begin(), result[i].first[j].end());
+		}
+	}
+	if (result.size() >= 2)
+	{
+		std::vector<std::vector<std::tuple<size_t, size_t, size_t>>> matchRegions;
+		std::vector<std::pair<size_t, size_t>> refAllowedAreas;
+		std::tie(refAllowedAreas, matchRegions) = getRegionsConservedInAllSequences(refSequence, sequences);
+		size_t extraOffset = 0;
+		size_t conservedRegionIndex = 0;
+		size_t variantIndex = 0;
+		std::vector<size_t> adds;
+		while (variantIndex < result.size())
+		{
+			if (conservedRegionIndex < refAllowedAreas.size() && result[variantIndex].second >= refAllowedAreas[conservedRegionIndex].second)
+			{
+				if (variantIndex >= 1 && result[variantIndex].second >= refAllowedAreas[conservedRegionIndex].second && result[variantIndex-1].second < refAllowedAreas[conservedRegionIndex].first)
+				{
+					extraOffset += 100;
+				}
+				conservedRegionIndex += 1;
+				continue;
+			}
+			adds.emplace_back(extraOffset);
+			variantIndex += 1;
+		}
+		assert(adds.size() == result.size());
+		for (size_t i = 0; i < adds.size(); i++)
+		{
+			result[i].second += adds[i];
 		}
 	}
 	return result;
@@ -2073,7 +2104,7 @@ void callVariantsAndSplitRecursively(std::vector<std::vector<OntLoop>>& result, 
 	auto startTime = getTime();
 	auto refSequence = getConsensus(cluster, sequences, graph, pathStartClip, pathEndClip, numThreads);
 	auto edits = getEditsForPhasing(refSequence, sequences, numThreads);
-	auto phasableVariantInfo = getPhasableVariantInfoBiallelicAltRefSNPsBigIndels(edits, refSequence);
+	auto phasableVariantInfo = getPhasableVariantInfoBiallelicAltRefSNPsBigIndels(edits, refSequence, sequences);
 	auto endTime = getTime();
 	Logger::Log.log(Logger::LogLevel::DetailedDebugInfo) << "getting variants took " << formatTime(startTime, endTime) << std::endl;
 	Logger::Log.log(Logger::LogLevel::DetailedDebugInfo) << "got variant info of cluster with size " << cluster.size() << std::endl;
