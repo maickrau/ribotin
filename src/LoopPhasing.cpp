@@ -78,7 +78,7 @@ bool isBigIndel(const std::tuple<size_t, size_t, std::string>& variant)
 void clusterBubbleAlleles(std::vector<std::vector<size_t>>& result, const std::vector<std::string>& loopSequences, const std::vector<size_t>& previousMatchIndices, const std::vector<size_t>& currentMatchIndices)
 {
 	const size_t minCoverage = std::max<size_t>(5, loopSequences.size()*0.05);
-	const double maxDivergence = 0.1;
+	const double maxDivergence = 0.15;
 	size_t maxClusterDistance = 20;
 	if (currentMatchIndices[0] == previousMatchIndices[0] + 1)
 	{
@@ -90,8 +90,12 @@ void clusterBubbleAlleles(std::vector<std::vector<size_t>>& result, const std::v
 				allIdentical = false;
 			}
 		}
-		if (allIdentical) return;
+		if (allIdentical)
+		{
+			return;
+		}
 	}
+	Logger::Log.log(Logger::LogLevel::DetailedDebugInfo) << "size " << previousMatchIndices.size() << " begin bubble at approx " << previousMatchIndices[0] << "-" << currentMatchIndices[0] << std::endl;
 	std::vector<std::string> substrings;
 	for (size_t i = 0; i < loopSequences.size(); i++)
 	{
@@ -101,6 +105,7 @@ void clusterBubbleAlleles(std::vector<std::vector<size_t>>& result, const std::v
 		assert(substrings.back().size() >= 2);
 		maxClusterDistance = std::max<size_t>(maxClusterDistance, substrings[i].size() * maxDivergence);
 	}
+	Logger::Log.log(Logger::LogLevel::DetailedDebugInfo) << "max cluster distance " << maxClusterDistance << std::endl;
 	std::vector<std::vector<size_t>> distanceMatrix;
 	distanceMatrix.emplace_back();
 	size_t maxDistance = 0;
@@ -113,7 +118,12 @@ void clusterBubbleAlleles(std::vector<std::vector<size_t>>& result, const std::v
 			maxDistance = std::max(maxDistance, distanceMatrix.back().back());
 		}
 	}
-	if (maxDistance < maxClusterDistance) return;
+	Logger::Log.log(Logger::LogLevel::DetailedDebugInfo) << "max distance " << maxDistance << std::endl;
+	if (maxDistance < maxClusterDistance)
+	{
+		Logger::Log.log(Logger::LogLevel::DetailedDebugInfo) << "max distance too low" << std::endl;
+		return;
+	}
 	std::vector<size_t> parent;
 	for (size_t i = 0; i < loopSequences.size(); i++)
 	{
@@ -135,17 +145,24 @@ void clusterBubbleAlleles(std::vector<std::vector<size_t>>& result, const std::v
 		clusters[find(parent, i)].emplace_back(i);
 		distinctClusters.insert(find(parent, i));
 	}
-	if (distinctClusters.size() < 2) return;
+	Logger::Log.log(Logger::LogLevel::DetailedDebugInfo) << "distinct clusters " << distinctClusters.size() << std::endl;
+	if (distinctClusters.size() < 2)
+	{
+		Logger::Log.log(Logger::LogLevel::DetailedDebugInfo) << "distinct clusters too few" << std::endl;
+		return;
+	}
 	bool allClustersAreCliques = true;
 	bool hasSmallCluster = false;
 	for (size_t i = 0; i < clusters.size(); i++)
 	{
+		if (clusters[i].size() == 0) continue;
+		Logger::Log.log(Logger::LogLevel::DetailedDebugInfo) << "cluster with " << clusters[i].size() << " reads" << std::endl;
 		if (clusters[i].size() > 0 && clusters[i].size() < minCoverage)
 		{
 			hasSmallCluster = true;
 			break;
 		}
-		for (size_t j = 1; j < clusters[i].size(); j++)
+/*		for (size_t j = 1; j < clusters[i].size(); j++)
 		{
 			for (size_t k = 0; k < j; k++)
 			{
@@ -153,16 +170,26 @@ void clusterBubbleAlleles(std::vector<std::vector<size_t>>& result, const std::v
 				size_t bigger = std::max(clusters[i][j], clusters[i][k]);
 				if (distanceMatrix[bigger][smaller] > maxClusterDistance)
 				{
+					Logger::Log.log(Logger::LogLevel::DetailedDebugInfo) << "cluster with " << clusters[i].size() << " reads is not clique (" << distanceMatrix[bigger][smaller] << ")" << std::endl;
 					allClustersAreCliques = false;
-					break;
+//					break;
 				}
 			}
 			if (!allClustersAreCliques) break;
-		}
+		}*/
 		if (!allClustersAreCliques) break;
 	}
-	if (hasSmallCluster) return;
-	if (!allClustersAreCliques) return;
+	if (hasSmallCluster)
+	{
+		Logger::Log.log(Logger::LogLevel::DetailedDebugInfo) << "has small cluster" << std::endl;
+		return;
+	}
+	if (!allClustersAreCliques)
+	{
+		Logger::Log.log(Logger::LogLevel::DetailedDebugInfo) << "cluster is not clique" << std::endl;
+		return;
+	}
+	Logger::Log.log(Logger::LogLevel::DetailedDebugInfo) << "actually split" << std::endl;
 	// distance between clusters is always at least maxClusterDistance+1 because of union-find
 	for (size_t i = 0; i < clusters.size(); i++)
 	{
