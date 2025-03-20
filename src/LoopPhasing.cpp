@@ -77,8 +77,8 @@ bool isBigIndel(const std::tuple<size_t, size_t, std::string>& variant)
 
 void clusterBubbleAlleles(std::vector<std::vector<size_t>>& result, const std::vector<std::string>& loopSequences, const std::vector<size_t>& previousMatchIndices, const std::vector<size_t>& currentMatchIndices)
 {
-	const size_t minCoverage = std::max<size_t>(5, loopSequences.size()*0.05);
-	const double maxDivergence = 0.15;
+	const size_t minCoverage = std::min<size_t>(std::max<size_t>(5, loopSequences.size()*0.05), 20);
+	const double maxDivergence = 0.10;
 	size_t maxClusterDistance = 20;
 	if (currentMatchIndices[0] == previousMatchIndices[0] + 1)
 	{
@@ -95,8 +95,8 @@ void clusterBubbleAlleles(std::vector<std::vector<size_t>>& result, const std::v
 			return;
 		}
 	}
-	Logger::Log.log(Logger::LogLevel::DetailedDebugInfo) << "size " << previousMatchIndices.size() << " begin bubble at approx " << previousMatchIndices[0] << "-" << currentMatchIndices[0] << std::endl;
 	std::vector<std::string> substrings;
+	bool hasAnyBigEnough = false;
 	for (size_t i = 0; i < loopSequences.size(); i++)
 	{
 		assert(loopSequences[i].size() >= currentMatchIndices[i]);
@@ -104,8 +104,25 @@ void clusterBubbleAlleles(std::vector<std::vector<size_t>>& result, const std::v
 		substrings.emplace_back(loopSequences[i].substr(previousMatchIndices[i], currentMatchIndices[i]-previousMatchIndices[i]+1));
 		assert(substrings.back().size() >= 2);
 		maxClusterDistance = std::max<size_t>(maxClusterDistance, substrings[i].size() * maxDivergence);
+		if (substrings[i].size() >= maxClusterDistance) hasAnyBigEnough = true;
 	}
+	if (!hasAnyBigEnough) return;
+	Logger::Log.log(Logger::LogLevel::DetailedDebugInfo) << "size " << previousMatchIndices.size() << " begin bubble at approx " << previousMatchIndices[0] << "-" << currentMatchIndices[0] << std::endl;
 	Logger::Log.log(Logger::LogLevel::DetailedDebugInfo) << "max cluster distance " << maxClusterDistance << std::endl;
+	{
+		Logger::Log.log(Logger::LogLevel::DetailedDebugInfo) << "allele sizes:";
+		std::vector<size_t> sizes;
+		for (size_t i = 0; i < loopSequences.size(); i++)
+		{
+			sizes.emplace_back(currentMatchIndices[i]-previousMatchIndices[i]);
+		}
+		std::sort(sizes.begin(), sizes.end());
+		for (size_t i = 0; i < loopSequences.size(); i++)
+		{
+			Logger::Log.log(Logger::LogLevel::DetailedDebugInfo) << " " << sizes[i];
+		}
+		Logger::Log.log(Logger::LogLevel::DetailedDebugInfo) << std::endl;
+	}
 	std::vector<std::vector<size_t>> distanceMatrix;
 	distanceMatrix.emplace_back();
 	size_t maxDistance = 0;
@@ -160,7 +177,6 @@ void clusterBubbleAlleles(std::vector<std::vector<size_t>>& result, const std::v
 		if (clusters[i].size() > 0 && clusters[i].size() < minCoverage)
 		{
 			hasSmallCluster = true;
-			break;
 		}
 /*		for (size_t j = 1; j < clusters[i].size(); j++)
 		{
@@ -178,6 +194,77 @@ void clusterBubbleAlleles(std::vector<std::vector<size_t>>& result, const std::v
 			if (!allClustersAreCliques) break;
 		}*/
 		if (!allClustersAreCliques) break;
+	}
+	if (hasSmallCluster && distinctClusters.size() == 3)
+	{
+		size_t uniqueSmallCluster = std::numeric_limits<size_t>::max();
+		size_t smallClusterRead = std::numeric_limits<size_t>::max();
+		bool bigSmallCluster = false;
+		for (size_t i = 0; i < clusters.size(); i++)
+		{
+			if (clusters[i].size() == 0) continue;
+			if (clusters[i].size() > 1 && clusters[i].size() < minCoverage)
+			{
+				bigSmallCluster = true;
+			}
+			if (clusters[i].size() == 1)
+			{
+				smallClusterRead = clusters[i][0];
+				if (uniqueSmallCluster == std::numeric_limits<size_t>::max())
+				{
+					uniqueSmallCluster = i;
+				}
+				else
+				{
+					uniqueSmallCluster = std::numeric_limits<size_t>::max()-1;
+				}
+			}
+		}
+		if (!bigSmallCluster && uniqueSmallCluster < clusters.size())
+		{
+			assert(smallClusterRead < loopSequences.size());
+			phmap::flat_hash_map<size_t, size_t> minClusterDistance;
+			for (size_t j = 0; j < loopSequences.size(); j++)
+			{
+				if (j == smallClusterRead) continue;
+				size_t smaller = std::min(j, smallClusterRead);
+				size_t bigger = std::max(j, smallClusterRead);
+				size_t distance = distanceMatrix[bigger][smaller];
+				size_t cluster = find(parent, j);
+				if (minClusterDistance.count(cluster) == 0) minClusterDistance[cluster] = distance;
+				minClusterDistance[cluster] = std::min(minClusterDistance[cluster], distance);
+			}
+			assert(minClusterDistance.size() == distinctClusters.size()-1);
+			size_t minDist = std::numeric_limits<size_t>::max();
+			size_t minCluster = std::numeric_limits<size_t>::max();
+			for (auto pair : minClusterDistance)
+			{
+				if (pair.second < minDist)
+				{
+					minDist = pair.second;
+					minCluster = pair.first;
+				}
+			}
+			if (minDist < 2*maxClusterDistance)
+			{
+				bool hasAmbiguouslyCloseDistance = false;
+				size_t otherDistance = std::numeric_limits<size_t>::max();
+				for (auto pair : minClusterDistance)
+				{
+					if (pair.first == minCluster) continue;
+					otherDistance = std::min(otherDistance, pair.second);
+					if (pair.second < minDist + 20) hasAmbiguouslyCloseDistance = true;
+				}
+				Logger::Log.log(Logger::LogLevel::DetailedDebugInfo) << "try fix small cluster of size 1 dists " << minDist << " vs " << otherDistance << std::endl;
+				if (!hasAmbiguouslyCloseDistance)
+				{
+					Logger::Log.log(Logger::LogLevel::DetailedDebugInfo) << "actually fix small cluster of size 1 into cluster with size " << clusters[minCluster].size() << std::endl;
+					hasSmallCluster = false;
+					clusters[uniqueSmallCluster].clear();
+					clusters[minCluster].emplace_back(smallClusterRead);
+				}
+			}
+		}
 	}
 	if (hasSmallCluster)
 	{
