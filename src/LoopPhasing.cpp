@@ -19,6 +19,12 @@ bool isSNP(const std::tuple<size_t, size_t, std::string>& variant)
 	return false;
 }
 
+bool isDoubleSNP(const std::tuple<size_t, size_t, std::string>& variant)
+{
+	if (std::get<1>(variant)-std::get<0>(variant) == 2 && std::get<2>(variant).size() == 2) return true;
+	return false;
+}
+
 bool isRepeat(const std::string& seq, const size_t repeatlen)
 {
 	assert(seq.size() % repeatlen == 0);
@@ -476,18 +482,20 @@ std::vector<std::pair<std::vector<std::vector<size_t>>, size_t>> getPhasableVari
 	std::map<std::tuple<size_t, size_t, std::string>, std::pair<size_t, size_t>> validEditIndices;
 	for (size_t i = 1; i <= distinctEdits.size(); i++)
 	{
-		if (i == distinctEdits.size() || std::get<0>(distinctEdits[i]) > currentClusterLastPos)
+		if (i == distinctEdits.size() || std::get<0>(distinctEdits[i]) >= currentClusterLastPos)
 		{
 			if (i-currentClusterStart <= 1)
 			{
 				size_t countSNPs = 0;
+				size_t countDoubleSNPs = 0;
 				size_t countBigIndels = 0;
 				for (size_t j = currentClusterStart; j < i; j++)
 				{
 					if (isSNP(distinctEdits[j])) countSNPs += 1;
+					if (isDoubleSNP(distinctEdits[j])) countDoubleSNPs += 1;
 					if (isBigIndel(distinctEdits[j]) && !isMicrosatelliteOrHomopolymerIndel(distinctEdits[j], refSequence)) countBigIndels += 1;
 				}
-				if (countSNPs >= 1 || countBigIndels >= 1)
+				if (countSNPs >= 1 || countDoubleSNPs >= 1 || countBigIndels >= 1)
 				{
 					result.emplace_back();
 					result.back().first.emplace_back(); // ref allele
@@ -502,6 +510,7 @@ std::vector<std::pair<std::vector<std::vector<size_t>>, size_t>> getPhasableVari
 					}
 					assert(result.back().first.size() >= 2);
 					result.back().second = (minPos+maxPos)/2;
+					Logger::Log.log(Logger::LogLevel::DetailedDebugInfo) << "initial site " << std::get<0>(distinctEdits[currentClusterStart]) << "-" << std::get<1>(distinctEdits[currentClusterStart]) << "\"" << std::get<2>(distinctEdits[currentClusterStart]) << "\"" << " " << result.back().second << std::endl;
 				}
 			}
 			currentClusterStart = i;
@@ -537,6 +546,7 @@ std::vector<std::pair<std::vector<std::vector<size_t>>, size_t>> getPhasableVari
 		}
 		if (hasMultipleAllelesFromSameRead)
 		{
+			Logger::Log.log(Logger::LogLevel::DetailedDebugInfo) << "discard site " << result[i].second << " due to multiple alleles from same read" << std::endl;
 			std::swap(result[i], result.back());
 			result.pop_back();
 			continue;
@@ -558,6 +568,7 @@ std::vector<std::pair<std::vector<std::vector<size_t>>, size_t>> getPhasableVari
 		}
 		if (hasLowCoverage)
 		{
+			Logger::Log.log(Logger::LogLevel::DetailedDebugInfo) << "discard site " << result[i].second << " due to low coverage" << std::endl;
 			std::swap(result[i], result.back());
 			result.pop_back();
 		}
@@ -596,6 +607,7 @@ std::vector<std::pair<std::vector<std::vector<size_t>>, size_t>> getPhasableVari
 		assert(adds.size() == result.size());
 		for (size_t i = 0; i < adds.size(); i++)
 		{
+			Logger::Log.log(Logger::LogLevel::DetailedDebugInfo) << "site " << result[i].second << " got shifted to " << result[i].second+adds[i] << std::endl;
 			result[i].second += adds[i];
 		}
 	}
@@ -624,7 +636,7 @@ std::vector<std::vector<size_t>> trySplitTwoSites(const std::vector<std::pair<st
 	{
 		for (size_t j = i+1; j < phasableVariantInfo.size(); j++)
 		{
-			assert(phasableVariantInfo[i].second < phasableVariantInfo[j].second);
+			assert(phasableVariantInfo[i].second <= phasableVariantInfo[j].second);
 			if (phasableVariantInfo[j].second < phasableVariantInfo[i].second + minDistance) continue;
 			std::vector<std::pair<size_t, size_t>> allelesPerRead;
 			allelesPerRead.resize(numReads, std::make_pair(std::numeric_limits<size_t>::max(), std::numeric_limits<size_t>::max()));
