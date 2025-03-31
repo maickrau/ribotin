@@ -237,6 +237,38 @@ void removeRepeatKmersEitherRepeat(std::vector<std::pair<uint64_t, uint64_t>>& m
 	std::sort(matches.begin(), matches.end());
 }
 
+void removeNonDiagonalKmers(std::vector<std::tuple<size_t, size_t, size_t>>& kmerMatches)
+{
+	std::sort(kmerMatches.begin(), kmerMatches.end(), [](auto left, auto right){ return (int)std::get<0>(left) - (int)std::get<1>(left) < (int)std::get<0>(right) - (int)std::get<1>(right); });
+	size_t bestClusterSize = 0;
+	int bestClusterStart = 0;
+	int bestClusterEnd = 0;
+	size_t currentClusterStart = 0;
+	for (size_t i = 1; i <= kmerMatches.size(); i++)
+	{
+		if (i == kmerMatches.size() || (int)std::get<0>(kmerMatches[i]) - (int)std::get<1>(kmerMatches[i]) > (int)std::get<0>(kmerMatches[i-1]) - (int)std::get<1>(kmerMatches[i-1]) + 100)
+		{
+			size_t currentClusterSize = i - currentClusterStart;
+			if (currentClusterSize > bestClusterSize)
+			{
+				bestClusterSize = currentClusterSize;
+				bestClusterStart = (int)std::get<0>(kmerMatches[currentClusterStart]) - (int)std::get<1>(kmerMatches[currentClusterStart]);
+				bestClusterEnd = (int)std::get<0>(kmerMatches[i-1]) - (int)std::get<1>(kmerMatches[i-1]);
+			}
+			currentClusterSize = 0;
+			currentClusterStart = i;
+		}
+	}
+	for (size_t i = kmerMatches.size()-1; i < kmerMatches.size(); i--)
+	{
+		int diagonal = std::get<0>(kmerMatches[i]) - std::get<1>(kmerMatches[i]);
+		if (diagonal >= bestClusterStart && diagonal <= bestClusterEnd) continue;
+		std::swap(kmerMatches[i], kmerMatches.back());
+		kmerMatches.pop_back();
+	}
+	std::sort(kmerMatches.begin(), kmerMatches.end());
+}
+
 void removeNonDiagonalKmers(std::vector<std::pair<size_t, size_t>>& kmerMatches)
 {
 	std::sort(kmerMatches.begin(), kmerMatches.end(), [](auto left, auto right){ return (int)left.first - (int)left.second < (int)right.first - (int)right.second; });
@@ -1294,6 +1326,7 @@ std::vector<std::tuple<size_t, size_t, size_t>> getMatchRegionsRec(const std::st
 std::vector<std::tuple<size_t, size_t, size_t>> getMatchRegions(const std::string& refSequence, const std::string& querySequence)
 {
 	auto kmerMatches = getMatchRegionsRec(refSequence, querySequence, 31);
+	removeNonDiagonalKmers(kmerMatches);
 	if (kmerMatches.size() == 0) return kmerMatches;
 	std::sort(kmerMatches.begin(), kmerMatches.end());
 	for (size_t j = 1; j < kmerMatches.size(); j++)

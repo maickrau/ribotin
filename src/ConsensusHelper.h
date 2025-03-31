@@ -39,7 +39,7 @@ void iterateEdits(const std::string& rawConsensus, const std::string& sequence, 
 		if (std::get<0>(anchors[i]) - std::get<0>(anchors[i-1]) == std::get<1>(anchors[i]) - std::get<1>(anchors[i-1]) && std::get<0>(anchors[i]) - std::get<0>(anchors[i-1]) < std::get<2>(anchors[i-1])) continue;
 		std::string_view refSubstr { rawConsensus.data()+std::get<0>(anchors[i-1]), std::get<0>(anchors[i]) - std::get<0>(anchors[i-1]) + std::get<2>(anchors[i]) };
 		std::string_view querySubstr { sequence.data()+std::get<1>(anchors[i-1]), std::get<1>(anchors[i]) - std::get<1>(anchors[i-1]) + std::get<2>(anchors[i]) };
-		auto edits = getEdits(refSubstr, querySubstr, std::max(refSubstr.size(), querySubstr.size())*2);
+		auto edits = getEdits(refSubstr, querySubstr, (refSubstr.size()+querySubstr.size())*2);
 		for (auto edit : edits)
 		{
 			assert(std::get<1>(edit) >= std::get<0>(edit));
