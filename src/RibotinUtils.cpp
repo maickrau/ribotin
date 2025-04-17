@@ -41,7 +41,10 @@ std::string formatTime(std::chrono::steady_clock::time_point start, std::chrono:
 
 std::string nameWithoutTags(const std::string& rawname)
 {
-	auto spacepos = rawname.find(' ');
-	if (spacepos == std::string::npos) return rawname;
-	return rawname.substr(0, spacepos);
+	std::string result = rawname;
+	auto spacepos = result.find(' ');
+	if (spacepos != std::string::npos) result = result.substr(0, spacepos);
+	auto tabpos = result.find('\t')
+	if (tabpos != std::string::npos) result = result.substr(0, tabpos);
+	return result;
 }
