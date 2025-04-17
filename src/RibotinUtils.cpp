@@ -44,7 +44,7 @@ std::string nameWithoutTags(const std::string& rawname)
 	std::string result = rawname;
 	auto spacepos = result.find(' ');
 	if (spacepos != std::string::npos) result = result.substr(0, spacepos);
-	auto tabpos = result.find('\t')
+	auto tabpos = result.find('\t');
 	if (tabpos != std::string::npos) result = result.substr(0, tabpos);
 	return result;
 }
