@@ -302,11 +302,11 @@ void DoClusterONTAnalysis(const ClusterParams& params)
 	Logger::Log.log(Logger::LogLevel::Always) << "write self-corrected ONT loop sequences" << std::endl;
 	writeSelfCorrectedOntLoopSequences(params.basePath + "/tmp/loops_selfcorrected.fa", clusters);
 	Logger::Log.log(Logger::LogLevel::Always) << "getting morph consensuses" << std::endl;
-	auto morphConsensuses = getMorphConsensuses(clusters, graph, pathStartClip, pathEndClip, params.namePrefix);
+	auto morphConsensuses = getMorphConsensuses(clusters, graph, pathStartClip, pathEndClip);
 	Logger::Log.log(Logger::LogLevel::Always) << "polishing morph consensuses" << std::endl;
 	polishMorphConsensuses(morphConsensuses, clusters, params.MBGPath, params.basePath + "/tmp", params.numThreads);
 	Logger::Log.log(Logger::LogLevel::Always) << "write morph consensuses" << std::endl;
-	nameMorphConsensuses(morphConsensuses, graph, borderNodes, anchorNodes);
+	nameMorphConsensuses(morphConsensuses, graph, borderNodes, anchorNodes, params.namePrefix);
 	writeMorphConsensuses(params.basePath + "/morphs.fa", params.basePath + "/tmp/morphs_preconsensus.fa", morphConsensuses);
 	Logger::Log.log(Logger::LogLevel::Always) << "write morph paths" << std::endl;
 	writeMorphPaths(params.basePath + "/morphs.gaf", morphConsensuses, graph, pathStartClip, pathEndClip);

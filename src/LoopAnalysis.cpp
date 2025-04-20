@@ -712,7 +712,7 @@ std::vector<std::vector<OntLoop>> densityClusterLoops(const std::vector<std::vec
 	return result;
 }
 
-std::vector<MorphConsensus> getMorphConsensuses(const std::vector<std::vector<OntLoop>>& clusters, const GfaGraph& graph, const std::unordered_map<Node, size_t>& pathStartClip, const std::unordered_map<Node, size_t>& pathEndClip, const std::string& namePrefix)
+std::vector<MorphConsensus> getMorphConsensuses(const std::vector<std::vector<OntLoop>>& clusters, const GfaGraph& graph, const std::unordered_map<Node, size_t>& pathStartClip, const std::unordered_map<Node, size_t>& pathEndClip)
 {
 	std::vector<MorphConsensus> result;
 	for (size_t i = 0; i < clusters.size(); i++)
@@ -724,7 +724,6 @@ std::vector<MorphConsensus> getMorphConsensuses(const std::vector<std::vector<On
 		result.back().coverage = clusters[i].size();
 		result.back().ontLoops = clusters[i];
 		result.back().name = "morphconsensus" + std::to_string(i) + "_coverage" + std::to_string(result.back().coverage);
-		if (namePrefix != "") result.back().name = namePrefix + "_" + result.back().name;
 	}
 	return result;
 }
@@ -1373,7 +1372,7 @@ void writeLoopGraphSequences(const GfaGraph& graph, const std::string& outputFil
 	}
 }
 
-void nameMorphConsensuses(std::vector<MorphConsensus>& morphConsensuses, const GfaGraph& graph, const std::unordered_set<size_t>& borderNodes, const std::unordered_set<size_t>& anchorNodes)
+void nameMorphConsensuses(std::vector<MorphConsensus>& morphConsensuses, const GfaGraph& graph, const std::unordered_set<size_t>& borderNodes, const std::unordered_set<size_t>& anchorNodes, const std::string& namePrefix)
 {
 	for (size_t i = 0; i < morphConsensuses.size(); i++)
 	{
@@ -1395,5 +1394,6 @@ void nameMorphConsensuses(std::vector<MorphConsensus>& morphConsensuses, const G
 			type = "bordertwo";
 		}
 		morphConsensuses[i].name = "morphconsensus" + std::to_string(i) + "_" + type + "_" + "coverage" + std::to_string(morphConsensuses[i].ontLoops.size());
+		if (namePrefix != "") morphConsensuses[i].name = namePrefix + "_" + morphConsensuses[i].name;
 	}
 }
