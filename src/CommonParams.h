@@ -17,6 +17,7 @@ public:
 	bool hasGraphAligner() const;
 	bool hasWinnowmap() const;
 	bool hasSamtools() const;
+	std::string getMBGPath() const;
 	std::string GraphAlignerPath() const;
 	size_t numThreads() const;
 private:

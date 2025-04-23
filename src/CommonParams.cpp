@@ -239,6 +239,11 @@ size_t CommonParams::numThreads() const
 	return numThreadspriv;
 }
 
+std::string CommonParams::getMBGPath() const
+{
+	return MBGPath;
+}
+
 std::string CommonParams::GraphAlignerPath() const
 {
 	return GraphAlignerPathpriv;

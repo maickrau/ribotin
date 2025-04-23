@@ -352,19 +352,25 @@ int main(int argc, char** argv)
 	{
 		std::cerr << "tangle " << i << " has " << reads[i].size() << " hifi reads" << std::endl;
 	}
-	std::vector<std::string> readFileNames;
+	std::vector<std::string> tempReadFileNames;
+	std::vector<std::string> realReadFileNames;
 	for (size_t i = 0; i < numTangles; i++)
 	{
 		std::filesystem::create_directories(outputPrefix + std::to_string(i));
-		readFileNames.push_back(outputPrefix + std::to_string(i) + "/hifi_reads.fa");
+		std::filesystem::create_directories(outputPrefix + std::to_string(i) + "/tmp");
+		tempReadFileNames.push_back(outputPrefix + std::to_string(i) + "/tmp/hifi_reads_from_assembly.fa");
+		realReadFileNames.push_back(outputPrefix + std::to_string(i) + "/hifi_reads.fa");
 		writeNodes(outputPrefix + std::to_string(i) + "/nodes.txt", tangleNodes[i]);
 	}
 	std::cerr << "extracting HiFi/duplex reads per tangle" << std::endl;
-	bool allReadsFound = splitReads(hifiReadPaths, reads, readFileNames);
+	bool allReadsFound = splitReads(hifiReadPaths, reads, tempReadFileNames);
 	if (!allReadsFound)
 	{
 		std::cerr << "WARNING: some HiFi reads were not found in the input read files. Double check that all HiFi reads given to hifiasm are inputed with -i" << std::endl;
 	}
+	std::filesystem::create_directories(ulTmpFolder);
+	std::filesystem::create_directories(ulTmpFolder + "/tmp");
+	extractMoreHifiReads(hifiReadPaths, tempReadFileNames, realReadFileNames, commonParams.getMBGPath(), ulTmpFolder);
 	std::vector<size_t> tanglesWithoutReads;
 	std::string selectedONTPath = ulTmpFolder + "/ont_reads.fa";
 	for (size_t i = 0; i < numTangles; i++)
@@ -389,8 +395,6 @@ int main(int argc, char** argv)
 	}
 	if (doUL)
 	{
-		std::filesystem::create_directories(ulTmpFolder);
-		std::filesystem::create_directories(ulTmpFolder + "/tmp");
 		std::cerr << "getting kmers from tangles" << std::endl;
 		getKmers(outputPrefix, numTangles, ulTmpFolder + "/rdna_kmers.fa");
 		std::cerr << "extracting ultralong ONT reads" << std::endl;
