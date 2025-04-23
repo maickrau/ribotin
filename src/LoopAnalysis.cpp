@@ -728,19 +728,19 @@ std::vector<MorphConsensus> getMorphConsensuses(const std::vector<std::vector<On
 	return result;
 }
 
-void polishMorphConsensuses(std::vector<MorphConsensus>& morphConsensuses, const std::vector<std::vector<OntLoop>>& ontLoopSequences, const std::string MBGPath, const std::string tmpPath, const size_t numThreads)
+void polishMorphConsensuses(std::vector<MorphConsensus>& morphConsensuses, const std::string MBGPath, const std::string tmpPath, const size_t numThreads)
 {
 	for (size_t i = 0; i < morphConsensuses.size(); i++)
 	{
-		if (ontLoopSequences[i].size() < 3)
+		if (morphConsensuses[i].ontLoops.size() < 3)
 		{
-			Logger::Log.log(Logger::LogLevel::DebugInfo) << "skip polishing morph " << i << " with coverage " << ontLoopSequences[i].size() << std::endl;
+			Logger::Log.log(Logger::LogLevel::DebugInfo) << "skip polishing morph " << i << " with coverage " << morphConsensuses[i].ontLoops.size() << std::endl;
 			continue;
 		}
 		std::vector<std::string> seqs;
-		for (size_t k = 0; k < ontLoopSequences[i].size(); k++)
+		for (size_t k = 0; k < morphConsensuses[i].ontLoops.size(); k++)
 		{
-			seqs.emplace_back(ontLoopSequences[i][k].rawSequence);
+			seqs.emplace_back(morphConsensuses[i].ontLoops[k].rawSequence);
 		}
 		size_t sizeBeforePolish = morphConsensuses[i].sequence.size();
 		morphConsensuses[i].sequence = polishConsensus(morphConsensuses[i].sequence, seqs, numThreads);
@@ -1025,15 +1025,15 @@ std::vector<std::vector<std::string>> getRawLoopSequences(const std::vector<std:
 	return result;
 }
 
-void writeSelfCorrectedOntLoopSequences(const std::string outputFile, const std::vector<std::vector<OntLoop>>& loopSequences)
+void writeSelfCorrectedOntLoopSequences(const std::string outputFile, const std::vector<MorphConsensus>& loopSequences)
 {
 	std::ofstream file { outputFile };
 	for (size_t i = 0; i < loopSequences.size(); i++)
 	{
-		for (size_t j = 0; j < loopSequences[i].size(); j++)
+		for (size_t j = 0; j < loopSequences[i].ontLoops.size(); j++)
 		{
-			file << ">" << loopSequences[i][j].rawLoopName << std::endl;
-			file << loopSequences[i][j].selfCorrectedSequence << std::endl;
+			file << ">" << loopSequences[i].ontLoops[j].rawLoopName << std::endl;
+			file << loopSequences[i].ontLoops[j].selfCorrectedSequence << std::endl;
 		}
 	}
 }
@@ -1048,30 +1048,30 @@ void writeMissingOntLoopSequences(const std::string outputFile, const std::vecto
 	}
 }
 
-void writeRawOntLoopSequences(const std::string outputFile, const std::vector<std::vector<OntLoop>>& loopSequences)
+void writeRawOntLoopSequences(const std::string outputFile, const std::vector<MorphConsensus>& loopSequences)
 {
 	std::ofstream file { outputFile };
 	for (size_t i = 0; i < loopSequences.size(); i++)
 	{
-		for (size_t j = 0; j < loopSequences[i].size(); j++)
+		for (size_t j = 0; j < loopSequences[i].ontLoops.size(); j++)
 		{
-			file << ">" << loopSequences[i][j].rawLoopName << std::endl;
-			file << loopSequences[i][j].rawSequence << std::endl;
+			file << ">" << loopSequences[i].ontLoops[j].rawLoopName << std::endl;
+			file << loopSequences[i].ontLoops[j].rawSequence << std::endl;
 		}
 	}
 }
 
-void alignSelfCorrectedOntLoopsToMorphConsensuses(const std::vector<std::vector<OntLoop>>& loopSequences, std::string outputFile, std::string tmppath, const size_t numThreads, const std::vector<MorphConsensus>& morphConsensuses, const std::string& winnowmapPath, const std::string& samtoolsPath)
+void alignSelfCorrectedOntLoopsToMorphConsensuses(std::string outputFile, std::string tmppath, const size_t numThreads, const std::vector<MorphConsensus>& morphConsensuses, const std::string& winnowmapPath, const std::string& samtoolsPath)
 {
 	for (size_t i = 0; i < morphConsensuses.size(); i++)
 	{
 		{
 			std::ofstream tmpReadsFile { tmppath + "/tmpreads.fa" };
 			std::ofstream tmpConsensusFile { tmppath + "/tmpconsensus.fa" };
-			for (size_t j = 0; j < loopSequences[i].size(); j++)
+			for (size_t j = 0; j < morphConsensuses[i].ontLoops.size(); j++)
 			{
-				tmpReadsFile << ">" << loopSequences[i][j].rawLoopName << std::endl;
-				tmpReadsFile << loopSequences[i][j].selfCorrectedSequence << std::endl;
+				tmpReadsFile << ">" << morphConsensuses[i].ontLoops[j].rawLoopName << std::endl;
+				tmpReadsFile << morphConsensuses[i].ontLoops[j].selfCorrectedSequence << std::endl;
 			}
 			tmpConsensusFile << ">" << morphConsensuses[i].name << std::endl;
 			tmpConsensusFile << morphConsensuses[i].sequence << std::endl;
@@ -1110,17 +1110,17 @@ void alignSelfCorrectedOntLoopsToMorphConsensuses(const std::vector<std::vector<
 	}
 }
 
-void alignRawOntLoopsToMorphConsensuses(const std::vector<std::vector<OntLoop>>& loopSequences, std::string outputFile, std::string tmppath, const size_t numThreads, const std::vector<MorphConsensus>& morphConsensuses, const std::string& winnowmapPath, const std::string& samtoolsPath)
+void alignRawOntLoopsToMorphConsensuses(std::string outputFile, std::string tmppath, const size_t numThreads, const std::vector<MorphConsensus>& morphConsensuses, const std::string& winnowmapPath, const std::string& samtoolsPath)
 {
 	for (size_t i = 0; i < morphConsensuses.size(); i++)
 	{
 		{
 			std::ofstream tmpReadsFile { tmppath + "/tmpreads.fa" };
 			std::ofstream tmpConsensusFile { tmppath + "/tmpconsensus.fa" };
-			for (size_t j = 0; j < loopSequences[i].size(); j++)
+			for (size_t j = 0; j < morphConsensuses[i].ontLoops.size(); j++)
 			{
-				tmpReadsFile << ">" << loopSequences[i][j].rawLoopName << std::endl;
-				tmpReadsFile << loopSequences[i][j].rawSequence << std::endl;
+				tmpReadsFile << ">" << morphConsensuses[i].ontLoops[j].rawLoopName << std::endl;
+				tmpReadsFile << morphConsensuses[i].ontLoops[j].rawSequence << std::endl;
 			}
 			tmpConsensusFile << ">" << morphConsensuses[i].name << std::endl;
 			tmpConsensusFile << morphConsensuses[i].sequence << std::endl;
@@ -1173,28 +1173,28 @@ void addRawSequencesToLoops(std::vector<std::vector<OntLoop>>& clusters, const G
 	}
 }
 
-void addRawSequenceNamesToLoops(std::vector<std::vector<OntLoop>>& clusters)
+void addRawSequenceNamesToLoops(std::vector<MorphConsensus>& clusters)
 {
 	for (size_t i = 0; i < clusters.size(); i++)
 	{
-		for (size_t j = 0; j < clusters[i].size(); j++)
+		for (size_t j = 0; j < clusters[i].ontLoops.size(); j++)
 		{
-			clusters[i][j].rawLoopName = "morph_" + std::to_string(i) + "_rawloop_" + std::to_string(j) + "_" + clusters[i][j].readName + "_" + std::to_string(clusters[i][j].approxStart) + "_" + std::to_string(clusters[i][j].approxEnd);
+			clusters[i].ontLoops[j].rawLoopName = "morph_" + std::to_string(i) + "_rawloop_" + std::to_string(j) + "_" + clusters[i].ontLoops[j].readName + "_" + std::to_string(clusters[i].ontLoops[j].approxStart) + "_" + std::to_string(clusters[i].ontLoops[j].approxEnd);
 		}
 	}
 }
 
-void addSelfCorrectedOntLoopSequences(std::vector<std::vector<OntLoop>>& clusters)
+void addSelfCorrectedOntLoopSequences(std::vector<MorphConsensus>& clusters)
 {
 	for (size_t i = 0; i < clusters.size(); i++)
 	{
-		Logger::Log.log(Logger::LogLevel::DebugInfo) << "self-correct cluster " << i << " with size " << clusters[i].size() << std::endl;
-		auto selfCorrectedLoops = getSelfCorrectedLoops(clusters[i]);
-		assert(selfCorrectedLoops.size() == clusters[i].size());
-		for (size_t j = 0; j < clusters[i].size(); j++)
+		Logger::Log.log(Logger::LogLevel::DebugInfo) << "self-correct cluster " << i << " with size " << clusters[i].ontLoops.size() << std::endl;
+		auto selfCorrectedLoops = getSelfCorrectedLoops(clusters[i].ontLoops);
+		assert(selfCorrectedLoops.size() == clusters[i].ontLoops.size());
+		for (size_t j = 0; j < clusters[i].ontLoops.size(); j++)
 		{
-			clusters[i][j].selfCorrectedSequence = selfCorrectedLoops[j];
-			Logger::Log.log(Logger::LogLevel::DebugInfo) << "corrected read " << j << " from size " << clusters[i][j].rawSequence.size() << " to " << clusters[i][j].selfCorrectedSequence.size() << std::endl;
+			clusters[i].ontLoops[j].selfCorrectedSequence = selfCorrectedLoops[j];
+			Logger::Log.log(Logger::LogLevel::DebugInfo) << "corrected read " << j << " from size " << clusters[i].ontLoops[j].rawSequence.size() << " to " << clusters[i].ontLoops[j].selfCorrectedSequence.size() << std::endl;
 		}
 	}
 }
@@ -1372,7 +1372,7 @@ void writeLoopGraphSequences(const GfaGraph& graph, const std::string& outputFil
 	}
 }
 
-void nameMorphConsensuses(std::vector<MorphConsensus>& morphConsensuses, const GfaGraph& graph, const std::unordered_set<size_t>& borderNodes, const std::unordered_set<size_t>& anchorNodes, const std::string& namePrefix)
+void addMorphTypes(std::vector<MorphConsensus>& morphConsensuses, const GfaGraph& graph, const std::unordered_set<size_t>& borderNodes, const std::unordered_set<size_t>& anchorNodes)
 {
 	for (size_t i = 0; i < morphConsensuses.size(); i++)
 	{
@@ -1380,18 +1380,41 @@ void nameMorphConsensuses(std::vector<MorphConsensus>& morphConsensuses, const G
 		assert(borderNodes.count(morphConsensuses[i].path.back().id()) == 1);
 		bool hasAnchorStart = anchorNodes.count(morphConsensuses[i].path[0].id());
 		bool hasAnchorEnd = anchorNodes.count(morphConsensuses[i].path.back().id());
-		std::string type = "inner";
+		morphConsensuses[i].type = MorphConsensus::MorphType::Inner;
 		if (hasAnchorStart && hasAnchorEnd)
 		{
-			type = "isolated";
+			morphConsensuses[i].type = MorphConsensus::MorphType::Isolated;
 		}
 		else if (hasAnchorStart)
 		{
-			type = "borderone";
+			morphConsensuses[i].type = MorphConsensus::MorphType::BorderOne;
 		}
 		else if (hasAnchorEnd)
 		{
-			type = "bordertwo";
+			morphConsensuses[i].type = MorphConsensus::MorphType::BorderTwo;
+		}
+	}
+}
+
+void nameMorphConsensuses(std::vector<MorphConsensus>& morphConsensuses, const std::string& namePrefix)
+{
+	for (size_t i = 0; i < morphConsensuses.size(); i++)
+	{
+		std::string type = "";
+		switch(morphConsensuses[i].type)
+		{
+			case MorphConsensus::MorphType::Inner:
+				type = "inner";
+				break;
+			case MorphConsensus::MorphType::Isolated:
+				type = "isolated";
+				break;
+			case MorphConsensus::MorphType::BorderOne:
+				type = "borderone";
+				break;
+			case MorphConsensus::MorphType::BorderTwo:
+				type = "bordertwo";
+				break;
 		}
 		morphConsensuses[i].name = "morphconsensus" + std::to_string(i) + "_" + type + "_" + "coverage" + std::to_string(morphConsensuses[i].ontLoops.size());
 		if (namePrefix != "") morphConsensuses[i].name = namePrefix + "_" + morphConsensuses[i].name;

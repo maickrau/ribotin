@@ -97,12 +97,20 @@ public:
 class MorphConsensus
 {
 public:
+	enum MorphType
+	{
+		Inner,
+		BorderOne,
+		BorderTwo,
+		Isolated
+	};
 	std::vector<Node> path;
 	std::string sequence;
 	std::string preCorrectionSequence;
 	std::string name;
 	std::vector<OntLoop> ontLoops;
 	size_t coverage;
+	MorphType type;
 };
 
 class ReadPath

@@ -289,35 +289,38 @@ void DoClusterONTAnalysis(const ClusterParams& params)
 	}
 	Logger::Log.log(Logger::LogLevel::Always) << clusters.size() << " clusters" << std::endl;
 	std::sort(clusters.begin(), clusters.end(), [](const auto& left, const auto& right) { return left.size() > right.size(); });
-	addRawSequenceNamesToLoops(clusters);
-	Logger::Log.log(Logger::LogLevel::Always) << "write raw ONT loop sequences" << std::endl;
-	writeRawOntLoopSequences(params.basePath + "/raw_loops.fa", clusters);
 	Logger::Log.log(Logger::LogLevel::Always) << "get possible missing ONT loop sequences" << std::endl;
 	auto missingLoops = getMissingLoopSequences(clusters, graph, borderNodes, anchorNodes, pathStartClip, pathEndClip, ontPaths, minLength);
 	std::cerr << missingLoops.size() << " possible missing ONT loop sequences" << std::endl;
 	Logger::Log.log(Logger::LogLevel::Always) << "write possible missing ONT loop sequences" << std::endl;
 	writeMissingOntLoopSequences(params.basePath + "/missing_loops.fa", missingLoops);
-	Logger::Log.log(Logger::LogLevel::Always) << "get self-corrected ONT loop sequences" << std::endl;
-	addSelfCorrectedOntLoopSequences(clusters);
-	Logger::Log.log(Logger::LogLevel::Always) << "write self-corrected ONT loop sequences" << std::endl;
-	writeSelfCorrectedOntLoopSequences(params.basePath + "/tmp/loops_selfcorrected.fa", clusters);
 	Logger::Log.log(Logger::LogLevel::Always) << "getting morph consensuses" << std::endl;
 	auto morphConsensuses = getMorphConsensuses(clusters, graph, pathStartClip, pathEndClip);
 	Logger::Log.log(Logger::LogLevel::Always) << "polishing morph consensuses" << std::endl;
-	polishMorphConsensuses(morphConsensuses, clusters, params.MBGPath, params.basePath + "/tmp", params.numThreads);
-	Logger::Log.log(Logger::LogLevel::Always) << "write morph consensuses" << std::endl;
-	nameMorphConsensuses(morphConsensuses, graph, borderNodes, anchorNodes, params.namePrefix);
-	writeMorphConsensuses(params.basePath + "/morphs.fa", params.basePath + "/tmp/morphs_preconsensus.fa", morphConsensuses);
+	polishMorphConsensuses(morphConsensuses, params.MBGPath, params.basePath + "/tmp", params.numThreads);
+	addMorphTypes(morphConsensuses, graph, borderNodes, anchorNodes);
+	nameMorphConsensuses(morphConsensuses, params.namePrefix);
 	Logger::Log.log(Logger::LogLevel::Always) << "write morph paths" << std::endl;
 	writeMorphPaths(params.basePath + "/morphs.gaf", morphConsensuses, graph, pathStartClip, pathEndClip);
+
+	Logger::Log.log(Logger::LogLevel::Always) << "write raw ONT loop sequences" << std::endl;
+	addRawSequenceNamesToLoops(morphConsensuses);
+	writeRawOntLoopSequences(params.basePath + "/raw_loops.fa", morphConsensuses);
+	Logger::Log.log(Logger::LogLevel::Always) << "get self-corrected ONT loop sequences" << std::endl;
+	addSelfCorrectedOntLoopSequences(morphConsensuses);
+	Logger::Log.log(Logger::LogLevel::Always) << "write self-corrected ONT loop sequences" << std::endl;
+	writeSelfCorrectedOntLoopSequences(params.basePath + "/tmp/loops_selfcorrected.fa", morphConsensuses);
+	Logger::Log.log(Logger::LogLevel::Always) << "write morph consensuses" << std::endl;
+	nameMorphConsensuses(morphConsensuses, params.namePrefix);
+	writeMorphConsensuses(params.basePath + "/morphs.fa", params.basePath + "/tmp/morphs_preconsensus.fa", morphConsensuses);
 	Logger::Log.log(Logger::LogLevel::Always) << "write morph graph and read paths" << std::endl;
 	writeMorphGraphAndReadPaths(params.basePath + "/morphgraph.gfa", params.basePath + "/readpaths-morphgraph.gaf", morphConsensuses);
 	if (params.winnowmapPath != "" && params.samtoolsPath != "")
 	{
 		Logger::Log.log(Logger::LogLevel::Always) << "realign raw ONT loop sequences to morph consensuses" << std::endl;
-		alignRawOntLoopsToMorphConsensuses(clusters, params.basePath + "/raw_loop_to_morphs_alignments.bam", params.basePath + "/tmp", params.numThreads, morphConsensuses, params.winnowmapPath, params.samtoolsPath);
+		alignRawOntLoopsToMorphConsensuses(params.basePath + "/raw_loop_to_morphs_alignments.bam", params.basePath + "/tmp", params.numThreads, morphConsensuses, params.winnowmapPath, params.samtoolsPath);
 		Logger::Log.log(Logger::LogLevel::Always) << "realign self-corrected ONT loop sequences to morph consensuses" << std::endl;
-		alignSelfCorrectedOntLoopsToMorphConsensuses(clusters, params.basePath + "/tmp/selfcorrected_loop_to_morphs_alignments.bam", params.basePath + "/tmp", params.numThreads, morphConsensuses, params.winnowmapPath, params.samtoolsPath);
+		alignSelfCorrectedOntLoopsToMorphConsensuses(params.basePath + "/tmp/selfcorrected_loop_to_morphs_alignments.bam", params.basePath + "/tmp", params.numThreads, morphConsensuses, params.winnowmapPath, params.samtoolsPath);
 	}
 	else
 	{
