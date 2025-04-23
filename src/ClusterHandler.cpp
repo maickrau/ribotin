@@ -30,6 +30,7 @@
 #include "FileHelper.h"
 #include "LoopAnalysis.h"
 #include "Logger.h"
+#include "KmerMatcher.h"
 
 void runMBG(std::string basePath, std::string readPath, std::string MBGPath, const size_t k, const size_t maxResolveLength, const size_t numThreads)
 {
@@ -246,7 +247,7 @@ void HandleCluster(const ClusterParams& params)
 	}
 }
 
-void DoClusterONTAnalysis(const ClusterParams& params)
+std::vector<MorphConsensus> GetONTClusters(const ClusterParams& params)
 {
 	Logger::Log.log(Logger::LogLevel::Always) << "reading allele graph" << std::endl;
 	GfaGraph graph;
@@ -296,25 +297,36 @@ void DoClusterONTAnalysis(const ClusterParams& params)
 	writeMissingOntLoopSequences(params.basePath + "/missing_loops.fa", missingLoops);
 	Logger::Log.log(Logger::LogLevel::Always) << "getting morph consensuses" << std::endl;
 	auto morphConsensuses = getMorphConsensuses(clusters, graph, pathStartClip, pathEndClip);
-	Logger::Log.log(Logger::LogLevel::Always) << "polishing morph consensuses" << std::endl;
-	polishMorphConsensuses(morphConsensuses, params.MBGPath, params.basePath + "/tmp", params.numThreads);
+//	Logger::Log.log(Logger::LogLevel::Always) << "polishing morph consensuses" << std::endl;
+//	polishMorphConsensuses(morphConsensuses, params.MBGPath, params.basePath + "/tmp", params.numThreads);
 	addMorphTypes(morphConsensuses, graph, borderNodes, anchorNodes);
 	nameMorphConsensuses(morphConsensuses, params.namePrefix);
 	Logger::Log.log(Logger::LogLevel::Always) << "write morph paths" << std::endl;
 	writeMorphPaths(params.basePath + "/morphs.gaf", morphConsensuses, graph, pathStartClip, pathEndClip);
+	return morphConsensuses;
+}
 
-	Logger::Log.log(Logger::LogLevel::Always) << "write raw ONT loop sequences" << std::endl;
+void PostprocessONTClusters(std::vector<MorphConsensus>& morphConsensuses, const ClusterParams& params)
+{
+	Logger::Log.log(Logger::LogLevel::Always) << "polishing morph consensuses" << std::endl;
+	polishMorphConsensuses(morphConsensuses, params.MBGPath, params.basePath + "/tmp", params.numThreads);
 	addRawSequenceNamesToLoops(morphConsensuses);
-	writeRawOntLoopSequences(params.basePath + "/raw_loops.fa", morphConsensuses);
 	Logger::Log.log(Logger::LogLevel::Always) << "get self-corrected ONT loop sequences" << std::endl;
 	addSelfCorrectedOntLoopSequences(morphConsensuses);
+	nameMorphConsensuses(morphConsensuses, params.namePrefix);
+}
+
+void WriteONTClusters(const ClusterParams& params, const std::vector<MorphConsensus>& morphConsensuses)
+{
+	Logger::Log.log(Logger::LogLevel::Always) << "write raw ONT loop sequences" << std::endl;
+	writeRawOntLoopSequences(params.basePath + "/raw_loops.fa", morphConsensuses);
 	Logger::Log.log(Logger::LogLevel::Always) << "write self-corrected ONT loop sequences" << std::endl;
 	writeSelfCorrectedOntLoopSequences(params.basePath + "/tmp/loops_selfcorrected.fa", morphConsensuses);
 	Logger::Log.log(Logger::LogLevel::Always) << "write morph consensuses" << std::endl;
-	nameMorphConsensuses(morphConsensuses, params.namePrefix);
 	writeMorphConsensuses(params.basePath + "/morphs.fa", params.basePath + "/tmp/morphs_preconsensus.fa", morphConsensuses);
 	Logger::Log.log(Logger::LogLevel::Always) << "write morph graph and read paths" << std::endl;
-	writeMorphGraphAndReadPaths(params.basePath + "/morphgraph.gfa", params.basePath + "/readpaths-morphgraph.gaf", morphConsensuses);
+	auto morphGraph = getMorphGraph(morphConsensuses);
+	writeMorphGraphAndReadPaths(params.basePath + "/morphgraph.gfa", params.basePath + "/readpaths-morphgraph.gaf", morphGraph);
 	if (params.winnowmapPath != "" && params.samtoolsPath != "")
 	{
 		Logger::Log.log(Logger::LogLevel::Always) << "realign raw ONT loop sequences to morph consensuses" << std::endl;
@@ -339,4 +351,235 @@ void DoClusterONTAnalysis(const ClusterParams& params)
 		Logger::Log.log(Logger::LogLevel::Always) << "lifting over annotations to morphs" << std::endl;
 		liftoverAnnotationsToMorphs(params.basePath, morphConsensuses, params.annotationFasta, params.annotationGff3, params.basePath + "/tmp", params.liftoffPath);
 	}
+}
+
+phmap::flat_hash_set<size_t> getContigsInCircularComponent(const GfaGraph& graph)
+{
+	phmap::flat_hash_set<size_t> result;
+	for (size_t i = 0; i < graph.numNodes(); i++)
+	{
+		if (getSelfDistance(graph, i) == std::numeric_limits<size_t>::max()) continue;
+		result.insert(i);
+	}
+	return result;
+}
+
+std::vector<std::vector<MorphConsensus>> splitClustersByTangle(const std::vector<MorphConsensus>& morphConsensuses, const std::string outputPrefix, const size_t numTangles)
+{
+	const size_t k = 101;
+	std::vector<KmerMatcher> perTangleMatchers;
+	for (size_t tangle = 0; tangle < numTangles; tangle++)
+	{
+		perTangleMatchers.emplace_back(k);
+		GfaGraph graph;
+		graph.loadFromFile(outputPrefix + std::to_string(tangle) + "/processed-graph.gfa");
+		phmap::flat_hash_set<size_t> contigsInCircularComponent = getContigsInCircularComponent(graph);
+		for (size_t node : contigsInCircularComponent)
+		{
+			perTangleMatchers[tangle].addReferenceKmers(graph.nodeSeqs[node]);
+		}
+	}
+	for (size_t tangle = 0; tangle < numTangles; tangle++)
+	{
+		GfaGraph graph;
+		graph.loadFromFile(outputPrefix + std::to_string(tangle) + "/processed-graph.gfa");
+		phmap::flat_hash_set<size_t> contigsInCircularComponent = getContigsInCircularComponent(graph);
+		for (size_t otherTangle = 0; otherTangle < perTangleMatchers.size(); otherTangle++)
+		{
+			if (otherTangle == tangle) continue;
+			for (size_t node : contigsInCircularComponent)
+			{
+				perTangleMatchers[otherTangle].removeReferenceKmers(graph.nodeSeqs[node]);
+			}
+		}
+	}
+	std::vector<std::vector<size_t>> matchCount;
+	for (size_t i = 0; i < morphConsensuses.size(); i++)
+	{
+		matchCount.emplace_back();
+		matchCount.back().resize(numTangles);
+		for (size_t j = 0; j < numTangles; j++)
+		{
+			matchCount.back()[j] = perTangleMatchers[j].getMatchLength(morphConsensuses[i].sequence);
+		}
+	}
+	MorphGraph morphgraph = getMorphGraph(morphConsensuses);
+	std::vector<size_t> morphClusterAssignment;
+	morphClusterAssignment.resize(morphConsensuses.size(), std::numeric_limits<size_t>::max());
+	for (size_t i = 0; i < morphConsensuses.size(); i++)
+	{
+		if (morphConsensuses[i].type != MorphConsensus::MorphType::Inner) continue;
+		size_t maxTangle = std::numeric_limits<size_t>::max();
+		size_t maxTangleMatches = 0;
+		for (size_t j = 0; j < numTangles; j++)
+		{
+			if (matchCount[i][j] == maxTangleMatches)
+			{
+				maxTangle = std::numeric_limits<size_t>::max();
+			}
+			if (matchCount[i][j] > maxTangleMatches)
+			{
+				maxTangle = j;
+				maxTangleMatches = matchCount[i][j];
+			}
+		}
+		morphClusterAssignment[i] = maxTangle;
+	}
+	std::vector<size_t> morphUniqueTangleFw;
+	std::vector<size_t> morphUniqueTangleBw;
+	morphUniqueTangleBw.resize(morphConsensuses.size(), std::numeric_limits<size_t>::max());
+	morphUniqueTangleFw.resize(morphConsensuses.size(), std::numeric_limits<size_t>::max());
+	for (auto pair : morphgraph.edgeCoverage)
+	{
+		Node from = pair.first.first;
+		Node to = pair.first.second;
+		if (morphClusterAssignment[to.id()] != std::numeric_limits<size_t>::max())
+		{
+			if (from.forward())
+			{
+				if (morphUniqueTangleFw[from.id()] == std::numeric_limits<size_t>::max())
+				{
+					morphUniqueTangleFw[from.id()] = morphClusterAssignment[to.id()];
+				}
+				else if (morphUniqueTangleFw[from.id()] != morphClusterAssignment[to.id()])
+				{
+					morphUniqueTangleFw[from.id()] = std::numeric_limits<size_t>::max()-1;
+				}
+			}
+			else
+			{
+				if (morphUniqueTangleBw[from.id()] == std::numeric_limits<size_t>::max())
+				{
+					morphUniqueTangleBw[from.id()] = morphClusterAssignment[to.id()];
+				}
+				else if (morphUniqueTangleBw[from.id()] != morphClusterAssignment[to.id()])
+				{
+					morphUniqueTangleBw[from.id()] = std::numeric_limits<size_t>::max()-1;
+				}
+			}
+		}
+		if (morphClusterAssignment[from.id()] != std::numeric_limits<size_t>::max())
+		{
+			if (to.forward())
+			{
+				if (morphUniqueTangleFw[to.id()] == std::numeric_limits<size_t>::max())
+				{
+					morphUniqueTangleFw[to.id()] = morphClusterAssignment[from.id()];
+				}
+				else if (morphUniqueTangleFw[to.id()] != morphClusterAssignment[from.id()])
+				{
+					morphUniqueTangleFw[to.id()] = std::numeric_limits<size_t>::max()-1;
+				}
+			}
+			else
+			{
+				if (morphUniqueTangleBw[to.id()] == std::numeric_limits<size_t>::max())
+				{
+					morphUniqueTangleBw[to.id()] = morphClusterAssignment[from.id()];
+				}
+				else if (morphUniqueTangleBw[to.id()] != morphClusterAssignment[from.id()])
+				{
+					morphUniqueTangleBw[to.id()] = std::numeric_limits<size_t>::max()-1;
+				}
+			}
+		}
+	}
+	for (size_t i = 0; i < morphConsensuses.size(); i++)
+	{
+		if (morphUniqueTangleBw[i] != morphUniqueTangleFw[i]) continue;
+		if (morphUniqueTangleBw[i] == morphClusterAssignment[i]) continue;
+		if (morphConsensuses[i].type == MorphConsensus::MorphType::Inner)
+		{
+			if (morphClusterAssignment[i] != std::numeric_limits<size_t>::max())
+			{
+				if (matchCount[i][morphUniqueTangleBw[i]] < matchCount[i][morphClusterAssignment[i]] * 0.5)
+				{
+					continue;
+				}
+			}
+		}
+		morphClusterAssignment[i] = morphUniqueTangleBw[i];
+	}
+	phmap::flat_hash_map<std::string, size_t> readTangleAssignment;
+	for (size_t i = 0; i < morphConsensuses.size(); i++)
+	{
+		if (morphClusterAssignment[i] == std::numeric_limits<size_t>::max()) continue;
+		for (size_t j = 0; j < morphConsensuses[i].ontLoops.size(); j++)
+		{
+			if (readTangleAssignment.count(morphConsensuses[i].ontLoops[j].readName) == 0)
+			{
+				readTangleAssignment[morphConsensuses[i].ontLoops[j].readName] = morphClusterAssignment[i];
+			}
+			else if (readTangleAssignment.at(morphConsensuses[i].ontLoops[j].readName) != morphClusterAssignment[i])
+			{
+				readTangleAssignment[morphConsensuses[i].ontLoops[j].readName] = std::numeric_limits<size_t>::max();
+			}
+		}
+	}
+	for (size_t i = 0; i < morphConsensuses.size(); i++)
+	{
+		if (morphClusterAssignment[i] != std::numeric_limits<size_t>::max()) continue;
+		std::vector<size_t> readMatchesPerCluster;
+		readMatchesPerCluster.resize(numTangles, 0);
+		for (size_t j = 0; j < morphConsensuses[i].ontLoops.size(); j++)
+		{
+			if (readTangleAssignment.count(morphConsensuses[i].ontLoops[j].readName) == 0) continue;
+			if (readTangleAssignment.at(morphConsensuses[i].ontLoops[j].readName) == std::numeric_limits<size_t>::max()) continue;
+			readMatchesPerCluster[readTangleAssignment.at(morphConsensuses[i].ontLoops[j].readName)] += 1;
+		}
+		size_t maxTangle = std::numeric_limits<size_t>::max();
+		size_t maxTangleMatches = 0;
+		size_t countWithMatches = 0;
+		for (size_t j = 0; j < numTangles; j++)
+		{
+			if (readMatchesPerCluster[j] > 0) countWithMatches += 1;
+			if (readMatchesPerCluster[j] == maxTangleMatches) maxTangle = std::numeric_limits<size_t>::max();
+			if (readMatchesPerCluster[j] > maxTangleMatches)
+			{
+				maxTangleMatches = readMatchesPerCluster[j];
+				maxTangle = j;
+			}
+		}
+		morphClusterAssignment[i] = maxTangle;
+		if (countWithMatches >= 2 && morphConsensuses[i].type != MorphConsensus::MorphType::Inner)
+		{
+			morphClusterAssignment[i] = std::numeric_limits<size_t>::max()-1;
+		}
+	}
+	std::vector<std::vector<MorphConsensus>> result;
+	result.resize(numTangles+1);
+	for (size_t i = 0; i < morphConsensuses.size(); i++)
+	{
+		if (morphClusterAssignment[i] == std::numeric_limits<size_t>::max())
+		{
+			result.back().emplace_back(morphConsensuses[i]);
+			continue;
+		}
+		if (morphClusterAssignment[i] == std::numeric_limits<size_t>::max()-1)
+		{
+			std::vector<std::vector<size_t>> readsPerTangle;
+			readsPerTangle.resize(numTangles);
+			for (size_t j = 0; j < morphConsensuses[i].ontLoops.size(); j++)
+			{
+				if (readTangleAssignment.count(morphConsensuses[i].ontLoops[j].readName) == 0) continue;
+				if (readTangleAssignment.at(morphConsensuses[i].ontLoops[j].readName) == std::numeric_limits<size_t>::max()) continue;
+				readsPerTangle[readTangleAssignment.at(morphConsensuses[i].ontLoops[j].readName)].emplace_back(j);
+			}
+			for (size_t j = 0; j < numTangles; j++)
+			{
+				if (readsPerTangle[j].size() == 0) continue;
+				result[j].emplace_back();
+				result[j].back() = morphConsensuses[i];
+				result[j].back().ontLoops.clear();
+				for (size_t k : readsPerTangle[j])
+				{
+					result[j].back().ontLoops.emplace_back(morphConsensuses[i].ontLoops[k]);
+				}
+				result[j].back().coverage = result[j].back().ontLoops.size();
+			}
+			continue;
+		}
+		result[morphClusterAssignment[i]].emplace_back(morphConsensuses[i]);
+	}
+	return result;
 }

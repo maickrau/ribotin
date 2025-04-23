@@ -37,6 +37,23 @@ kmers()
 {
 }
 
+void KmerMatcher::removeReferenceKmers(std::string seq)
+{
+	for (size_t i = 0; i < seq.size(); i++)
+	{
+		seq[i] = charToInt(seq[i]);
+	}
+	auto revcomp = reverseComplementInt(seq);
+	iterateSyncmersFast(seq, k, s, [this](size_t pos, size_t hash)
+	{
+		if (kmers.count(hash) == 1) kmers.erase(hash);
+	});
+	iterateSyncmersFast(revcomp, k, s, [this](size_t pos, size_t hash)
+	{
+		if (kmers.count(hash) == 1) kmers.erase(hash);
+	});
+}
+
 void KmerMatcher::addReferenceKmers(std::string seq)
 {
 	for (size_t i = 0; i < seq.size(); i++)

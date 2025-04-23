@@ -132,13 +132,12 @@ int main(int argc, char** argv)
 			readsfile << seq.sequence << std::endl;
 		});
 		clusterParams.ontReadPath = clusterParams.basePath + "/ont_reads.fa";
-	}
-	if (ontReadPaths.size() > 0)
-	{
 		std::cerr << "start ultralong ONT analysis" << std::endl;
 		std::cerr << "aligning ultralong ONT reads to allele graph" << std::endl;
 		AlignONTReads(clusterParams.basePath, commonParams.GraphAlignerPath(), clusterParams.ontReadPath, clusterParams.basePath + "/processed-graph.gfa", clusterParams.basePath + "/ont-alns.gaf", clusterParams.numThreads);
-		DoClusterONTAnalysis(clusterParams);
+		auto clusters = GetONTClusters(clusterParams);
+		PostprocessONTClusters(clusters, clusterParams);
+		WriteONTClusters(clusterParams, clusters);
 	}
 	std::cerr << "done" << std::endl;
 }
