@@ -37,6 +37,13 @@ kmers()
 {
 }
 
+KmerMatcher::KmerMatcher(size_t k, size_t s) :
+k(k),
+s(s),
+kmers()
+{
+}
+
 void KmerMatcher::removeReferenceKmers(std::string seq)
 {
 	for (size_t i = 0; i < seq.size(); i++)
@@ -69,6 +76,20 @@ void KmerMatcher::addReferenceKmers(std::string seq)
 	{
 		kmers.insert(hash);
 	});
+}
+
+size_t KmerMatcher::getMatchKmerCount(std::string seq) const
+{
+	for (size_t i = 0; i < seq.size(); i++)
+	{
+		seq[i] = charToInt(seq[i]);
+	}
+	size_t matchSum = 0;
+	iterateHashesFast(seq, k, kmers, [this, &matchSum](size_t pos, size_t hash)
+	{
+		matchSum += 1;
+	});
+	return matchSum;
 }
 
 size_t KmerMatcher::getMatchLength(std::string seq) const

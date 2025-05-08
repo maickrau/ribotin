@@ -370,7 +370,7 @@ std::vector<std::vector<MorphConsensus>> splitClustersByTangle(const std::vector
 	std::vector<KmerMatcher> perTangleMatchers;
 	for (size_t tangle = 0; tangle < numTangles; tangle++)
 	{
-		perTangleMatchers.emplace_back(k);
+		perTangleMatchers.emplace_back(k, k);
 		GfaGraph graph;
 		graph.loadFromFile(outputPrefix + std::to_string(tangle) + "/processed-graph.gfa");
 		phmap::flat_hash_set<size_t> contigsInCircularComponent = getContigsInCircularComponent(graph);
@@ -400,7 +400,7 @@ std::vector<std::vector<MorphConsensus>> splitClustersByTangle(const std::vector
 		matchCount.back().resize(numTangles);
 		for (size_t j = 0; j < numTangles; j++)
 		{
-			matchCount.back()[j] = perTangleMatchers[j].getMatchLength(morphConsensuses[i].sequence);
+			matchCount.back()[j] = perTangleMatchers[j].getMatchKmerCount(morphConsensuses[i].sequence);
 		}
 	}
 	MorphGraph morphgraph = getMorphGraph(morphConsensuses);
@@ -409,6 +409,12 @@ std::vector<std::vector<MorphConsensus>> splitClustersByTangle(const std::vector
 	for (size_t i = 0; i < morphConsensuses.size(); i++)
 	{
 		if (morphConsensuses[i].type != MorphConsensus::MorphType::Inner) continue;
+		Logger::Log.log(Logger::LogLevel::DetailedDebugInfo) << "morph " << i << " tangle match counts";
+		for (size_t j = 0; j < numTangles; j++)
+		{
+			Logger::Log.log(Logger::LogLevel::DetailedDebugInfo) << " " << matchCount[i][j];
+		}
+		Logger::Log.log(Logger::LogLevel::DetailedDebugInfo) << std::endl;
 		size_t maxTangle = std::numeric_limits<size_t>::max();
 		size_t maxTangleMatches = 0;
 		for (size_t j = 0; j < numTangles; j++)
@@ -499,6 +505,7 @@ std::vector<std::vector<MorphConsensus>> splitClustersByTangle(const std::vector
 			}
 		}
 		morphClusterAssignment[i] = morphUniqueTangleBw[i];
+		Logger::Log.log(Logger::LogLevel::DetailedDebugInfo) << "topology based reassign morph " << i << " to tangle " << morphClusterAssignment[i] << std::endl;
 	}
 	phmap::flat_hash_map<std::string, size_t> readTangleAssignment;
 	for (size_t i = 0; i < morphConsensuses.size(); i++)
@@ -545,6 +552,7 @@ std::vector<std::vector<MorphConsensus>> splitClustersByTangle(const std::vector
 		{
 			morphClusterAssignment[i] = std::numeric_limits<size_t>::max()-1;
 		}
+		Logger::Log.log(Logger::LogLevel::DetailedDebugInfo) << "read based reassign morph " << i << " to tangle " << morphClusterAssignment[i] << std::endl;
 	}
 	std::vector<std::vector<MorphConsensus>> result;
 	result.resize(numTangles+1);
@@ -568,6 +576,7 @@ std::vector<std::vector<MorphConsensus>> splitClustersByTangle(const std::vector
 			for (size_t j = 0; j < numTangles; j++)
 			{
 				if (readsPerTangle[j].size() == 0) continue;
+				Logger::Log.log(Logger::LogLevel::DetailedDebugInfo) << "split morph " << i << " to tangle " << j << " read count " << readsPerTangle[j].size() << std::endl;
 				result[j].emplace_back();
 				result[j].back() = morphConsensuses[i];
 				result[j].back().ontLoops.clear();

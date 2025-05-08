@@ -366,7 +366,6 @@ int main(int argc, char** argv)
 		std::cerr << "WARNING: some HiFi reads were not found in the input read files. Double check that all HiFi reads given to hifiasm are inputed with -i" << std::endl;
 	}
 	std::vector<size_t> tanglesWithoutReads;
-	std::string selectedONTPath = ulTmpFolder + "/ont_reads.fa";
 	for (size_t i = 0; i < numTangles; i++)
 	{
 		if (reads[i].size() == 0)
@@ -380,23 +379,21 @@ int main(int argc, char** argv)
 		clusterParams.namePrefix = clusterParams.namePrefix + (clusterParams.namePrefix.size() > 0 ? "_" : "") + "tangle" + std::to_string(i);
 		clusterParams.basePath = outputPrefix + std::to_string(i);
 		clusterParams.hifiReadPath = outputPrefix + std::to_string(i) + "/hifi_reads.fa";
-		if (doUL)
-		{
-			clusterParams.ontReadPath = selectedONTPath;
-		}
 		std::cerr << "running tangle " << i << " in folder " << outputPrefix + std::to_string(i) << std::endl;
 		HandleCluster(clusterParams);
 	}
 	if (doUL)
 	{
+		std::string selectedONTPath = ulTmpFolder + "/ont_reads.fa";
+		ClusterParams clusterParams;
+		commonParams.addToClusterOptions(clusterParams);
+		clusterParams.basePath = ulTmpFolder;
+		clusterParams.hifiReadPath = clusterParams.basePath + "/hifi_reads.fa";
 		std::filesystem::create_directories(ulTmpFolder);
 		std::filesystem::create_directories(ulTmpFolder + "/tmp");
 		std::cerr << "getting kmers from tangles" << std::endl;
 		std::string tmpKmerFile = ulTmpFolder + "/rdna_kmers.fa";
 		getKmers(outputPrefix, numTangles, tmpKmerFile);
-		ClusterParams clusterParams;
-		commonParams.addToClusterOptions(clusterParams);
-		clusterParams.basePath = ulTmpFolder;
 		std::cerr << "extracting HiFi/duplex reads" << std::endl;
 		{
 			std::ofstream readsfile { clusterParams.basePath + "/hifi_reads.fa" };
@@ -407,7 +404,6 @@ int main(int argc, char** argv)
 			});
 		}
 		std::cerr << "running" << std::endl;
-		clusterParams.hifiReadPath = clusterParams.basePath + "/hifi_reads.fa";
 		HandleCluster(clusterParams);
 		std::cerr << "extracting ultralong ONT reads" << std::endl;
 		size_t consensusLength = medianConsensusLength(outputPrefix, numTangles);
@@ -424,6 +420,11 @@ int main(int argc, char** argv)
 		std::cerr << "aligning ONT reads" << std::endl;
 		AlignONTReads(clusterParams.basePath, commonParams.GraphAlignerPath(), clusterParams.ontReadPath, clusterParams.basePath + "/processed-graph.gfa", clusterParams.basePath + "/ont-alns.gaf", clusterParams.numThreads);
 		auto clusters = GetONTClusters(clusterParams);
+		{
+			ClusterParams tangleClusterParams = clusterParams;
+			PostprocessONTClusters(clusters, tangleClusterParams);
+			WriteONTClusters(tangleClusterParams, clusters);
+		}
 		std::cerr << "splitting morphs per tangle" << std::endl;
 		auto splittedClusters = splitClustersByTangle(clusters, outputPrefix, numTangles);
 		assert(splittedClusters.size() == numTangles+1);
@@ -432,15 +433,16 @@ int main(int argc, char** argv)
 			ClusterParams tangleClusterParams = clusterParams;
 			tangleClusterParams.namePrefix = tangleClusterParams.namePrefix + (tangleClusterParams.namePrefix.size() > 0 ? "_" : "") + "tangle" + std::to_string(i);
 			tangleClusterParams.basePath = outputPrefix + std::to_string(i);
-			PostprocessONTClusters(splittedClusters[i], clusterParams);
+			PostprocessONTClusters(splittedClusters[i], tangleClusterParams);
 			WriteONTClusters(tangleClusterParams, splittedClusters[i]);
 		}
 		if (splittedClusters.back().size() >= 1)
 		{
+			std::filesystem::create_directories(outputPrefix + "_unknowntangle");
 			ClusterParams tangleClusterParams = clusterParams;
 			tangleClusterParams.namePrefix = tangleClusterParams.namePrefix + (tangleClusterParams.namePrefix.size() > 0 ? "_" : "") + "unknowntangle";
 			tangleClusterParams.basePath = outputPrefix + "_unknowntangle";
-			PostprocessONTClusters(splittedClusters.back(), clusterParams);
+			PostprocessONTClusters(splittedClusters.back(), tangleClusterParams);
 			WriteONTClusters(tangleClusterParams, splittedClusters.back());
 		}
 	}

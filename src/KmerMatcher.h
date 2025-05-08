@@ -12,9 +12,11 @@ class KmerMatcher
 {
 public:
 	KmerMatcher(size_t k);
+	KmerMatcher(size_t k, size_t s);
 	void addReferenceKmers(std::string seq);
 	void removeReferenceKmers(std::string seq);
 	size_t getMatchLength(std::string seq) const;
+	size_t getMatchKmerCount(std::string seq) const;
 private:
 	size_t k;
 	size_t s;
