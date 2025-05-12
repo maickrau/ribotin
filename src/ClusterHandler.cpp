@@ -353,19 +353,62 @@ void WriteONTClusters(const ClusterParams& params, const std::vector<MorphConsen
 	}
 }
 
+void expandCircularComponent(std::vector<bool>& partOfCircularComponent, const GfaGraph& graph, const size_t startNode)
+{
+	phmap::flat_hash_set<Node> reachable;
+	std::vector<Node> checkStack;
+	checkStack.emplace_back(startNode, true);
+	checkStack.emplace_back(startNode, false);
+	while (checkStack.size() >= 1)
+	{
+		auto top = checkStack.back();
+		checkStack.pop_back();
+		if (reachable.count(top) == 1) continue;
+		reachable.insert(top);
+		if (graph.edges.count(top) == 1)
+		{
+			for (auto edge : graph.edges.at(top))
+			{
+				checkStack.emplace_back(std::get<0>(edge));
+			}
+		}
+	}
+	for (Node node : reachable)
+	{
+		if (reachable.count(reverse(node)) == 0) continue;
+		partOfCircularComponent[node.id()] = true;
+	}
+}
+
 phmap::flat_hash_set<size_t> getContigsInCircularComponent(const GfaGraph& graph)
 {
-	phmap::flat_hash_set<size_t> result;
+	std::vector<bool> partOfCircularComponent;
+	partOfCircularComponent.resize(graph.numNodes(), false);
 	for (size_t i = 0; i < graph.numNodes(); i++)
 	{
+		if (partOfCircularComponent[i]) continue;
 		if (getSelfDistance(graph, i) == std::numeric_limits<size_t>::max()) continue;
-		result.insert(i);
+		partOfCircularComponent[i] = true;
+		expandCircularComponent(partOfCircularComponent, graph, i);
+	}
+	phmap::flat_hash_set<size_t> result;
+	for (size_t i = 0; i < partOfCircularComponent.size(); i++)
+	{
+		if (partOfCircularComponent[i]) result.emplace(i);
 	}
 	return result;
 }
 
 std::vector<std::vector<MorphConsensus>> splitClustersByTangle(const std::vector<MorphConsensus>& morphConsensuses, const std::string outputPrefix, const size_t numTangles)
 {
+	assert(numTangles >= 1);
+	if (numTangles == 1)
+	{
+		std::vector<std::vector<MorphConsensus>> result;
+		result.emplace_back(morphConsensuses);
+		return result;
+	}
+	assert(numTangles >= 2);
 	const size_t k = 101;
 	std::vector<KmerMatcher> perTangleMatchers;
 	for (size_t tangle = 0; tangle < numTangles; tangle++)
@@ -377,19 +420,22 @@ std::vector<std::vector<MorphConsensus>> splitClustersByTangle(const std::vector
 		for (size_t node : contigsInCircularComponent)
 		{
 			perTangleMatchers[tangle].addReferenceKmers(graph.nodeSeqs[node]);
+			auto rc = revcomp(graph.nodeSeqs[node]);
+			perTangleMatchers[tangle].addReferenceKmers(rc);
 		}
 	}
 	for (size_t tangle = 0; tangle < numTangles; tangle++)
 	{
 		GfaGraph graph;
 		graph.loadFromFile(outputPrefix + std::to_string(tangle) + "/processed-graph.gfa");
-		phmap::flat_hash_set<size_t> contigsInCircularComponent = getContigsInCircularComponent(graph);
-		for (size_t otherTangle = 0; otherTangle < perTangleMatchers.size(); otherTangle++)
+		for (size_t node = 0; node < graph.numNodes(); node++)
 		{
-			if (otherTangle == tangle) continue;
-			for (size_t node : contigsInCircularComponent)
+			for (size_t otherTangle = 0; otherTangle < numTangles; otherTangle++)
 			{
+				if (otherTangle == tangle) continue;
 				perTangleMatchers[otherTangle].removeReferenceKmers(graph.nodeSeqs[node]);
+				auto rc = revcomp(graph.nodeSeqs[node]);
+				perTangleMatchers[otherTangle].removeReferenceKmers(rc);
 			}
 		}
 	}
@@ -589,6 +635,20 @@ std::vector<std::vector<MorphConsensus>> splitClustersByTangle(const std::vector
 			continue;
 		}
 		result[morphClusterAssignment[i]].emplace_back(morphConsensuses[i]);
+	}
+	{
+		std::ofstream file { "tangle_match_counts.csv" };
+		file << "node\tmatch_counts\tassignment" << std::endl;
+		for (size_t i = 0; i < morphConsensuses.size(); i++)
+		{
+			file << morphConsensuses[i].name << "\t";
+			for (size_t j = 0; j < matchCount[i].size(); j++)
+			{
+				if (j != 0) file << "_";
+				file << matchCount[i][j];
+			}
+			file << "\t" << morphClusterAssignment[i] << std::endl;
+		}
 	}
 	return result;
 }
