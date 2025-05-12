@@ -952,15 +952,23 @@ std::string getCentralModalAllele(const std::vector<std::string>& sequences, con
 	}
 	assert(modalAlleles.size() >= 1);
 	if (modalAlleles.size() == 1) return modalAlleles[0];
+	if (modalAlleles.size() == sequences.size()) return modalAlleles[0];
 	std::vector<size_t> weightedEdits;
 	weightedEdits.resize(modalAlleles.size(), 0);
 	for (size_t i = 0; i < modalAlleles.size(); i++)
 	{
 		for (const auto& pair : alleleCounts)
 		{
+			if (pair.second == modalAlleleCoverage) continue;
 			if (pair.first == modalAlleles[i]) continue;
 			size_t edits = getEditDistanceWfa(modalAlleles[i], pair.first);
 			weightedEdits[i] += edits * pair.second;
+		}
+		for (size_t j = 0; j < i; j++)
+		{
+			size_t edits = getEditDistanceWfa(modalAlleles[i], modalAlleles[j]);
+			weightedEdits[i] += edits * modalAlleleCoverage;
+			weightedEdits[j] += edits * modalAlleleCoverage;
 		}
 	}
 	size_t bestIndex = 0;
