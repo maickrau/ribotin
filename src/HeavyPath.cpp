@@ -445,16 +445,36 @@ Path getHeavyPath(const GfaGraph& graph, const std::vector<ReadPath>& readPaths,
 	std::vector<size_t> selfDistances;
 	size_t distanceSum = 0;
 	size_t distanceDivisor = 0;
+	std::vector<std::pair<size_t, size_t>> selfDistanceAndLengths;
 	for (size_t i = 0; i < graph.numNodes(); i++)
 	{
 		size_t selfDistance = getSelfDistance(graph, i);
 		selfDistances.emplace_back(selfDistance);
 		if (selfDistance == std::numeric_limits<size_t>::max()) continue;
 		if (selfDistance < localResolveLength) continue;
+		selfDistanceAndLengths.emplace_back(selfDistance, graph.nodeSeqs[i].size());
 		distanceSum += selfDistance * graph.nodeSeqs[i].size();
 		distanceDivisor += graph.nodeSeqs[i].size();
 	}
-	size_t estimatedMinimalSelfDistance = distanceSum/distanceDivisor/2;
+	std::sort(selfDistanceAndLengths.begin(), selfDistanceAndLengths.end());
+	size_t totalLength = 0;
+	for (auto pair : selfDistanceAndLengths)
+	{
+		totalLength += pair.second;
+	}
+	assert(totalLength > 0);
+	size_t estimatedMinimalSelfDistance = std::numeric_limits<size_t>::max();
+	size_t sum = 0;
+	for (auto pair : selfDistanceAndLengths)
+	{
+		sum += pair.second;
+		if (sum*2 >= totalLength)
+		{
+			estimatedMinimalSelfDistance = pair.first/2;
+			break;
+		}
+	}
+	assert(estimatedMinimalSelfDistance != std::numeric_limits<size_t>::max());
 	Logger::Log.log(Logger::LogLevel::Always) << "using " << estimatedMinimalSelfDistance << " as local self-repeat distance threshold" << std::endl;
 	size_t bestStartNode = std::numeric_limits<size_t>::max();
 	for (size_t i = 0; i < graph.numNodes(); i++)
