@@ -1283,6 +1283,12 @@ MorphGraph getMorphGraph(const std::vector<MorphConsensus>& morphConsensuses)
 			}
 		}
 	}
+	std::sort(result.readPaths.begin(), result.readPaths.end(), [](const auto& left, const auto& right)
+	{
+		if (left.readName < right.readName) return true;
+		if (left.readName > right.readName) return false;
+		return left.readStart < right.readStart;
+	});
 	for (const auto& path : result.readPaths)
 	{
 		for (size_t i = 1; i < path.path.size(); i++)
