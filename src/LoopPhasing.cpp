@@ -817,8 +817,8 @@ std::vector<std::vector<size_t>> trySplitThreeSites(const std::vector<std::pair<
 							size_t k = blockk*10+offk;
 							assert(i < j);
 							assert(j < k);
-							assert(phasableVariantInfo[i].second < phasableVariantInfo[j].second);
-							assert(phasableVariantInfo[j].second < phasableVariantInfo[k].second);
+							assert(phasableVariantInfo[i].second <= phasableVariantInfo[j].second);
+							assert(phasableVariantInfo[j].second <= phasableVariantInfo[k].second);
 							if (phasableVariantInfo[j].second < phasableVariantInfo[i].second + minDistance) continue;
 							if (phasableVariantInfo[k].second < phasableVariantInfo[j].second + minDistance) continue;
 							std::set<std::tuple<size_t, size_t, size_t>> alleles;
