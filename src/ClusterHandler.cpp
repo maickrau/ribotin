@@ -198,13 +198,32 @@ void processGraphAndWrite(const Path& heavyPath, const GfaGraph& graph, const st
 			keptNodesInAnchors.erase(node.id());
 		}
 	}
+	phmap::flat_hash_map<Node, size_t> nodeTrim;
+	for (Node node : nodesWithEnoughDistance)
+	{
+		assert(shortestDistanceToCyclicComponent.count(node) == 0);
+		assert(shortestDistanceToCyclicComponent.count(reverse(node)) == 1);
+		assert(shortestDistanceToCyclicComponent.at(reverse(node)) >= minAnchorLength);
+		if (shortestDistanceToCyclicComponent.at(reverse(node)) == minAnchorLength) continue;
+		nodeTrim[node] = shortestDistanceToCyclicComponent.at(reverse(node)) - minAnchorLength;
+	}
 	phmap::flat_hash_set<size_t> finalKeptNodes;
 	finalKeptNodes.insert(keptNodesInCycles.begin(), keptNodesInCycles.end());
 	finalKeptNodes.insert(keptNodesInAnchors.begin(), keptNodesInAnchors.end());
 	std::ofstream file { outputGraphName };
 	for (size_t node : finalKeptNodes)
 	{
-		file << "S\t" << graph.nodeNames[node] << "\t" << graph.nodeSeqs[node] << "\tll:f:" << graph.nodeCoverages[node] << "\tFC:i:" << (graph.nodeCoverages[node] * graph.nodeSeqs[node].size()) << std::endl;
+		std::string sequence = graph.nodeSeqs[node];
+		assert(nodeTrim.count(Node { node, true }) == 0 || nodeTrim.count(Node { node, false }) == 0);
+		if (nodeTrim.count(Node { node, true }) == 1)
+		{
+			sequence = sequence.substr(nodeTrim.at(Node { node, true }));
+		}
+		if (nodeTrim.count(Node { node, false }) == 1)
+		{
+			sequence = sequence.substr(0, sequence.size()-nodeTrim.at(Node { node, false }));
+		}
+		file << "S\t" << graph.nodeNames[node] << "\t" << sequence << "\tll:f:" << graph.nodeCoverages[node] << "\tFC:i:" << (graph.nodeCoverages[node] * sequence.size()) << std::endl;
 	}
 	for (const auto& pair : graph.edges)
 	{
