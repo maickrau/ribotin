@@ -21,6 +21,21 @@ std::string getHifiasmGraphFileName(std::string hifiasmBasePath)
 	{
 		return hifiasmBasePath + ".bp.r_utg.gfa";
 	}
+	std::cerr << "checking for " << hifiasmBasePath << ".hic.r_utg.gfa" << std::endl;
+	if (fileExists(hifiasmBasePath + ".hic.r_utg.gfa"))
+	{
+		return hifiasmBasePath + ".hic.r_utg.gfa";
+	}
+	std::cerr << "checking for " << hifiasmBasePath << ".hic.bench.r_utg.gfa" << std::endl;
+	if (fileExists(hifiasmBasePath + ".hic.bench.r_utg.gfa"))
+	{
+		return hifiasmBasePath + ".hic.bench.r_utg.gfa";
+	}
+	std::cerr << "checking for " << hifiasmBasePath << ".r_utg.gfa" << std::endl;
+	if (fileExists(hifiasmBasePath + ".r_utg.gfa"))
+	{
+		return hifiasmBasePath + ".r_utg.gfa";
+	}
 	std::cerr << "ERROR: Did not find hifiasm assembly graph" << std::endl;
 	std::abort();
 }
