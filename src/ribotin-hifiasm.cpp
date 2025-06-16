@@ -291,6 +291,9 @@ int main(int argc, char** argv)
 	std::vector<std::string> ontReadPaths;
 	if (params.count("nano") >= 1) ontReadPaths = params["nano"].as<std::vector<std::string>>();
 	std::cerr << "assembly prefix: " << hifiasmBasePath << std::endl;
+	std::cerr << "searching for hifiasm graph file" << std::endl;
+	std::string hifiasmGraphFile = getHifiasmGraphFileName(hifiasmBasePath);
+	std::cerr << "using hifiasm graph file: " << hifiasmGraphFile << std::endl;
 	std::cerr << "hifi read paths:";
 	for (auto path : hifiReadPaths)
 	{
@@ -319,7 +322,7 @@ int main(int argc, char** argv)
 				std::cerr << "guessing tangles" << std::endl;
 				std::string refPath = std::string{RIBOTIN_TEMPLATE_PATH} + "/chm13_rDNAs.fa";
 				std::cerr << "using reference from " << refPath << std::endl;
-				tangleNodes = guessHifiasmRDNATangles(hifiasmBasePath, std::vector<std::string>{refPath});
+				tangleNodes = guessHifiasmRDNATangles(hifiasmGraphFile, std::vector<std::string>{refPath});
 				std::cerr << "resulted in " << tangleNodes.size() << " tangles" << std::endl;
 			}
 		}
@@ -342,12 +345,17 @@ int main(int argc, char** argv)
 		{
 			std::cerr << path << std::endl;
 		}
-		tangleNodes = guessHifiasmRDNATangles(hifiasmBasePath, refPaths);
+		tangleNodes = guessHifiasmRDNATangles(hifiasmGraphFile, refPaths);
 		std::cerr << "resulted in " << tangleNodes.size() << " tangles" << std::endl;
 	}
 	size_t numTangles = tangleNodes.size();
+	if (numTangles == 0)
+	{
+		std::cerr << "ERROR: No rDNA tangles found!" << std::endl;
+		std::abort();
+	}
 	std::cerr << "assigning reads per tangle" << std::endl;
-	auto reads = getHifiasmReadNamesPerTangle(hifiasmBasePath, tangleNodes);
+	auto reads = getHifiasmReadNamesPerTangle(hifiasmGraphFile, tangleNodes);
 	for (size_t i = 0; i < reads.size(); i++)
 	{
 		std::cerr << "tangle " << i << " has " << reads[i].size() << " hifi reads" << std::endl;
