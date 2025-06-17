@@ -87,74 +87,9 @@ void AlignONTReads(std::string basePath, std::string graphAlignerPath, std::stri
 void processGraphAndWrite(const Path& heavyPath, const GfaGraph& graph, const std::string outputGraphName)
 {
 	const size_t minCoverage = 5;
-	const size_t minAnchorLength = 10000;
-	phmap::flat_hash_set<size_t> coveredNodes;
-	std::vector<Node> checkStack;
-	phmap::flat_hash_set<Node> reachableNodes;
-	for (size_t i = 0; i < heavyPath.nodes.size(); i++)
-	{
-		coveredNodes.insert(heavyPath.nodes[i].id());
-		checkStack.emplace_back(Node { heavyPath.nodes[i].id(), true });
-		checkStack.emplace_back(Node { heavyPath.nodes[i].id(), false });
-	}
-	for (size_t i = 0; i < graph.numNodes(); i++)
-	{
-		if (graph.nodeCoverages[i] < minCoverage) continue;
-		coveredNodes.insert(i);
-	}
-	while (checkStack.size() >= 1)
-	{
-		auto top = checkStack.back();
-		checkStack.pop_back();
-		if (reachableNodes.count(top) == 1) continue;
-		reachableNodes.insert(top);
-		if (graph.edges.count(top) == 1)
-		{
-			for (auto edge : graph.edges.at(top))
-			{
-				auto target = std::get<0>(edge);
-				if (coveredNodes.count(target.id()) == 0) continue;
-				checkStack.emplace_back(target);
-			}
-		}
-	}
-	phmap::flat_hash_set<size_t> keptNodesInCycles;
-	for (size_t node : coveredNodes)
-	{
-		if (reachableNodes.count(Node { node, true }) == 0) continue;
-		if (reachableNodes.count(Node { node, false }) == 0) continue;
-		keptNodesInCycles.insert(node);
-	}
-	phmap::flat_hash_map<Node, size_t> shortestDistanceToCyclicComponent;
-	std::vector<std::pair<Node, size_t>> checkStack2;
-	for (size_t node : keptNodesInCycles)
-	{
-		checkStack2.emplace_back(Node { node, true }, 0);
-		checkStack2.emplace_back(Node { node, false }, 0);
-	}
-	while (checkStack2.size() >= 1)
-	{
-		auto top = checkStack2.back();
-		checkStack2.pop_back();
-		if (shortestDistanceToCyclicComponent.count(top.first) == 1)
-		{
-			assert(shortestDistanceToCyclicComponent.at(top.first) <= top.second);
-			continue;
-		}
-		shortestDistanceToCyclicComponent[top.first] = top.second;
-		bool addedAny = false;
-		if (graph.edges.count(top.first) == 1)
-		{
-			for (auto edge : graph.edges.at(top.first))
-			{
-				if (keptNodesInCycles.count(std::get<0>(edge).id()) == 1) continue;
-				checkStack2.emplace_back(std::get<0>(edge), top.second + graph.nodeSeqs[std::get<0>(edge).id()].size() - std::get<1>(edge));
-				assert(checkStack2.back().second > top.second);
-				addedAny = true;
-			}
-		}
-		if (addedAny) std::sort(checkStack2.begin(), checkStack2.end(), [](auto left, auto right) { return left.second > right.second; });
-	}
+	const size_t minAnchorLength = 10000; // this should be a bit larger than anchorDistanceFromMainLoop in LoopAnalysis.cpp:getBorderNodes
+	phmap::flat_hash_set<size_t> keptNodesInCycles = getNodesInMainCycle(graph, heavyPath, minCoverage);
+	phmap::flat_hash_map<Node, size_t> shortestDistanceToCyclicComponent = getNodeDistancesToMainCycle(graph, keptNodesInCycles);
 	phmap::flat_hash_set<size_t> keptNodesInAnchors;
 	std::vector<Node> checkStack3;
 	phmap::flat_hash_set<Node> nodesWithEnoughDistance;
