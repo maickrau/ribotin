@@ -3,7 +3,44 @@
 #include "HifiasmIntegration.h"
 #include "TangleGuesser.h"
 
-std::vector<std::vector<std::string>> getHifiasmReadNamesPerTangle(std::string hifiasmBasePath, const std::vector<std::vector<std::string>>& nodesPerTangle)
+bool fileExists(const std::string& filename)
+{
+	std::ifstream file { filename };
+	return file.good();
+}
+
+std::string getHifiasmGraphFileName(std::string hifiasmBasePath)
+{
+	std::cerr << "checking for " << hifiasmBasePath << ".dip.r_utg.gfa" << std::endl;
+	if (fileExists(hifiasmBasePath + ".dip.r_utg.gfa"))
+	{
+		return hifiasmBasePath + ".dip.r_utg.gfa";
+	}
+	std::cerr << "checking for " << hifiasmBasePath << ".bp.r_utg.gfa" << std::endl;
+	if (fileExists(hifiasmBasePath + ".bp.r_utg.gfa"))
+	{
+		return hifiasmBasePath + ".bp.r_utg.gfa";
+	}
+	std::cerr << "checking for " << hifiasmBasePath << ".hic.r_utg.gfa" << std::endl;
+	if (fileExists(hifiasmBasePath + ".hic.r_utg.gfa"))
+	{
+		return hifiasmBasePath + ".hic.r_utg.gfa";
+	}
+	std::cerr << "checking for " << hifiasmBasePath << ".hic.bench.r_utg.gfa" << std::endl;
+	if (fileExists(hifiasmBasePath + ".hic.bench.r_utg.gfa"))
+	{
+		return hifiasmBasePath + ".hic.bench.r_utg.gfa";
+	}
+	std::cerr << "checking for " << hifiasmBasePath << ".r_utg.gfa" << std::endl;
+	if (fileExists(hifiasmBasePath + ".r_utg.gfa"))
+	{
+		return hifiasmBasePath + ".r_utg.gfa";
+	}
+	std::cerr << "ERROR: Did not find hifiasm assembly graph" << std::endl;
+	std::abort();
+}
+
+std::vector<std::vector<std::string>> getHifiasmReadNamesPerTangle(std::string hifiasmGraphFile, const std::vector<std::vector<std::string>>& nodesPerTangle)
 {
 	phmap::flat_hash_map<std::string, size_t> nodeToTangle;
 	for (size_t i = 0; i < nodesPerTangle.size(); i++)
@@ -16,7 +53,7 @@ std::vector<std::vector<std::string>> getHifiasmReadNamesPerTangle(std::string h
 	}
 	std::vector<std::vector<std::string>> result;
 	result.resize(nodesPerTangle.size());
-	std::ifstream file { hifiasmBasePath + ".bp.r_utg.noseq.gfa" };
+	std::ifstream file { hifiasmGraphFile };
 	while (file.good())
 	{
 		std::string line;
@@ -35,7 +72,7 @@ std::vector<std::vector<std::string>> getHifiasmReadNamesPerTangle(std::string h
 	return result;
 }
 
-std::vector<std::vector<std::string>> guessHifiasmRDNATangles(std::string hifiasmBasePath, const std::vector<std::string>& referencePath)
+std::vector<std::vector<std::string>> guessHifiasmRDNATangles(std::string hifiasmGraphFile, const std::vector<std::string>& referencePath)
 {
 	KmerMatcher matcher { 101 };
 	for (auto file : referencePath)
@@ -45,6 +82,6 @@ std::vector<std::vector<std::string>> guessHifiasmRDNATangles(std::string hifias
 			matcher.addReferenceKmers(fastq.sequence);
 		});
 	}
-	auto result = guessTangles(matcher, hifiasmBasePath + ".bp.r_utg.gfa");
+	auto result = guessTangles(matcher, hifiasmGraphFile);
 	return result;
 }

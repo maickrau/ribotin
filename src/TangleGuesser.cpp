@@ -187,6 +187,7 @@ void filterOutAcyclic(std::vector<std::vector<std::string>>& tangleNodes, const 
 
 std::vector<std::vector<std::string>> guessTangles(const KmerMatcher& matcher, const std::string& gfaPath)
 {
+	std::cerr << "guess tangles from " << gfaPath << std::endl;
 	auto nodes = matchNodes(matcher, gfaPath);
 	auto tangles = extendTangles(nodes, gfaPath);
 	filterOutAcyclic(tangles, gfaPath);
