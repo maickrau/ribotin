@@ -194,6 +194,8 @@ PathSequenceView getSequenceView(const std::vector<Node>& nodes, const std::vect
 Path orientPath(const GfaGraph& graph, const Path& rawPath, const std::string& orientReferencePath, size_t k);
 std::unordered_set<size_t> getCoreNodes(const std::vector<OntLoop>& paths);
 bool orientPath(std::vector<Node>& path, const std::unordered_map<size_t, bool>& referenceOrientations);
+phmap::flat_hash_set<size_t> getNodesInMainCycle(const GfaGraph& graph, const Path& heavyPath, const size_t minCoverage);
+phmap::flat_hash_map<Node, size_t> getNodeDistancesToMainCycle(const GfaGraph& graph, const phmap::flat_hash_set<size_t>& keptNodesInCycles);
 
 template <typename T>
 T find(phmap::flat_hash_map<T, T>& parent, T key)

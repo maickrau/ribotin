@@ -598,3 +598,80 @@ bool orientPath(std::vector<Node>& path, const std::unordered_map<size_t, bool>&
 	}
 	return false;
 }
+
+phmap::flat_hash_set<size_t> getNodesInMainCycle(const GfaGraph& graph, const Path& heavyPath, const size_t minCoverage)
+{
+	std::vector<Node> checkStack;
+	phmap::flat_hash_set<size_t> coveredNodes;
+	phmap::flat_hash_set<Node> reachableNodes;
+	for (size_t i = 0; i < heavyPath.nodes.size(); i++)
+	{
+		coveredNodes.insert(heavyPath.nodes[i].id());
+		checkStack.emplace_back(Node { heavyPath.nodes[i].id(), true });
+		checkStack.emplace_back(Node { heavyPath.nodes[i].id(), false });
+	}
+	for (size_t i = 0; i < graph.numNodes(); i++)
+	{
+		if (graph.nodeCoverages[i] < minCoverage) continue;
+		coveredNodes.insert(i);
+	}
+	while (checkStack.size() >= 1)
+	{
+		auto top = checkStack.back();
+		checkStack.pop_back();
+		if (reachableNodes.count(top) == 1) continue;
+		reachableNodes.insert(top);
+		if (graph.edges.count(top) == 1)
+		{
+			for (auto edge : graph.edges.at(top))
+			{
+				auto target = std::get<0>(edge);
+				if (coveredNodes.count(target.id()) == 0) continue;
+				checkStack.emplace_back(target);
+			}
+		}
+	}
+	phmap::flat_hash_set<size_t> nodesInMainCycle;
+	for (size_t node : coveredNodes)
+	{
+		if (reachableNodes.count(Node { node, true }) == 0) continue;
+		if (reachableNodes.count(Node { node, false }) == 0) continue;
+		nodesInMainCycle.insert(node);
+	}
+	return nodesInMainCycle;
+}
+
+phmap::flat_hash_map<Node, size_t> getNodeDistancesToMainCycle(const GfaGraph& graph, const phmap::flat_hash_set<size_t>& keptNodesInCycles)
+{
+	phmap::flat_hash_map<Node, size_t> shortestDistanceToCyclicComponent;
+	std::vector<std::pair<Node, size_t>> checkStack;
+	for (size_t node : keptNodesInCycles)
+	{
+		checkStack.emplace_back(Node { node, true }, 0);
+		checkStack.emplace_back(Node { node, false }, 0);
+	}
+	while (checkStack.size() >= 1)
+	{
+		auto top = checkStack.back();
+		checkStack.pop_back();
+		if (shortestDistanceToCyclicComponent.count(top.first) == 1)
+		{
+			assert(shortestDistanceToCyclicComponent.at(top.first) <= top.second);
+			continue;
+		}
+		shortestDistanceToCyclicComponent[top.first] = top.second;
+		bool addedAny = false;
+		if (graph.edges.count(top.first) == 1)
+		{
+			for (auto edge : graph.edges.at(top.first))
+			{
+				if (keptNodesInCycles.count(std::get<0>(edge).id()) == 1) continue;
+				checkStack.emplace_back(std::get<0>(edge), top.second + graph.nodeSeqs[std::get<0>(edge).id()].size() - std::get<1>(edge));
+				assert(checkStack.back().second > top.second);
+				addedAny = true;
+			}
+		}
+		if (addedAny) std::sort(checkStack.begin(), checkStack.end(), [](auto left, auto right) { return left.second > right.second; });
+	}
+	return shortestDistanceToCyclicComponent;
+}
