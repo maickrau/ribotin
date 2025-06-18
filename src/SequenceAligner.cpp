@@ -2,22 +2,31 @@
 #include "SequenceAligner.h"
 #include "RibotinUtils.h"
 
-size_t getEditDistancePossiblyMemoized(const std::vector<Node>& left, const std::vector<Node>& right, const size_t leftStartClipBp, const size_t rightStartClipBp, const size_t leftEndClipBp, const size_t rightEndClipBp, const GfaGraph& graph, const size_t maxEdits, std::unordered_map<std::pair<std::vector<Node>, std::vector<Node>>, size_t>& memoizedEditDistances)
+size_t getEditDistancePossiblyMemoized(const std::vector<Node>& left, const std::vector<Node>& right, const size_t leftStartClipBp, const size_t rightStartClipBp, const size_t leftEndClipBp, const size_t rightEndClipBp, const GfaGraph& graph, const size_t maxEdits, std::unordered_map<std::pair<std::vector<Node>, std::vector<Node>>, size_t>& memoizedEditDistances, std::mutex& memoizationMutex)
 {
 	if (left == right) return 0;
 	auto key = canon(left, right);
 	size_t add;
-	if (memoizedEditDistances.count(key) == 0 || (leftStartClipBp != 0 || rightStartClipBp != 0 || leftEndClipBp != 0 || rightEndClipBp != 0))
+	if (leftStartClipBp == 0 && rightStartClipBp == 0 && leftEndClipBp == 0 && rightEndClipBp == 0)
 	{
-		auto leftSubseq = getSequenceView(left, graph.nodeSeqsTwobit, graph.revCompNodeSeqsTwobit, graph.edges, leftStartClipBp, leftEndClipBp);
-		auto rightSubseq = getSequenceView(right, graph.nodeSeqsTwobit, graph.revCompNodeSeqsTwobit, graph.edges, rightStartClipBp, rightEndClipBp);
-		add = getEditDistanceWfa(leftSubseq, rightSubseq, maxEdits);
-		assert(add == getEditDistanceWfa(rightSubseq, leftSubseq, maxEdits));
-		if (leftStartClipBp == 0 && rightStartClipBp == 0 && leftEndClipBp == 0 && rightEndClipBp == 0) memoizedEditDistances[key] = add;
+		std::lock_guard<std::mutex> lock { memoizationMutex };
+		if (memoizedEditDistances.count(key) == 1) return memoizedEditDistances.at(key);
 	}
-	else
+	auto leftSubseq = getSequenceView(left, graph.nodeSeqsTwobit, graph.revCompNodeSeqsTwobit, graph.edges, leftStartClipBp, leftEndClipBp);
+	auto rightSubseq = getSequenceView(right, graph.nodeSeqsTwobit, graph.revCompNodeSeqsTwobit, graph.edges, rightStartClipBp, rightEndClipBp);
+	add = getEditDistanceWfa(leftSubseq, rightSubseq, maxEdits);
+	assert(add == getEditDistanceWfa(rightSubseq, leftSubseq, maxEdits));
+	if (leftStartClipBp == 0 && rightStartClipBp == 0 && leftEndClipBp == 0 && rightEndClipBp == 0)
 	{
-		add = memoizedEditDistances.at(key);
+		std::lock_guard<std::mutex> lock { memoizationMutex };
+		if (memoizedEditDistances.count(key) == 0)
+		{
+			memoizedEditDistances[key] = add;
+		}
+		else
+		{
+			assert(memoizedEditDistances.at(key) == add);
+		}
 	}
 	return add;
 }
@@ -226,7 +235,7 @@ std::vector<std::pair<size_t, size_t>> getNodeMatches(const std::vector<Node>& l
 	return result;
 }
 
-size_t getEditDistance(const std::vector<Node>& left, const size_t leftIndex, const std::vector<Node>& right, const size_t rightIndex, const GfaGraph& graph, const std::unordered_map<Node, size_t>& pathStartClip, const std::unordered_map<Node, size_t>& pathEndClip, const size_t maxEdits, const std::unordered_set<size_t>& coreNodes, const std::vector<phmap::flat_hash_map<Node, size_t>>& nodeCountIndex, const std::vector<phmap::flat_hash_map<Node, size_t>>& nodePosIndex, std::unordered_map<std::pair<std::vector<Node>, std::vector<Node>>, size_t>& memoizedEditDistances)
+size_t getEditDistance(const std::vector<Node>& left, const size_t leftIndex, const std::vector<Node>& right, const size_t rightIndex, const GfaGraph& graph, const std::unordered_map<Node, size_t>& pathStartClip, const std::unordered_map<Node, size_t>& pathEndClip, const size_t maxEdits, const std::unordered_set<size_t>& coreNodes, const std::vector<phmap::flat_hash_map<Node, size_t>>& nodeCountIndex, const std::vector<phmap::flat_hash_map<Node, size_t>>& nodePosIndex, std::unordered_map<std::pair<std::vector<Node>, std::vector<Node>>, size_t>& memoizedEditDistances, std::mutex& memoizationMutex)
 {
 	std::vector<size_t> leftCoreMatchPositions;
 	for (size_t i = 0; i < left.size(); i++)
@@ -262,7 +271,7 @@ size_t getEditDistance(const std::vector<Node>& left, const size_t leftIndex, co
 	assert(nodeMatches.size() >= coreNodes.size());
 	if (nodeMatches.size() == 0)
 	{
-		return getEditDistancePossiblyMemoized(left, right, pathStartClip.at(left[0]), pathStartClip.at(right[0]), pathEndClip.at(left.back()), pathEndClip.at(right.back()), graph, maxEdits, memoizedEditDistances);
+		return getEditDistancePossiblyMemoized(left, right, pathStartClip.at(left[0]), pathStartClip.at(right[0]), pathEndClip.at(left.back()), pathEndClip.at(right.back()), graph, maxEdits, memoizedEditDistances, memoizationMutex);
 	}
 	assert(nodeMatches.size() >= 1);
 	size_t result = 0;
@@ -274,19 +283,25 @@ size_t getEditDistance(const std::vector<Node>& left, const size_t leftIndex, co
 		if (nodeMatches[i].first == nodeMatches[i-1].first+1 && nodeMatches[i].second == nodeMatches[i-1].second+1) continue;
 		std::vector<Node> leftPath { left.begin() + nodeMatches[i-1].first, left.begin()+nodeMatches[i].first+1 };
 		std::vector<Node> rightPath { right.begin() + nodeMatches[i-1].second, right.begin()+nodeMatches[i].second+1 };
-		add = getEditDistancePossiblyMemoized(leftPath, rightPath, 0, 0, 0, 0, graph, maxEdits, memoizedEditDistances);
+		add = getEditDistancePossiblyMemoized(leftPath, rightPath, 0, 0, 0, 0, graph, maxEdits, memoizedEditDistances, memoizationMutex);
 		result += add;
 		if (result >= maxEdits) return maxEdits+1;
 	}
 	std::vector<Node> leftPath { left.begin(), left.begin()+nodeMatches[0].first+1 };
 	std::vector<Node> rightPath { right.begin(), right.begin()+nodeMatches[0].second+1 };
-	add = getEditDistancePossiblyMemoized(leftPath, rightPath, pathStartClip.at(leftPath[0]), pathStartClip.at(rightPath[0]), 0, 0, graph, maxEdits, memoizedEditDistances);
+	add = getEditDistancePossiblyMemoized(leftPath, rightPath, pathStartClip.at(leftPath[0]), pathStartClip.at(rightPath[0]), 0, 0, graph, maxEdits, memoizedEditDistances, memoizationMutex);
 	result += add;
 	if (result >= maxEdits) return maxEdits+1;
 	leftPath = std::vector<Node> { left.begin()+nodeMatches.back().first, left.end() };
 	rightPath = std::vector<Node> { right.begin()+nodeMatches.back().second, right.end() };
-	add = getEditDistancePossiblyMemoized(leftPath, rightPath, 0, 0, pathEndClip.at(leftPath.back()), pathEndClip.at(rightPath.back()), graph, maxEdits, memoizedEditDistances);
+	add = getEditDistancePossiblyMemoized(leftPath, rightPath, 0, 0, pathEndClip.at(leftPath.back()), pathEndClip.at(rightPath.back()), graph, maxEdits, memoizedEditDistances, memoizationMutex);
 	result += add;
 	if (result >= maxEdits) return maxEdits+1;
 	return result;
+}
+
+size_t getEditDistance(const std::vector<Node>& left, const size_t leftIndex, const std::vector<Node>& right, const size_t rightIndex, const GfaGraph& graph, const std::unordered_map<Node, size_t>& pathStartClip, const std::unordered_map<Node, size_t>& pathEndClip, const size_t maxEdits, const std::unordered_set<size_t>& coreNodes, const std::vector<phmap::flat_hash_map<Node, size_t>>& nodeCountIndex, const std::vector<phmap::flat_hash_map<Node, size_t>>& nodePosIndex, std::unordered_map<std::pair<std::vector<Node>, std::vector<Node>>, size_t>& memoizedEditDistances)
+{
+	std::mutex tmpMutex;
+	return getEditDistance(left, leftIndex, right, rightIndex, graph, pathStartClip, pathEndClip, maxEdits, coreNodes, nodeCountIndex, nodePosIndex, memoizedEditDistances, tmpMutex);
 }

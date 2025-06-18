@@ -81,7 +81,7 @@ bool isBigIndel(const std::tuple<size_t, size_t, std::string>& variant)
 	return false;
 }
 
-void clusterBubbleAlleles(std::vector<std::vector<size_t>>& result, const std::vector<std::string>& loopSequences, const std::vector<size_t>& previousMatchIndices, const std::vector<size_t>& currentMatchIndices)
+void clusterBubbleAlleles(std::vector<std::vector<size_t>>& result, const std::vector<std::string>& loopSequences, const std::vector<size_t>& previousMatchIndices, const std::vector<size_t>& currentMatchIndices, const size_t numThreads)
 {
 	const size_t minCoverage = std::min<size_t>(std::max<size_t>(5, loopSequences.size()*0.05), 20);
 	const double maxDivergence = 0.10;
@@ -131,14 +131,44 @@ void clusterBubbleAlleles(std::vector<std::vector<size_t>>& result, const std::v
 	}
 	std::vector<std::vector<size_t>> distanceMatrix;
 	distanceMatrix.emplace_back();
-	size_t maxDistance = 0;
+	distanceMatrix.resize(loopSequences.size());
 	for (size_t i = 1; i < loopSequences.size(); i++)
 	{
-		distanceMatrix.emplace_back();
-		for (size_t j = 0; j < i; j++)
+		distanceMatrix[i].resize(i, std::numeric_limits<size_t>::max());
+	}
+	std::vector<std::thread> threads;
+	std::atomic<size_t> nextIndex;
+	nextIndex = 0;
+	for (size_t i = 0; i < numThreads; i++)
+	{
+		threads.emplace_back([&substrings, &nextIndex, &distanceMatrix]()
 		{
-			distanceMatrix.back().emplace_back(getEditDistanceWfa(substrings[i], substrings[j]));
-			maxDistance = std::max(maxDistance, distanceMatrix.back().back());
+			while (true)
+			{
+				size_t index = nextIndex++;
+				if (index >= substrings.size()*(substrings.size()-1)/2) break;
+				size_t i = sqrt(2.0*index + 0.25) + 0.5;
+				assert(i >= 1);
+				assert(index >= i*(i-1)/2);
+				assert(i < substrings.size());
+				size_t j = index - i*(i-1)/2;
+				assert(j < i);
+				assert(distanceMatrix[i][j] == std::numeric_limits<size_t>::max());
+				distanceMatrix[i][j] = getEditDistanceWfa(substrings[i], substrings[j]);
+			}
+		});
+	}
+	for (size_t i = 0; i < numThreads; i++)
+	{
+		threads[i].join();
+	}
+	size_t maxDistance = 0;
+	for (size_t i = 0; i < distanceMatrix.size(); i++)
+	{
+		for (size_t j = 0; j < distanceMatrix[i].size(); j++)
+		{
+			assert(distanceMatrix[i][j] != std::numeric_limits<size_t>::max());
+			maxDistance = std::max(maxDistance, distanceMatrix[i][j]);
 		}
 	}
 	Logger::Log.log(Logger::LogLevel::DetailedDebugInfo) << "max distance " << maxDistance << std::endl;
@@ -304,7 +334,7 @@ std::vector<std::vector<size_t>> splitByBubbleAlleles(const std::vector<OntLoop>
 	allelesPerRead.resize(loopSequences.size());
 	for (size_t i = 1; i < kmerChain.size(); i++)
 	{
-		clusterBubbleAlleles(allelesPerRead, loopSequences, kmerChain[i-1], kmerChain[i]);
+		clusterBubbleAlleles(allelesPerRead, loopSequences, kmerChain[i-1], kmerChain[i], numThreads);
 	}
 	Logger::Log.log(Logger::LogLevel::DetailedDebugInfo) << "cluster with " << loopSequences.size() << " reads has " << allelesPerRead[0].size() << " alleles" << std::endl;
 	std::map<std::vector<size_t>, size_t> allelesToCluster;
@@ -1469,7 +1499,7 @@ std::vector<std::vector<size_t>> splitBySNPCorrelation(const std::vector<std::ve
 			if (i == j) continue;
 			if (std::get<0>(goodishEdits[j]) < std::get<1>(goodishEdits[i])+100 && std::get<0>(goodishEdits[i]) < std::get<1>(goodishEdits[j])+100) continue;
 			if (!allelesMatchWellEnough(readsWithEdit, readsWithRef, i, j)) continue;
-			Logger::Log.log(Logger::LogLevel::DetailedDebugInfo) << "split by edits: " << std::get<0>(goodishEdits[i]) << "-" << std::get<1>(goodishEdits[i]) << "\"" << std::get<2>(goodishEdits[i]) << "\" " << std::get<0>(goodishEdits[j]) << "-" << std::get<1>(goodishEdits[j]) << "\"" << std::get<2>(goodishEdits[j]) << std::endl;
+			Logger::Log.log(Logger::LogLevel::DetailedDebugInfo) << "split by edits: " << std::get<0>(goodishEdits[i]) << "-" << std::get<1>(goodishEdits[i]) << "\"" << std::get<2>(goodishEdits[i]) << "\" " << std::get<0>(goodishEdits[j]) << "-" << std::get<1>(goodishEdits[j]) << "\"" << std::get<2>(goodishEdits[j]) << "\"" << std::endl;
 			std::vector<std::vector<size_t>> result;
 			result.resize(2);
 			std::vector<bool> readFound;
@@ -1754,7 +1784,7 @@ std::pair<size_t, size_t> getBubble(const GfaGraph& graph, const Node startNode)
 	return std::make_pair(alleleOne, alleleTwo);
 }
 
-std::vector<std::pair<std::vector<std::vector<size_t>>, size_t>> getDBGvariants(const std::vector<OntLoop>& cluster, const std::string MBGPath, const std::string tmpPath)
+std::vector<std::pair<std::vector<std::vector<size_t>>, size_t>> getDBGvariants(const std::vector<OntLoop>& cluster, const std::string MBGPath, const std::string tmpPath, const size_t numThreads)
 {
 	size_t minCoverage = std::max<size_t>(5, cluster.size()*0.05);
 	std::string graphFile = tmpPath + "/tmpgraph.gfa";
@@ -1768,7 +1798,7 @@ std::vector<std::pair<std::vector<std::vector<size_t>>, size_t>> getDBGvariants(
 			file << cluster[i].rawSequence << std::endl;
 		}
 	}
-	std::string mbgCommand = MBGPath + " -i " + readsFile + " -o " + graphFile + " --output-sequence-paths " + pathsFile + " --error-masking=no -a 5 -u 5 --no-multiplex-cleaning -r 18446744073709551615 -R 18446744073709551615 -k 31 --only-local-resolve --do-unsafe-guesswork-resolutions 1> " + tmpPath + "/tmpstdout.txt 2> " + tmpPath + "/tmpstderr.txt";
+	std::string mbgCommand = MBGPath + " -t " + std::to_string(numThreads) + " -i " + readsFile + " -o " + graphFile + " --output-sequence-paths " + pathsFile + " --error-masking=no -a 5 -u 5 --no-multiplex-cleaning -r 18446744073709551615 -R 18446744073709551615 -k 31 --only-local-resolve --do-unsafe-guesswork-resolutions 1> " + tmpPath + "/tmpstdout.txt 2> " + tmpPath + "/tmpstderr.txt";
 	Logger::Log.log(Logger::LogLevel::DetailedDebugInfo) << "MBG command:" << std::endl;
 	Logger::Log.log(Logger::LogLevel::DetailedDebugInfo) << mbgCommand << std::endl;
 	int runresult = system(mbgCommand.c_str());
@@ -2055,7 +2085,7 @@ void callVariantsAndSplitRecursively(std::vector<std::vector<OntLoop>>& result, 
 	if (resultHere.size() == 1)
 	{
 		Logger::Log.log(Logger::LogLevel::DetailedDebugInfo) << "split by DBG variants size " << cluster.size() << std::endl;
-		auto DBGvariants = getDBGvariants(cluster, MBGPath, tmpPath);
+		auto DBGvariants = getDBGvariants(cluster, MBGPath, tmpPath, numThreads);
 		Logger::Log.log(Logger::LogLevel::DetailedDebugInfo) << DBGvariants.size() << " sites in DBG variants" << std::endl;
 		resultHere.clear();
 		resultHere = splitAndAdd(cluster, DBGvariants);
