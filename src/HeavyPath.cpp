@@ -84,6 +84,7 @@ void addAllShortestPaths(std::vector<std::vector<std::tuple<PathRecWideCoverage,
 			Node target = std::get<0>(edge);
 			if (!nodeExists[target.id()]) continue;
 			if (nodeBelongsToStronglyConnectedLocalComponent[node.id()] == nodeBelongsToStronglyConnectedLocalComponent[target.id()]) continue;
+			assert(nodeBelongsToStronglyConnectedLocalComponent[target.id()] > thisComponent || nodeBelongsToStronglyConnectedLocalComponent[target.id()] == 0);
 			nodesAfter.insert(target);
 		}
 		for (auto edge : graph.edges.at(reverse(node)))
@@ -91,6 +92,12 @@ void addAllShortestPaths(std::vector<std::vector<std::tuple<PathRecWideCoverage,
 			Node target = reverse(std::get<0>(edge));
 			if (!nodeExists[target.id()]) continue;
 			if (nodeBelongsToStronglyConnectedLocalComponent[node.id()] == nodeBelongsToStronglyConnectedLocalComponent[target.id()]) continue;
+			if (!(nodeBelongsToStronglyConnectedLocalComponent[target.id()] < thisComponent))
+			{
+				std::cerr << graph.nodeNames[unorientedNode] << " " << graph.nodeNames[target.id()] << std::endl;
+				std::cerr << nodeBelongsToStronglyConnectedLocalComponent[target.id()] << " " << thisComponent << std::endl;
+			}
+			assert(nodeBelongsToStronglyConnectedLocalComponent[target.id()] < thisComponent);
 			nodesBefore.insert(target);
 		}
 	}
@@ -134,6 +141,7 @@ void addAllShortestPaths(std::vector<std::vector<std::tuple<PathRecWideCoverage,
 					size_t sourceComponent = nodeBelongsToStronglyConnectedLocalComponent[before.id()];
 					size_t targetComponent = nodeBelongsToStronglyConnectedLocalComponent[target.id()];
 					assert(targetComponent < componentInEdges.size());
+					assert(sourceComponent < targetComponent || targetComponent == 0);
 					componentInEdges[targetComponent].emplace_back(PathRecWideCoverage { 1, pathLength }, pathHere, sourceComponent);
 					continue;
 				}
@@ -144,32 +152,20 @@ void addAllShortestPaths(std::vector<std::vector<std::tuple<PathRecWideCoverage,
 	}
 }
 
-Path getTopologicallyOrderedHeaviestPath(const GfaGraph& graph, const std::vector<ReadPath>& readPaths, const std::vector<bool>& nodeExists, const std::vector<size_t>& selfDistances, const size_t estimatedMinimalSelfDistance, const std::vector<bool>& nodeOrientation, const std::vector<size_t>& localComponentOrder, const std::vector<size_t>& nodeBelongsToStronglyConnectedLocalComponent, const std::vector<std::vector<size_t>>& nodesInLocalComponent)
+// components in nodesInLocalComponent and nodeBelongsToStronglyConnectedLocalComponent must be sorted by topological order
+Path getTopologicallyOrderedHeaviestPath(const GfaGraph& graph, const std::vector<ReadPath>& readPaths, const std::vector<bool>& nodeExists, const std::vector<size_t>& selfDistances, const size_t estimatedMinimalSelfDistance, const std::vector<bool>& nodeOrientation, const std::vector<size_t>& nodeBelongsToStronglyConnectedLocalComponent, const std::vector<std::vector<size_t>>& nodesInLocalComponent)
 {
-	std::vector<size_t> componentOrderInTopologicalOrder;
-	componentOrderInTopologicalOrder.resize(localComponentOrder.size(), std::numeric_limits<size_t>::max());
-	for (size_t i = 0; i < localComponentOrder.size(); i++)
-	{
-		assert(componentOrderInTopologicalOrder[localComponentOrder[i]] == std::numeric_limits<size_t>::max());
-		componentOrderInTopologicalOrder[localComponentOrder[i]] = i;
-	}
-	for (size_t i = 0; i < componentOrderInTopologicalOrder.size(); i++)
-	{
-		assert(componentOrderInTopologicalOrder[i] != std::numeric_limits<size_t>::max());
-	}
-	assert(localComponentOrder.size() >= 1);
-	assert(localComponentOrder.size() == nodesInLocalComponent.size());
-	assert(nodesInLocalComponent[localComponentOrder[0]].size() == 1);
+	assert(nodesInLocalComponent[0].size() == 1);
 	std::vector<bool> componentIsCyclic;
-	componentIsCyclic.resize(localComponentOrder.size(), false);
-	for (size_t i = 0; i < localComponentOrder.size(); i++)
+	componentIsCyclic.resize(nodesInLocalComponent.size(), false);
+	for (size_t i = 0; i < nodesInLocalComponent.size(); i++)
 	{
 		if (localComponentIsAcyclic(nodesInLocalComponent, selfDistances, estimatedMinimalSelfDistance, i)) continue;
 		componentIsCyclic[i] = true;
 	}
-	assert(!componentIsCyclic[localComponentOrder[0]]);
+	assert(!componentIsCyclic[0]);
 	std::vector<std::vector<std::tuple<PathRecWideCoverage, std::vector<Node>, size_t>>> componentInEdges;
-	componentInEdges.resize(localComponentOrder.size());
+	componentInEdges.resize(nodesInLocalComponent.size());
 	for (size_t i = 0; i < graph.numNodes(); i++)
 	{
 		if (!nodeExists[i]) continue;
@@ -186,7 +182,7 @@ Path getTopologicallyOrderedHeaviestPath(const GfaGraph& graph, const std::vecto
 			if (componentIsCyclic[targetComponent]) continue;
 			size_t overlap = std::get<1>(edge);
 			size_t coverage = std::get<2>(edge);
-			assert(componentOrderInTopologicalOrder[thisComponent] < componentOrderInTopologicalOrder[targetComponent] || thisComponent == localComponentOrder.back());
+			assert(thisComponent < targetComponent || targetComponent == 0);
 			componentInEdges[targetComponent].emplace_back(PathRecWideCoverage { coverage, 1 }, std::vector<Node> { nodeHere, target }, thisComponent);
 			std::get<0>(componentInEdges[targetComponent].back()).addCoverage(graph.nodeCoverages[nodeHere.id()], graph.nodeSeqs[nodeHere.id()].size() - overlap);
 		}
@@ -218,7 +214,7 @@ Path getTopologicallyOrderedHeaviestPath(const GfaGraph& graph, const std::vecto
 			assert(nodeExists[path[0].id()]);
 			assert(nodeExists[path.back().id()]);
 			assert(nodeBelongsToStronglyConnectedLocalComponent[path.back().id()] != nodeBelongsToStronglyConnectedLocalComponent[path[0].id()]);
-			if (componentOrderInTopologicalOrder[nodeBelongsToStronglyConnectedLocalComponent[path.back().id()]] < componentOrderInTopologicalOrder[nodeBelongsToStronglyConnectedLocalComponent[path[0].id()]])
+			if (nodeBelongsToStronglyConnectedLocalComponent[path.back().id()] < nodeBelongsToStronglyConnectedLocalComponent[path[0].id()])
 			{
 				path = reverse(path);
 			}
@@ -242,7 +238,7 @@ Path getTopologicallyOrderedHeaviestPath(const GfaGraph& graph, const std::vecto
 			assert(componentIsCyclic[nodeBelongsToStronglyConnectedLocalComponent[pair.first[i].id()]]);
 		}
 		size_t pathLength = getPathLength(pair.first, graph.nodeSeqs, graph.edges);
-		assert(componentOrderInTopologicalOrder[preComponent] < componentOrderInTopologicalOrder[postComponent] || preComponent == localComponentOrder.back());
+		assert(preComponent < postComponent || postComponent == 0);
 		componentInEdges[postComponent].emplace_back(PathRecWideCoverage { pair.second, pathLength }, pair.first, preComponent);
 	}
 	for (size_t i = 0; i < nodesInLocalComponent.size(); i++)
@@ -258,35 +254,38 @@ Path getTopologicallyOrderedHeaviestPath(const GfaGraph& graph, const std::vecto
 	{
 		for (auto edge : componentInEdges[i])
 		{
-			assert(componentOrderInTopologicalOrder[std::get<2>(edge)] < componentOrderInTopologicalOrder[i] || std::get<2>(edge) == localComponentOrder.back());
+			if (!(std::get<2>(edge) < i || i == 0))
+			{
+				std::cerr << std::get<2>(edge) << " " << i << std::endl;
+			}
+			assert(std::get<2>(edge) < i || i == 0);
 		}
 	}
 	std::vector<std::tuple<PathRecWideCoverage, std::vector<Node>, size_t>> predecessor;
-	predecessor.resize(localComponentOrder.size());
-	for (size_t i = 0; i < localComponentOrder.size(); i++)
+	predecessor.resize(nodesInLocalComponent.size());
+	for (size_t i = 0; i < nodesInLocalComponent.size(); i++)
 	{
-		size_t component = localComponentOrder[i];
-		if (componentIsCyclic[component]) continue;
-		assert(componentInEdges[component].size() >= 1);
-		std::tuple<PathRecWideCoverage, std::vector<Node>, size_t> bestSoFar = componentInEdges[component][0];
+		if (componentIsCyclic[i]) continue;
+		assert(componentInEdges[i].size() >= 1);
+		std::tuple<PathRecWideCoverage, std::vector<Node>, size_t> bestSoFar = componentInEdges[i][0];
 		std::get<0>(bestSoFar) += std::get<0>(predecessor[std::get<2>(bestSoFar)]);
-		for (size_t j = 1; j < componentInEdges[component].size(); j++)
+		for (size_t j = 1; j < componentInEdges[i].size(); j++)
 		{
-			auto optionHere = componentInEdges[component][j];
+			auto optionHere = componentInEdges[i][j];
 			std::get<0>(optionHere) += std::get<0>(predecessor[std::get<2>(optionHere)]);
 			if (std::get<0>(bestSoFar) < std::get<0>(optionHere)) bestSoFar = optionHere;
 		}
-		predecessor[component] = bestSoFar;
+		predecessor[i] = bestSoFar;
 	}
 	Path result;
-	size_t pos = localComponentOrder.back();
+	size_t pos = nodesInLocalComponent.size()-1;
 	while (true)
 	{
 		std::vector<Node> addHere = reverse(std::get<1>(predecessor[pos]));
 		assert(result.nodes.size() == 0 || addHere[0] == result.nodes.back());
 		result.nodes.insert(result.nodes.end(), addHere.begin()+1, addHere.end());
 		pos = std::get<2>(predecessor[pos]);
-		if (pos == localComponentOrder.back()) break;
+		if (pos == nodesInLocalComponent.size()-1) break;
 		assert(result.nodes.size() < nodeExists.size());
 	}
 	for (size_t i = 0; i < result.nodes.size(); i++)
@@ -326,6 +325,7 @@ std::vector<size_t> getLocalComponentTopologicalOrder(const std::vector<phmap::f
 		checkStack.emplace_back(edge);
 	}
 	std::vector<size_t> result;
+	std::cerr << "start component " << startComponent << std::endl;
 	while (checkStack.size() > 0)
 	{
 		size_t top = checkStack.back();
@@ -340,11 +340,14 @@ std::vector<size_t> getLocalComponentTopologicalOrder(const std::vector<phmap::f
 		if (!allPredecessorsVisited) continue;
 		visited[top] = true;
 		result.emplace_back(top);
+		std::cerr << "visit " << top << std::endl;
 		for (size_t neighbor : localComponentOutEdges[top])
 		{
 			checkStack.emplace_back(neighbor);
 		}
 	}
+	std::cerr << result.size() << std::endl;
+	std::cerr << localComponentInEdges.size() << std::endl;
 	assert(result.size()+1 == localComponentInEdges.size());
 	result.emplace_back(startComponent);
 	assert(result.size() == visited.size());
@@ -440,6 +443,64 @@ size_t getSelfDistance(const GfaGraph& graph, const size_t startNode)
 	return getShortestPathDistance(graph, Node { startNode, true }, Node { startNode, true });
 }
 
+// https://en.wikipedia.org/wiki/Tarjan%27s_strongly_connected_components_algorithm
+void strongConnectRecurse(std::vector<size_t>& result, std::vector<size_t>& index, std::vector<size_t>& lowLink, std::vector<bool>& onStack, std::vector<size_t>& stack, size_t& nextIndex, size_t& nextStronglyConnectedComponent, const GfaGraph& graph, const std::vector<bool>& nodeOrientation, const std::vector<bool>& nodeExists, const size_t v, const size_t globalStartNode)
+{
+	assert(nodeExists[v]);
+	assert(!onStack[v]);
+	index[v] = nextIndex;
+	lowLink[v] = nextIndex;
+	nextIndex += 1;
+	stack.push_back(v);
+	onStack[v] = true;
+	for (auto edge : graph.edges.at(Node { v, nodeOrientation[v] }))
+	{
+		size_t w = std::get<0>(edge).id();
+		if (w == globalStartNode) continue;
+		if (!nodeExists[w]) continue;
+		if (index[w] == std::numeric_limits<size_t>::max())
+		{
+			strongConnectRecurse(result, index, lowLink, onStack, stack, nextIndex, nextStronglyConnectedComponent, graph, nodeOrientation, nodeExists, w, globalStartNode);
+			lowLink[v] = std::min(lowLink[v], lowLink[w]);
+		}
+		else if (onStack[w])
+		{
+			lowLink[v] = std::min(lowLink[v], index[w]);
+		}
+	}
+	if (lowLink[v] == index[v])
+	{
+		while (true)
+		{
+			assert(stack.size() >= 1);
+			size_t w = stack.back();
+			onStack[w] = false;
+			stack.pop_back();
+			result[w] = nextStronglyConnectedComponent;
+			if (w == v) break;
+		}
+		nextStronglyConnectedComponent += 1;
+	}
+}
+
+std::vector<size_t> getStronglyConnectedLocalComponents(const GfaGraph& graph, const std::vector<bool>& nodeOrientation, const std::vector<bool>& nodeExists, const size_t bestStartNode)
+{
+	std::vector<size_t> result;
+	result.resize(graph.numNodes(), std::numeric_limits<size_t>::max());
+	std::vector<size_t> index;
+	index.resize(graph.numNodes(), std::numeric_limits<size_t>::max());
+	std::vector<size_t> lowLink;
+	lowLink.resize(graph.numNodes(), std::numeric_limits<size_t>::max());
+	std::vector<bool> onStack;
+	onStack.resize(graph.numNodes(), false);
+	std::vector<size_t> stack;
+	size_t nextIndex = 0;
+	size_t nextStronglyConnectedComponent = 0;
+	strongConnectRecurse(result, index, lowLink, onStack, stack, nextIndex, nextStronglyConnectedComponent, graph, nodeOrientation, nodeExists, bestStartNode, bestStartNode);
+	assert(stack.size() == 0);
+	return result;
+}
+
 Path getHeavyPath(const GfaGraph& graph, const std::vector<ReadPath>& readPaths, const size_t localResolveLength)
 {
 	std::vector<size_t> selfDistances;
@@ -487,60 +548,21 @@ Path getHeavyPath(const GfaGraph& graph, const std::vector<ReadPath>& readPaths,
 		if (distancePre + distancePost > selfDistances[bestStartNode] + estimatedMinimalSelfDistance && distancePre + distancePost > selfDistances[i] + estimatedMinimalSelfDistance) continue;
 		nodeExists[i] = true;
 	}
-	std::vector<size_t> nodeBelongsToStronglyConnectedLocalComponent;
-	for (size_t i = 0; i < graph.numNodes(); i++)
-	{
-		nodeBelongsToStronglyConnectedLocalComponent.emplace_back(i);
-	}
-	for (size_t i = 0; i < graph.numNodes(); i++)
-	{
-		if (!nodeExists[i]) continue;
-		if (selfDistances[i] == std::numeric_limits<size_t>::max()) continue;
-		if (selfDistances[i] >= estimatedMinimalSelfDistance) continue;
-		assert(graph.edges.count(Node { i, true }) == 1);
-		assert(graph.edges.count(Node { i, false }) == 1);
-		for (auto edge : graph.edges.at(Node { i, true }))
-		{
-			Node target = std::get<0>(edge);
-			if (!nodeExists[target.id()]) continue;
-			if (selfDistances[target.id()] < estimatedMinimalSelfDistance && getShortestPathDistance(graph, target, Node { i, true }) < estimatedMinimalSelfDistance)
-			{
-				merge(nodeBelongsToStronglyConnectedLocalComponent, i, target.id());
-			}
-		}
-		for (auto edge : graph.edges.at(Node { i, false }))
-		{
-			Node target = std::get<0>(edge);
-			if (!nodeExists[target.id()]) continue;
-			if (selfDistances[target.id()] < estimatedMinimalSelfDistance && getShortestPathDistance(graph, target, Node { i, false }) < estimatedMinimalSelfDistance)
-			{
-				merge(nodeBelongsToStronglyConnectedLocalComponent, i, target.id());
-			}
-		}
-	}
-	assert(nodeBelongsToStronglyConnectedLocalComponent.at(bestStartNode) == bestStartNode);
+	std::vector<size_t> nodeBelongsToStronglyConnectedLocalComponent = getStronglyConnectedLocalComponents(graph, nodeOrientation, nodeExists, bestStartNode);
 	size_t countComponents = 0;
-	{
-		phmap::flat_hash_map<size_t, size_t> componentRenaming;
-		for (size_t i = 0; i < nodeBelongsToStronglyConnectedLocalComponent.size(); i++)
-		{
-			if (!nodeExists[i]) continue;
-			size_t component = find(nodeBelongsToStronglyConnectedLocalComponent, i);
-			if (componentRenaming.count(component) == 1) continue;
-			size_t newName = componentRenaming.size();
-			componentRenaming[component] = newName;
-		}
-		for (size_t i = 0; i < nodeBelongsToStronglyConnectedLocalComponent.size(); i++)
-		{
-			if (!nodeExists[i]) continue;
-			nodeBelongsToStronglyConnectedLocalComponent[i] = componentRenaming.at(nodeBelongsToStronglyConnectedLocalComponent[i]);
-		}
-		countComponents = componentRenaming.size();
-	}
 	for (size_t i = 0; i < graph.numNodes(); i++)
 	{
 		if (!nodeExists[i]) continue;
+		assert(nodeBelongsToStronglyConnectedLocalComponent[i] != std::numeric_limits<size_t>::max());
+		countComponents = std::max(countComponents, nodeBelongsToStronglyConnectedLocalComponent[i]);
 	}
+	assert(nodeBelongsToStronglyConnectedLocalComponent[bestStartNode] == countComponents);
+	for (size_t i = 0; i < graph.numNodes(); i++)
+	{
+		if (!nodeExists[i]) continue;
+		nodeBelongsToStronglyConnectedLocalComponent[i] = countComponents - nodeBelongsToStronglyConnectedLocalComponent[i];
+	}
+	countComponents += 1;
 	std::vector<std::vector<size_t>> nodesInLocalComponent;
 	nodesInLocalComponent.resize(countComponents);
 	for (size_t i = 0; i < nodeBelongsToStronglyConnectedLocalComponent.size(); i++)
@@ -548,35 +570,6 @@ Path getHeavyPath(const GfaGraph& graph, const std::vector<ReadPath>& readPaths,
 		if (!nodeExists[i]) continue;
 		nodesInLocalComponent[nodeBelongsToStronglyConnectedLocalComponent[i]].emplace_back(i);
 	}
-	std::vector<phmap::flat_hash_set<size_t>> localComponentInEdges;
-	std::vector<phmap::flat_hash_set<size_t>> localComponentOutEdges;
-	localComponentInEdges.resize(countComponents);
-	localComponentOutEdges.resize(countComponents);
-	for (size_t i = 0; i < graph.numNodes(); i++)
-	{
-		if (!nodeExists[i]) continue;
-		assert(graph.edges.count(Node { i, true }) == 1);
-		assert(graph.edges.count(Node { i, false }) == 1);
-		size_t thisComponent = nodeBelongsToStronglyConnectedLocalComponent[i];
-		for (auto edge : graph.edges.at(Node { i, nodeOrientation[i] }))
-		{
-			Node target = std::get<0>(edge);
-			if (!nodeExists[target.id()]) continue;
-			size_t otherComponent = nodeBelongsToStronglyConnectedLocalComponent[target.id()];
-			if (otherComponent == thisComponent) continue;
-			localComponentOutEdges[thisComponent].emplace(otherComponent);
-		}
-		for (auto edge : graph.edges.at(Node { i, !nodeOrientation[i] }))
-		{
-			Node target = std::get<0>(edge);
-			if (!nodeExists[target.id()]) continue;
-			size_t otherComponent = nodeBelongsToStronglyConnectedLocalComponent[target.id()];
-			if (otherComponent == thisComponent) continue;
-			localComponentInEdges[thisComponent].emplace(otherComponent);
-		}
-	}
-	std::vector<size_t> localComponentOrder = getLocalComponentTopologicalOrder(localComponentInEdges, localComponentOutEdges, nodeBelongsToStronglyConnectedLocalComponent.at(bestStartNode));
-	assert(localComponentOrder.size() == localComponentInEdges.size());
-	Path result = getTopologicallyOrderedHeaviestPath(graph, readPaths, nodeExists, selfDistances, estimatedMinimalSelfDistance, nodeOrientation, localComponentOrder, nodeBelongsToStronglyConnectedLocalComponent, nodesInLocalComponent);
+	Path result = getTopologicallyOrderedHeaviestPath(graph, readPaths, nodeExists, selfDistances, estimatedMinimalSelfDistance, nodeOrientation, nodeBelongsToStronglyConnectedLocalComponent, nodesInLocalComponent);
 	return result;
 }
