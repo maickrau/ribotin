@@ -227,7 +227,7 @@ void DoClusterONTAnalysis(const ClusterParams& params)
 	Logger::Log.log(Logger::LogLevel::Always) << "cluster loops roughly" << std::endl;
 	orderLoopsByLength(loopSequences, graph, pathStartClip, pathEndClip);
 	Logger::Log.log(Logger::LogLevel::Always) << "max clustering edit distance " << params.maxClusterDifference << std::endl;
-	auto clusters = roughClusterLoopSequences(loopSequences, graph, pathStartClip, pathEndClip, coreNodes, params.maxClusterDifference);
+	auto clusters = roughClusterLoopSequences(loopSequences, graph, pathStartClip, pathEndClip, coreNodes, params.maxClusterDifference, params.numThreads);
 	Logger::Log.log(Logger::LogLevel::Always) << clusters.size() << " rough clusters" << std::endl;
 	Logger::Log.log(Logger::LogLevel::Always) << "getting exact locations of raw loop sequences" << std::endl;
 	addRawSequencesToLoops(clusters, graph, pathStartClip, pathEndClip, params.ontReadPath, params.numThreads);

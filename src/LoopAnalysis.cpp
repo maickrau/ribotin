@@ -482,7 +482,7 @@ size_t countNeedsAligning(const std::vector<size_t>& loopLengths, size_t maxEdit
 	return result;
 }
 
-std::vector<std::vector<OntLoop>> roughClusterLoopSequences(const std::vector<OntLoop>& loops, const GfaGraph& graph, const std::unordered_map<Node, size_t>& pathStartClip, const std::unordered_map<Node, size_t>& pathEndClip, const std::unordered_set<size_t>& coreNodes, const size_t maxEdits)
+std::vector<std::vector<OntLoop>> roughClusterLoopSequences(const std::vector<OntLoop>& loops, const GfaGraph& graph, const std::unordered_map<Node, size_t>& pathStartClip, const std::unordered_map<Node, size_t>& pathEndClip, const std::unordered_set<size_t>& coreNodes, const size_t maxEdits, const size_t numThreads)
 {
 	std::vector<size_t> parent;
 	parent.resize(loops.size());
@@ -512,25 +512,59 @@ std::vector<std::vector<OntLoop>> roughClusterLoopSequences(const std::vector<On
 		}
 	}
 	std::unordered_map<std::pair<std::vector<Node>, std::vector<Node>>, size_t> memoizedEditDistances;
-	size_t sumAligned = 0;
 	size_t needsAligning = countNeedsAligning(loopLengths, maxEdits);
-	for (size_t i = 0; i < loops.size(); i++)
+	Logger::Log.log(Logger::LogLevel::Always) << "aligning " << needsAligning << " morph path pairs" << std::endl;
+	auto startTime = getTime();
+	std::vector<std::thread> threads;
+	std::mutex parentMutex;
+	std::mutex memoizationMutex;
+	std::atomic<size_t> nextPairIndex;
+	nextPairIndex = 0;
+	for (size_t i = 0; i < numThreads; i++)
 	{
-		while (parent[i] != parent[parent[i]]) parent[i] = parent[parent[i]];
-		for (size_t j = i-1; j < i; j--)
+		threads.emplace_back([&parent, &loopLengths, &parentMutex, &memoizationMutex, &graph, &loops, &pathStartClip, &pathEndClip, &coreNodes, &nodeCountIndex, &nodePosIndex, &memoizedEditDistances, &nextPairIndex, maxEdits]()
 		{
-			if (sumAligned % 1000000 == 0) Logger::Log.log(Logger::LogLevel::Always) << "aligning morph path pair " << sumAligned << " / " << needsAligning << std::endl;
-			sumAligned += 1;
-			assert(loopLengths[j] <= loopLengths[i]);
-			if (loopLengths[j]+maxEdits < loopLengths[i]) break;
-			while (parent[j] != parent[parent[j]]) parent[j] = parent[parent[j]];
-			if (parent[i] == parent[j]) continue;
-			size_t edits = getEditDistance(loops[i].path, i, loops[j].path, j, graph, pathStartClip, pathEndClip, maxEdits, coreNodes, nodeCountIndex, nodePosIndex, memoizedEditDistances);
-			assert(edits == getEditDistance(loops[j].path, j, loops[i].path, i, graph, pathStartClip, pathEndClip, maxEdits, coreNodes, nodeCountIndex, nodePosIndex, memoizedEditDistances));
-			if (edits > maxEdits) continue;
-			parent[parent[j]] = parent[i];
-		}
+			while (true)
+			{
+				size_t index = nextPairIndex++;
+				if (index >= loops.size()*(loops.size()-1)/2) break;
+				size_t i = sqrt(2.0*index + 0.25) + 0.5;
+				assert(i >= 1);
+				assert(i < loops.size());
+				assert(index >= i*(i-1)/2);
+				size_t j = index - i*(i-1)/2;
+				assert(j < i);
+				j = i-1-j;
+				assert(j < i);
+				if (loopLengths[j]+maxEdits < loopLengths[i]) continue;
+				{
+					std::lock_guard<std::mutex> lock { parentMutex };
+					while (parent[i] != parent[parent[i]]) parent[i] = parent[parent[i]];
+					while (parent[j] != parent[parent[j]]) parent[j] = parent[parent[j]];
+					if (parent[i] == parent[j]) continue;
+				}
+				size_t edits = getEditDistance(loops[i].path, i, loops[j].path, j, graph, pathStartClip, pathEndClip, maxEdits, coreNodes, nodeCountIndex, nodePosIndex, memoizedEditDistances, memoizationMutex);
+				assert(edits == getEditDistance(loops[j].path, j, loops[i].path, i, graph, pathStartClip, pathEndClip, maxEdits, coreNodes, nodeCountIndex, nodePosIndex, memoizedEditDistances, memoizationMutex));
+				if (edits > maxEdits) continue;
+				{
+					std::lock_guard<std::mutex> lock { parentMutex };
+					while (parent[j] != parent[parent[j]]) parent[j] = parent[parent[j]];
+					while (parent[i] != parent[parent[i]]) parent[i] = parent[parent[i]];
+					if (parent[i] != parent[j])
+					{
+						parent[parent[j]] = parent[i];
+					}
+				}
+			}
+		});
 	}
+	for (size_t i = 0; i < numThreads; i++)
+	{
+		threads[i].join();
+	}
+	auto endTime = getTime();
+	Logger::Log.log(Logger::LogLevel::Always) << "morph path pairs aligned" << std::endl;
+	Logger::Log.log(Logger::LogLevel::Always) << "alignment took " << formatTime(startTime, endTime) << std::endl;
 	std::vector<size_t> parentToCluster;
 	parentToCluster.resize(parent.size(), std::numeric_limits<size_t>::max());
 	std::vector<std::vector<OntLoop>> result;
