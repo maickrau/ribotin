@@ -278,14 +278,14 @@ Path getTopologicallyOrderedHeaviestPath(const GfaGraph& graph, const std::vecto
 		predecessor[i] = bestSoFar;
 	}
 	Path result;
-	size_t pos = nodesInLocalComponent.size()-1;
+	size_t pos = 0;
 	while (true)
 	{
 		std::vector<Node> addHere = reverse(std::get<1>(predecessor[pos]));
 		assert(result.nodes.size() == 0 || addHere[0] == result.nodes.back());
 		result.nodes.insert(result.nodes.end(), addHere.begin()+1, addHere.end());
 		pos = std::get<2>(predecessor[pos]);
-		if (pos == nodesInLocalComponent.size()-1) break;
+		if (pos == 0) break;
 		assert(result.nodes.size() < nodeExists.size());
 	}
 	for (size_t i = 0; i < result.nodes.size(); i++)
