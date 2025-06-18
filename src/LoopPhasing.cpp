@@ -1894,10 +1894,23 @@ std::vector<std::vector<size_t>> getManySNPGroupingSplitting(const std::vector<O
 			readsWhichHaveSNP[edit].emplace_back(i);
 		}
 	}
-	std::vector<std::pair<std::vector<size_t>, size_t>> distinctSets;
+	std::vector<std::pair<std::vector<size_t>, std::tuple<size_t, size_t, std::string>>> distinctSets;
 	for (const auto& pair : readsWhichHaveSNP)
 	{
-		distinctSets.emplace_back(pair.second, std::get<0>(pair.first));
+		distinctSets.emplace_back(pair.second, pair.first);
+		std::vector<bool> hasSNP;
+		hasSNP.resize(editsPerRead.size(), false);
+		for (size_t read : pair.second)
+		{
+			hasSNP[read] = true;
+		}
+		std::vector<size_t> readsWithoutSNP;
+		for (size_t read = 0; read < editsPerRead.size(); read++)
+		{
+			if (hasSNP[read]) continue;
+			readsWithoutSNP.emplace_back(read);
+		}
+		distinctSets.emplace_back(readsWithoutSNP, std::make_tuple(std::get<0>(pair.first), std::get<0>(pair.first), ""));
 	}
 	for (size_t i = 0; i < distinctSets.size(); i++)
 	{
@@ -1910,7 +1923,7 @@ std::vector<std::vector<size_t>> getManySNPGroupingSplitting(const std::vector<O
 	for (size_t i = 1; i <= distinctSets.size(); i++)
 	{
 		assert(i == distinctSets.size() || distinctSets[i].first >= distinctSets[i-1].first);
-		assert(i == distinctSets.size() || distinctSets[i].first > distinctSets[i-1].first || distinctSets[i].second >= distinctSets[i-1].second);
+		assert(i == distinctSets.size() || distinctSets[i].first > distinctSets[i-1].first || std::get<0>(distinctSets[i].second) >= std::get<0>(distinctSets[i-1].second));
 		if (i < distinctSets.size() && distinctSets[i].first == distinctSets[i-1].first) continue;
 		if (i-clusterStart >= minSNPs)
 		{
@@ -1918,18 +1931,24 @@ std::vector<std::vector<size_t>> getManySNPGroupingSplitting(const std::vector<O
 			{
 				if (distinctSets[clusterStart].first.size()+minCoverage <= cluster.size())
 				{
-					size_t countFarApartSites = 0;
-					size_t lastFarApartSite = clusterStart;
+					std::vector<size_t> usedSites;
+					usedSites.emplace_back(clusterStart);
 					for (size_t j = clusterStart; j < i; j++)
 					{
-						if (distinctSets[j].second > distinctSets[lastFarApartSite].second+minDistance)
+						if (std::get<0>(distinctSets[j].second) > std::get<0>(distinctSets[usedSites.back()].second)+minDistance)
 						{
-							countFarApartSites += 1;
-							lastFarApartSite = j;
+							usedSites.emplace_back(j);
 						}
 					}
-					if (countFarApartSites >= minSNPs)
+					// min amount of SNPs, and pick only canonical version when both SNP and non-SNP clusters are present
+					if (usedSites.size() >= minSNPs && std::get<2>(distinctSets[usedSites[0]].second).size() != 0)
 					{
+						Logger::Log.log(Logger::LogLevel::DetailedDebugInfo) << "split with SNP cluster of size " << usedSites.size() << ":";
+						for (size_t j : usedSites)
+						{
+							Logger::Log.log(Logger::LogLevel::DetailedDebugInfo) << " " << std::get<0>(distinctSets[j].second) << "-" << std::get<1>(distinctSets[j].second) << "\"" << std::get<2>(distinctSets[j].second) << "\"";
+						}
+						Logger::Log.log(Logger::LogLevel::DetailedDebugInfo) << std::endl;
 						std::vector<bool> hasSNP;
 						hasSNP.resize(cluster.size(), false);
 						for (size_t read : distinctSets[clusterStart].first)
