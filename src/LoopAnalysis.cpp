@@ -307,8 +307,8 @@ std::vector<OntLoop> getMissingLoopSequences(const std::vector<std::vector<OntLo
 			{
 				len -= clip;
 			}
-			assert(i+1 == read.path.size() || len < pathLength);
-			if (i+1 == read.path.size() && len >= pathLength)
+			assert(pathLength >= 1);
+			if (len >= pathLength)
 			{
 				len = pathLength-1;
 			}
