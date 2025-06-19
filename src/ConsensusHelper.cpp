@@ -805,7 +805,12 @@ std::vector<std::string> getSelfCorrectedLoopsOneIteration(const std::vector<std
 	phmap::flat_hash_map<__uint128_t, size_t> kmerCounts;
 	for (size_t i = 0; i < cluster.size(); i++)
 	{
-		iterateKmers(cluster[i], k, [&kmerCounts](const __uint128_t kmer, const size_t position) { kmerCounts[kmer] += 1; });
+		phmap::flat_hash_set<__uint128_t> presentKmersThisRead;
+		iterateKmers(cluster[i], k, [&presentKmersThisRead](const __uint128_t kmer, const size_t position) { presentKmersThisRead.insert(kmer); });
+		for (auto kmer : presentKmersThisRead)
+		{
+			kmerCounts[kmer] += 1;
+		}
 	}
 	phmap::flat_hash_set<__uint128_t> keptKmers;
 	for (auto pair : kmerCounts)
