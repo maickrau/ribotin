@@ -124,7 +124,7 @@ size_t getEditDistanceWfa(const std::string& left, const std::string& right)
 		{
 			nextOffsets[i] = 0;
 			if (i < zeroPos && zeroPos-i >= left.size()) continue;
-			if (i > zeroPos && i-zeroPos >= right.size()) continue;
+			if (i >= zeroPos + right.size()) break;
 			if (i >= 1 && i < nextOffsets.size()-1) nextOffsets[i] = offsets[i-1]+1;
 			if (i >= 2) nextOffsets[i] = std::max(nextOffsets[i], offsets[i-2]);
 			if (i < nextOffsets.size()-2) nextOffsets[i] = std::max(nextOffsets[i], offsets[i]+1);
@@ -168,7 +168,7 @@ size_t getEditDistanceWfa(const PathSequenceView& left, const PathSequenceView& 
 		{
 			nextOffsets[i] = 0;
 			if (zeroPos > i && zeroPos-i > leftSize) continue;
-			if (zeroPos+i >= rightSize) break;
+			if (i >= zeroPos + rightSize) break;
 			if (i >= 1 && i < nextOffsets.size()-1) nextOffsets[i] = offsets[i-1]+1;
 			if (i >= 2) nextOffsets[i] = std::max(nextOffsets[i], offsets[i-2]);
 			if (i < nextOffsets.size()-2) nextOffsets[i] = std::max(nextOffsets[i], offsets[i]+1);
@@ -183,7 +183,7 @@ size_t getEditDistanceWfa(const PathSequenceView& left, const PathSequenceView& 
 		}
 		std::swap(offsets, nextOffsets);
 		zeroPos += 1;
-		assert(score < leftSize+rightSize);
+		assert(score <= std::max(leftSize, rightSize));
 	}
 	return maxEdits+1;
 }
