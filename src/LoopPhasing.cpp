@@ -656,8 +656,8 @@ bool vectorsMatch(const std::vector<size_t>& left, const std::vector<size_t>& ri
 
 std::vector<std::vector<size_t>> trySplitTwoSites(const std::vector<std::pair<std::vector<std::vector<size_t>>, size_t>>& phasableVariantInfo, const size_t numReads)
 {
-	const size_t minDistance = 100;
-	const size_t minCoverage = std::min<size_t>(std::max<size_t>(3, numReads*0.1), 20);
+	const size_t minDistance = 200;
+	const size_t minCoverage = std::max<size_t>(10, numReads*0.1);
 	size_t bestSiteOne = std::numeric_limits<size_t>::max();
 	size_t bestSiteTwo = std::numeric_limits<size_t>::max();
 	size_t bestSiteMinorAlleleCoverage = 0;
@@ -1973,7 +1973,7 @@ std::vector<std::vector<size_t>> getManySNPGroupingSplitting(const std::vector<O
 					// min amount of SNPs, and pick only canonical version when both SNP and non-SNP clusters are present
 					if (usedSites.size() >= minSNPs && std::get<2>(distinctSets[usedSites[0]].second).size() != 0)
 					{
-						Logger::Log.log(Logger::LogLevel::DetailedDebugInfo) << "split with SNP cluster of size " << usedSites.size() << ":";
+						Logger::Log.log(Logger::LogLevel::DetailedDebugInfo) << "split with SNP cluster of size " << usedSites.size() << " read counts " << distinctSets[clusterStart].first.size() << " vs " << editsPerRead.size()-distinctSets[clusterStart].first.size() << ":";
 						for (size_t j : usedSites)
 						{
 							Logger::Log.log(Logger::LogLevel::DetailedDebugInfo) << " " << std::get<0>(distinctSets[j].second) << "-" << std::get<1>(distinctSets[j].second) << "\"" << std::get<2>(distinctSets[j].second) << "\"";
