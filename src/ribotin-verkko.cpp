@@ -444,6 +444,7 @@ int main(int argc, char** argv)
 		if (splittedClusters.back().size() >= 1)
 		{
 			std::filesystem::create_directories(outputPrefix + "_unknowntangle");
+			std::filesystem::create_directories(outputPrefix + "_unknowntangle/tmp");
 			ClusterParams tangleClusterParams = clusterParams;
 			tangleClusterParams.namePrefix = tangleClusterParams.namePrefix + (tangleClusterParams.namePrefix.size() > 0 ? "_" : "") + "unknowntangle";
 			tangleClusterParams.basePath = outputPrefix + "_unknowntangle";
