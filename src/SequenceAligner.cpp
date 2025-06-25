@@ -4,18 +4,7 @@
 
 size_t getEditDistancePossiblyMemoized(const std::vector<Node>& left, const std::vector<Node>& right, const size_t leftStartClipBp, const size_t rightStartClipBp, const size_t leftEndClipBp, const size_t rightEndClipBp, const GfaGraph& graph, const size_t maxEdits, std::unordered_map<std::pair<std::vector<Node>, std::vector<Node>>, size_t>& memoizedEditDistances, std::mutex& memoizationMutex)
 {
-	if (left == right) return 0;
-	phmap::flat_hash_set<size_t> bordersInLeft;
-	phmap::flat_hash_set<size_t> bordersInRight;
-	for (auto node : left)
-	{
-		if (graph.nodeNames[node.id()].substr(0, 6) == "border") bordersInLeft.insert(node.id());
-	}
-	for (auto node : right)
-	{
-		if (graph.nodeNames[node.id()].substr(0, 6) == "border") bordersInRight.insert(node.id());
-	}
-	if (bordersInLeft != bordersInRight) return maxEdits+1;
+	if (left == right && leftStartClipBp == rightStartClipBp && leftEndClipBp == rightEndClipBp) return 0;
 	auto key = canon(left, right);
 	size_t add;
 	if (leftStartClipBp == 0 && rightStartClipBp == 0 && leftEndClipBp == 0 && rightEndClipBp == 0)
