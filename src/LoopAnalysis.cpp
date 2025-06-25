@@ -112,7 +112,6 @@ std::tuple<std::unordered_set<size_t>, std::unordered_set<size_t>, std::unordere
 {
 	const size_t k = 101;
 	const size_t borderSize = 200;
-	const size_t anchorDistanceFromMainLoop = 8000; // this should be a bit smaller than minAnchorLength in ClusterHandler.cpp:processGraphAndWrite
 	phmap::flat_hash_set<size_t> keptNodesInCycles = getNodesInMainCycle(graph, heavyPath, 1);
 	phmap::flat_hash_map<Node, size_t> shortestDistanceToCyclicComponent = getNodeDistancesToMainCycle(graph, keptNodesInCycles);
 	std::string consensusSequence = heavyPath.getSequence(graph.nodeSeqs);
@@ -157,29 +156,15 @@ std::tuple<std::unordered_set<size_t>, std::unordered_set<size_t>, std::unordere
 	for (size_t nodeid = 0; nodeid < graph.nodeSeqs.size(); nodeid++)
 	{
 		if (keptNodesInCycles.count(nodeid) == 1) continue;
-		if (shortestDistanceToCyclicComponent.count(Node { nodeid, true }) == 1 && shortestDistanceToCyclicComponent.at(Node { nodeid, true }) > anchorDistanceFromMainLoop)
+		assert(graph.edges.count(Node { nodeid, false }) == 1 && graph.edges.at(Node { nodeid, false }).size() > 0);
+		if (graph.edges.count(Node { nodeid, true }) == 0 || graph.edges.at(Node { nodeid, true }).size() == 0)
 		{
-			if (shortestDistanceToCyclicComponent.at(Node { nodeid, true }) - graph.nodeSeqs[nodeid].size() <= anchorDistanceFromMainLoop)
-			{
-				anchorNodes.emplace(nodeid);
-				borderNodes.emplace(nodeid);
-				pathEndClip[Node { nodeid, true }] = shortestDistanceToCyclicComponent.at(Node { nodeid, true }) - anchorDistanceFromMainLoop;
-				pathStartClip[Node { nodeid, false }] = graph.nodeSeqs[nodeid].size() - pathEndClip[Node { nodeid, true }];
-				pathEndClip[Node { nodeid, false }] = graph.nodeSeqs[nodeid].size() - pathEndClip.at(Node { nodeid, true });
-				pathStartClip[Node { nodeid, true }] = graph.nodeSeqs[nodeid].size() - pathStartClip.at(Node { nodeid, false });
-			}
-		}
-		if (shortestDistanceToCyclicComponent.count(Node { nodeid, false }) == 1 && shortestDistanceToCyclicComponent.at(Node { nodeid, false }) > anchorDistanceFromMainLoop)
-		{
-			if (shortestDistanceToCyclicComponent.at(Node { nodeid, false }) - graph.nodeSeqs[nodeid].size() <= anchorDistanceFromMainLoop)
-			{
-				anchorNodes.emplace(nodeid);
-				borderNodes.emplace(nodeid);
-				pathEndClip[Node { nodeid, false }] = shortestDistanceToCyclicComponent.at(Node { nodeid, false }) - anchorDistanceFromMainLoop;
-				pathStartClip[Node { nodeid, true }] = graph.nodeSeqs[nodeid].size() - pathEndClip[Node { nodeid, false }];
-				pathEndClip[Node { nodeid, true }] = graph.nodeSeqs[nodeid].size() - pathEndClip.at(Node { nodeid, false });
-				pathStartClip[Node { nodeid, false }] = graph.nodeSeqs[nodeid].size() - pathStartClip.at(Node { nodeid, true });
-			}
+			anchorNodes.emplace(nodeid);
+			borderNodes.emplace(nodeid);
+			pathStartClip[Node { nodeid, true }] = graph.nodeSeqs[nodeid].size()-1;
+			pathEndClip[Node { nodeid, true }] = 0;
+			pathStartClip[Node { nodeid, false }] = 0;
+			pathEndClip[Node { nodeid, false }] = graph.nodeSeqs[nodeid].size()-1;
 		}
 	}
 	for (size_t nodeid = 0; nodeid < graph.nodeSeqs.size(); nodeid++)
@@ -234,8 +219,8 @@ std::tuple<std::unordered_set<size_t>, std::unordered_set<size_t>, std::unordere
 			pathStartClip[Node { nodeid, true }] = breakPos;
 			pathEndClip[Node { nodeid, true }] = graph.nodeSeqs[nodeid].size() - breakPos;
 			breakPos = graph.nodeSeqs[nodeid].size() - 1 - breakPos;
-			pathStartClip[Node { nodeid, false }] = graph.nodeSeqs[nodeid].size() - breakPos;
-			pathEndClip[Node { nodeid, false }] = breakPos;
+			pathStartClip[Node { nodeid, false }] = breakPos;
+			pathEndClip[Node { nodeid, false }] = graph.nodeSeqs[nodeid].size() - breakPos;
 			borderNodes.insert(nodeid);
 		}
 		if (bwBreaks.size() >= 3)
@@ -245,8 +230,8 @@ std::tuple<std::unordered_set<size_t>, std::unordered_set<size_t>, std::unordere
 			pathStartClip[Node { nodeid, false }] = breakPos;
 			pathEndClip[Node { nodeid, false }] = graph.nodeSeqs[nodeid].size() - breakPos;
 			breakPos = graph.nodeSeqs[nodeid].size() - 1 - breakPos;
-			pathStartClip[Node { nodeid, true }] = graph.nodeSeqs[nodeid].size() - breakPos;
-			pathEndClip[Node { nodeid, true }] = breakPos;
+			pathStartClip[Node { nodeid, true }] = breakPos;
+			pathEndClip[Node { nodeid, true }] = graph.nodeSeqs[nodeid].size() - breakPos;
 			borderNodes.insert(nodeid);
 		}
 	}
@@ -449,7 +434,10 @@ std::vector<OntLoop> extractLoopSequences(const std::vector<ReadPath>& corrected
 			size_t clip = pathStartClip.at(read.path[lastBreak]) + pathEndClip.at(read.path[i]);
 			bool anchored = anchorNodes.count(read.path[lastBreak].id()) == 1 || anchorNodes.count(read.path[i].id()) == 1;
 			bool probablyFalsePositiveAnchor = anchorNodes.count(read.path[lastBreak].id()) == 1 && anchorNodes.count(read.path[i].id()) == 1 && len < 5000;
-			if (len > clip && (len - clip >= minLength || anchored) && !probablyFalsePositiveAnchor)
+			bool tooMuchClip = false;
+			if (lastBreak == 0 && read.pathStartClip > 500) tooMuchClip = true;
+			if (i+1 == read.path.size() && read.pathEndClip > 500) tooMuchClip = true;
+			if (len > clip && (len - clip >= minLength || anchored) && !probablyFalsePositiveAnchor && !tooMuchClip)
 			{
 				result.emplace_back();
 				result.back().originalReadLength = read.readLength;
@@ -670,7 +658,7 @@ std::vector<std::vector<OntLoop>> clusterByDbscan(const std::vector<OntLoop>& cl
 	return result;
 }
 
-std::vector<std::vector<OntLoop>> densityClusterLoops(const std::vector<std::vector<OntLoop>>& clusters, const GfaGraph& graph, const std::unordered_map<Node, size_t>& pathStartClip, const std::unordered_map<Node, size_t>& pathEndClip, const std::unordered_set<size_t>& coreNodes, const size_t maxEdits, const size_t minPoints, const size_t minEdits)
+std::vector<std::vector<OntLoop>> densityClusterLoops(const std::vector<std::vector<OntLoop>>& clusters, const GfaGraph& graph, const std::unordered_map<Node, size_t>& pathStartClip, const std::unordered_map<Node, size_t>& pathEndClip, const std::unordered_set<size_t>& coreNodes, const size_t maxEdits, const size_t minPoints, const size_t minEdits, const size_t numThreads)
 {
 	std::vector<size_t> editHistogram;
 	editHistogram.resize(maxEdits, 0);
@@ -694,6 +682,7 @@ std::vector<std::vector<OntLoop>> densityClusterLoops(const std::vector<std::vec
 	std::sort(allLoopLengths.begin(), allLoopLengths.end());
 	size_t medianLength = allLoopLengths[allLoopLengths.size()/2];
 	Logger::Log.log(Logger::LogLevel::DebugInfo) << "median loop length " << medianLength << std::endl;
+	auto startTime = getTime();
 	for (size_t clusteri = 0; clusteri < clusters.size(); clusteri++)
 	{
 		editDistanceMatrices[clusteri].resize(clusters[clusteri].size());
@@ -710,6 +699,47 @@ std::vector<std::vector<OntLoop>> densityClusterLoops(const std::vector<std::vec
 			}
 		}
 		std::unordered_map<std::pair<std::vector<Node>, std::vector<Node>>, size_t> memoizedEditDistances;
+
+		std::vector<std::thread> threads;
+		std::atomic<size_t> nextIndex;
+		nextIndex = 0;
+		std::mutex memoizationMutex;
+		for (size_t i = 0; i < clusters[clusteri].size(); i++)
+		{
+			editDistanceMatrices[clusteri][i].resize(i);
+		}
+		for (size_t i = 0; i < numThreads; i++)
+		{
+			threads.emplace_back([&nextIndex, &clusters, &graph, &pathStartClip, &pathEndClip, &editDistanceMatrices, &coreNodes, &nodeCountIndex, &nodePosIndex, &memoizedEditDistances, &memoizationMutex, maxEdits, clusteri]()
+			{
+				while (true)
+				{
+					size_t index = nextIndex++;
+					if (index >= clusters[clusteri].size()*(clusters[clusteri].size()-1)/2) break;
+					size_t i = sqrt(2.0*index + 0.25) + 0.5;
+					assert(i >= 1);
+					assert(i < clusters[clusteri].size());
+					assert(index >= i*(i-1)/2);
+					size_t j = index - i*(i-1)/2;
+					assert(j < i);
+					size_t edits = getEditDistance(clusters[clusteri][i].path, i, clusters[clusteri][j].path, j, graph, pathStartClip, pathEndClip, maxEdits, coreNodes, nodeCountIndex, nodePosIndex, memoizedEditDistances, memoizationMutex);
+					if (edits >= maxEdits) edits = maxEdits-1;
+					editDistanceMatrices[clusteri][i][j] = edits;
+				}
+			});
+		}
+		for (size_t i = 0; i < threads.size(); i++)
+		{
+			threads[i].join();
+		}
+		for (size_t i = 0; i < editDistanceMatrices[clusteri].size(); i++)
+		{
+			for (size_t j = 0; j < editDistanceMatrices[clusteri][i].size(); j++)
+			{
+				editHistogram[editDistanceMatrices[clusteri][i][j]] += 1;
+			}
+		}
+/*
 		for (size_t i = 0; i < clusters[clusteri].size(); i++)
 		{
 			editDistanceMatrices[clusteri][i].resize(i);
@@ -722,7 +752,10 @@ std::vector<std::vector<OntLoop>> densityClusterLoops(const std::vector<std::vec
 				editHistogram[edits] += 1;
 			}
 		}
+*/
 	}
+	auto endTime = getTime();
+	Logger::Log.log(Logger::LogLevel::DebugInfo) << "edit distances took " << formatTime(startTime, endTime) << std::endl;
 	size_t histogramPeak = 0;
 	for (size_t i = 0; i < editHistogram.size()-1; i++)
 	{

@@ -63,6 +63,7 @@ int main(int argc, char** argv)
 	if (!commonParams.hasGraphAligner() && params.count("nano") >= 1)
 	{
 		std::cerr << "--graphaligner is required when using ultralong ONT reads" << std::endl;
+		paramError = true;
 	}
 	if (!commonParams.hasWinnowmap() && params.count("nano") >= 1)
 	{
