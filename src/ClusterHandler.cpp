@@ -239,7 +239,7 @@ void DoClusterONTAnalysis(const ClusterParams& params)
 	else
 	{
 		Logger::Log.log(Logger::LogLevel::Always) << "cluster loops by density" << std::endl;
-		clusters = densityClusterLoops(clusters, graph, pathStartClip, pathEndClip, coreNodes, params.maxClusterDifference, 5, params.minReclusterDistance);
+		clusters = densityClusterLoops(clusters, graph, pathStartClip, pathEndClip, coreNodes, params.maxClusterDifference, 5, params.minReclusterDistance, params.numThreads);
 	}
 	Logger::Log.log(Logger::LogLevel::Always) << clusters.size() << " clusters" << std::endl;
 	std::sort(clusters.begin(), clusters.end(), [](const auto& left, const auto& right) { return left.size() > right.size(); });

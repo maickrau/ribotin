@@ -670,7 +670,7 @@ std::vector<std::vector<OntLoop>> clusterByDbscan(const std::vector<OntLoop>& cl
 	return result;
 }
 
-std::vector<std::vector<OntLoop>> densityClusterLoops(const std::vector<std::vector<OntLoop>>& clusters, const GfaGraph& graph, const std::unordered_map<Node, size_t>& pathStartClip, const std::unordered_map<Node, size_t>& pathEndClip, const std::unordered_set<size_t>& coreNodes, const size_t maxEdits, const size_t minPoints, const size_t minEdits)
+std::vector<std::vector<OntLoop>> densityClusterLoops(const std::vector<std::vector<OntLoop>>& clusters, const GfaGraph& graph, const std::unordered_map<Node, size_t>& pathStartClip, const std::unordered_map<Node, size_t>& pathEndClip, const std::unordered_set<size_t>& coreNodes, const size_t maxEdits, const size_t minPoints, const size_t minEdits, const size_t numThreads)
 {
 	std::vector<size_t> editHistogram;
 	editHistogram.resize(maxEdits, 0);
@@ -694,6 +694,7 @@ std::vector<std::vector<OntLoop>> densityClusterLoops(const std::vector<std::vec
 	std::sort(allLoopLengths.begin(), allLoopLengths.end());
 	size_t medianLength = allLoopLengths[allLoopLengths.size()/2];
 	Logger::Log.log(Logger::LogLevel::DebugInfo) << "median loop length " << medianLength << std::endl;
+	auto startTime = getTime();
 	for (size_t clusteri = 0; clusteri < clusters.size(); clusteri++)
 	{
 		editDistanceMatrices[clusteri].resize(clusters[clusteri].size());
@@ -710,6 +711,47 @@ std::vector<std::vector<OntLoop>> densityClusterLoops(const std::vector<std::vec
 			}
 		}
 		std::unordered_map<std::pair<std::vector<Node>, std::vector<Node>>, size_t> memoizedEditDistances;
+
+		std::vector<std::thread> threads;
+		std::atomic<size_t> nextIndex;
+		nextIndex = 0;
+		std::mutex memoizationMutex;
+		for (size_t i = 0; i < clusters[clusteri].size(); i++)
+		{
+			editDistanceMatrices[clusteri][i].resize(i);
+		}
+		for (size_t i = 0; i < numThreads; i++)
+		{
+			threads.emplace_back([&nextIndex, &clusters, &graph, &pathStartClip, &pathEndClip, &editDistanceMatrices, &coreNodes, &nodeCountIndex, &nodePosIndex, &memoizedEditDistances, &memoizationMutex, maxEdits, clusteri]()
+			{
+				while (true)
+				{
+					size_t index = nextIndex++;
+					if (index >= clusters[clusteri].size()*(clusters[clusteri].size()-1)/2) break;
+					size_t i = sqrt(2.0*index + 0.25) + 0.5;
+					assert(i >= 1);
+					assert(i < clusters[clusteri].size());
+					assert(index >= i*(i-1)/2);
+					size_t j = index - i*(i-1)/2;
+					assert(j < i);
+					size_t edits = getEditDistance(clusters[clusteri][i].path, i, clusters[clusteri][j].path, j, graph, pathStartClip, pathEndClip, maxEdits, coreNodes, nodeCountIndex, nodePosIndex, memoizedEditDistances, memoizationMutex);
+					if (edits >= maxEdits) edits = maxEdits-1;
+					editDistanceMatrices[clusteri][i][j] = edits;
+				}
+			});
+		}
+		for (size_t i = 0; i < threads.size(); i++)
+		{
+			threads[i].join();
+		}
+		for (size_t i = 0; i < editDistanceMatrices[clusteri].size(); i++)
+		{
+			for (size_t j = 0; j < editDistanceMatrices[clusteri][i].size(); j++)
+			{
+				editHistogram[editDistanceMatrices[clusteri][i][j]] += 1;
+			}
+		}
+/*
 		for (size_t i = 0; i < clusters[clusteri].size(); i++)
 		{
 			editDistanceMatrices[clusteri][i].resize(i);
@@ -722,7 +764,10 @@ std::vector<std::vector<OntLoop>> densityClusterLoops(const std::vector<std::vec
 				editHistogram[edits] += 1;
 			}
 		}
+*/
 	}
+	auto endTime = getTime();
+	Logger::Log.log(Logger::LogLevel::DebugInfo) << "edit distances took " << formatTime(startTime, endTime) << std::endl;
 	size_t histogramPeak = 0;
 	for (size_t i = 0; i < editHistogram.size()-1; i++)
 	{
