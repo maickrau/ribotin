@@ -112,7 +112,6 @@ std::tuple<std::unordered_set<size_t>, std::unordered_set<size_t>, std::unordere
 {
 	const size_t k = 101;
 	const size_t borderSize = 200;
-	const size_t anchorDistanceFromMainLoop = 8000; // this should be a bit smaller than minAnchorLength in ClusterHandler.cpp:processGraphAndWrite
 	phmap::flat_hash_set<size_t> keptNodesInCycles = getNodesInMainCycle(graph, heavyPath, 1);
 	phmap::flat_hash_map<Node, size_t> shortestDistanceToCyclicComponent = getNodeDistancesToMainCycle(graph, keptNodesInCycles);
 	std::string consensusSequence = heavyPath.getSequence(graph.nodeSeqs);
@@ -157,29 +156,15 @@ std::tuple<std::unordered_set<size_t>, std::unordered_set<size_t>, std::unordere
 	for (size_t nodeid = 0; nodeid < graph.nodeSeqs.size(); nodeid++)
 	{
 		if (keptNodesInCycles.count(nodeid) == 1) continue;
-		if (shortestDistanceToCyclicComponent.count(Node { nodeid, true }) == 1 && shortestDistanceToCyclicComponent.at(Node { nodeid, true }) > anchorDistanceFromMainLoop)
+		assert(graph.edges.count(Node { nodeid, false }) == 1 && graph.edges.at(Node { nodeid, false }).size() > 0);
+		if (graph.edges.count(Node { nodeid, true }) == 0 || graph.edges.at(Node { nodeid, true }).size() == 0)
 		{
-			if (shortestDistanceToCyclicComponent.at(Node { nodeid, true }) - graph.nodeSeqs[nodeid].size() <= anchorDistanceFromMainLoop)
-			{
-				anchorNodes.emplace(nodeid);
-				borderNodes.emplace(nodeid);
-				pathEndClip[Node { nodeid, true }] = shortestDistanceToCyclicComponent.at(Node { nodeid, true }) - anchorDistanceFromMainLoop;
-				pathStartClip[Node { nodeid, false }] = graph.nodeSeqs[nodeid].size() - pathEndClip[Node { nodeid, true }];
-				pathEndClip[Node { nodeid, false }] = graph.nodeSeqs[nodeid].size() - pathEndClip.at(Node { nodeid, true });
-				pathStartClip[Node { nodeid, true }] = graph.nodeSeqs[nodeid].size() - pathStartClip.at(Node { nodeid, false });
-			}
-		}
-		if (shortestDistanceToCyclicComponent.count(Node { nodeid, false }) == 1 && shortestDistanceToCyclicComponent.at(Node { nodeid, false }) > anchorDistanceFromMainLoop)
-		{
-			if (shortestDistanceToCyclicComponent.at(Node { nodeid, false }) - graph.nodeSeqs[nodeid].size() <= anchorDistanceFromMainLoop)
-			{
-				anchorNodes.emplace(nodeid);
-				borderNodes.emplace(nodeid);
-				pathEndClip[Node { nodeid, false }] = shortestDistanceToCyclicComponent.at(Node { nodeid, false }) - anchorDistanceFromMainLoop;
-				pathStartClip[Node { nodeid, true }] = graph.nodeSeqs[nodeid].size() - pathEndClip[Node { nodeid, false }];
-				pathEndClip[Node { nodeid, true }] = graph.nodeSeqs[nodeid].size() - pathEndClip.at(Node { nodeid, false });
-				pathStartClip[Node { nodeid, false }] = graph.nodeSeqs[nodeid].size() - pathStartClip.at(Node { nodeid, true });
-			}
+			anchorNodes.emplace(nodeid);
+			borderNodes.emplace(nodeid);
+			pathStartClip[Node { nodeid, true }] = graph.nodeSeqs[nodeid].size()-1;
+			pathEndClip[Node { nodeid, true }] = 0;
+			pathStartClip[Node { nodeid, false }] = 0;
+			pathEndClip[Node { nodeid, false }] = graph.nodeSeqs[nodeid].size()-1;
 		}
 	}
 	for (size_t nodeid = 0; nodeid < graph.nodeSeqs.size(); nodeid++)
@@ -234,8 +219,8 @@ std::tuple<std::unordered_set<size_t>, std::unordered_set<size_t>, std::unordere
 			pathStartClip[Node { nodeid, true }] = breakPos;
 			pathEndClip[Node { nodeid, true }] = graph.nodeSeqs[nodeid].size() - breakPos;
 			breakPos = graph.nodeSeqs[nodeid].size() - 1 - breakPos;
-			pathStartClip[Node { nodeid, false }] = graph.nodeSeqs[nodeid].size() - breakPos;
-			pathEndClip[Node { nodeid, false }] = breakPos;
+			pathStartClip[Node { nodeid, false }] = breakPos;
+			pathEndClip[Node { nodeid, false }] = graph.nodeSeqs[nodeid].size() - breakPos;
 			borderNodes.insert(nodeid);
 		}
 		if (bwBreaks.size() >= 3)
@@ -245,8 +230,8 @@ std::tuple<std::unordered_set<size_t>, std::unordered_set<size_t>, std::unordere
 			pathStartClip[Node { nodeid, false }] = breakPos;
 			pathEndClip[Node { nodeid, false }] = graph.nodeSeqs[nodeid].size() - breakPos;
 			breakPos = graph.nodeSeqs[nodeid].size() - 1 - breakPos;
-			pathStartClip[Node { nodeid, true }] = graph.nodeSeqs[nodeid].size() - breakPos;
-			pathEndClip[Node { nodeid, true }] = breakPos;
+			pathStartClip[Node { nodeid, true }] = breakPos;
+			pathEndClip[Node { nodeid, true }] = graph.nodeSeqs[nodeid].size() - breakPos;
 			borderNodes.insert(nodeid);
 		}
 	}
@@ -449,7 +434,10 @@ std::vector<OntLoop> extractLoopSequences(const std::vector<ReadPath>& corrected
 			size_t clip = pathStartClip.at(read.path[lastBreak]) + pathEndClip.at(read.path[i]);
 			bool anchored = anchorNodes.count(read.path[lastBreak].id()) == 1 || anchorNodes.count(read.path[i].id()) == 1;
 			bool probablyFalsePositiveAnchor = anchorNodes.count(read.path[lastBreak].id()) == 1 && anchorNodes.count(read.path[i].id()) == 1 && len < 5000;
-			if (len > clip && (len - clip >= minLength || anchored) && !probablyFalsePositiveAnchor)
+			bool tooMuchClip = false;
+			if (lastBreak == 0 && read.pathStartClip > 500) tooMuchClip = true;
+			if (i+1 == read.path.size() && read.pathEndClip > 500) tooMuchClip = true;
+			if (len > clip && (len - clip >= minLength || anchored) && !probablyFalsePositiveAnchor && !tooMuchClip)
 			{
 				result.emplace_back();
 				result.back().originalReadLength = read.readLength;
