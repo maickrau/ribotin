@@ -123,6 +123,7 @@ public:
 	std::vector<Node> path;
 	size_t pathStartClip;
 	size_t pathEndClip;
+	size_t mapq;
 	bool reverse;
 };
 

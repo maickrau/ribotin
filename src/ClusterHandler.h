@@ -34,5 +34,9 @@ void WriteONTClusters(const ClusterParams& params, const std::vector<MorphConsen
 void AlignONTReads(std::string basePath, std::string graphAlignerPath, std::string ontReadPath, std::string graphPath, std::string outputAlnPath, size_t numThreads);
 std::vector<std::vector<MorphConsensus>> splitClustersByTangle(const std::vector<MorphConsensus>& morphConsensuses, const std::string outputPrefix, const size_t numTangles);
 void PostprocessONTClusters(std::vector<MorphConsensus>& morphConsensuses, const ClusterParams& params);
+void createMergedProcessedGraph(const std::string& outputPrefix, const size_t numTangles, const std::string& resultGraphPath);
+void splitONTReadsPerTangle(const std::string& ontBasePath, const std::string& outputPrefix, const size_t numTangles, const std::string& mergedProcessedGraphPath, const std::string& ontTangleAlignmentPath, const std::string& ontAlignmentPath);
+void copyHifiFiles(const std::string& fromPath, const std::string& toPath);
+void copyTangleHifiFiles(const std::string& basePath);
 
 #endif

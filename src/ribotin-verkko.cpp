@@ -370,6 +370,7 @@ int main(int argc, char** argv)
 		std::cerr << "WARNING: some HiFi reads were not found in the input read files. Double check that the HiFi read files have not been deleted or moved after running verkko." << std::endl;
 	}
 	std::vector<size_t> tanglesWithoutReads;
+	std::vector<std::string> tangleBasePaths;
 	for (size_t i = 0; i < numTangles; i++)
 	{
 		if (reads[i].size() == 0)
@@ -385,6 +386,7 @@ int main(int argc, char** argv)
 		clusterParams.hifiReadPath = outputPrefix + std::to_string(i) + "/hifi_reads.fa";
 		std::cerr << "running tangle " << i << " in folder " << outputPrefix + std::to_string(i) << std::endl;
 		HandleCluster(clusterParams);
+		copyTangleHifiFiles(clusterParams.basePath);
 	}
 	if (doUL)
 	{
@@ -422,8 +424,26 @@ int main(int argc, char** argv)
 			});
 		}
 		clusterParams.ontReadPath = selectedONTPath;
-		std::cerr << "aligning ONT reads" << std::endl;
+		std::cerr << "creating merged tanglegraph" << std::endl;
+		createMergedProcessedGraph(outputPrefix, numTangles, clusterParams.basePath + "/merged_processed_graph.gfa");
+		std::cerr << "aligning ONT reads to merged tanglegraph" << std::endl;
+		AlignONTReads(clusterParams.basePath, commonParams.GraphAlignerPath(), clusterParams.ontReadPath, clusterParams.basePath + "/merged_processed_graph.gfa", clusterParams.basePath + "/ont-alns-pertangle.gaf", clusterParams.numThreads);
+		std::cerr << "aligning ONT reads to k-mer graph" << std::endl;
 		AlignONTReads(clusterParams.basePath, commonParams.GraphAlignerPath(), clusterParams.ontReadPath, clusterParams.basePath + "/processed-graph.gfa", clusterParams.basePath + "/ont-alns.gaf", clusterParams.numThreads);
+		std::cerr << "split ONT reads by tangle" << std::endl;
+		splitONTReadsPerTangle(clusterParams.ontReadPath, outputPrefix, numTangles, clusterParams.basePath + "/merged_processed_graph.gfa", clusterParams.basePath + "/ont-alns-pertangle.gaf", clusterParams.basePath + "/ont-alns.gaf");
+		for (size_t i = 0; i < numTangles; i++)
+		{
+			std::cerr << "running tangle " << i << std::endl;
+			ClusterParams tangleClusterParams = clusterParams;
+			tangleClusterParams.namePrefix = tangleClusterParams.namePrefix + (tangleClusterParams.namePrefix.size() > 0 ? "_" : "") + "tangle" + std::to_string(i);
+			tangleClusterParams.basePath = outputPrefix + std::to_string(i);
+			copyHifiFiles(clusterParams.basePath, tangleClusterParams.basePath);
+			auto clusters = GetONTClusters(tangleClusterParams);
+			PostprocessONTClusters(clusters, tangleClusterParams);
+			WriteONTClusters(tangleClusterParams, clusters);
+		}
+		/*
 		auto clusters = GetONTClusters(clusterParams);
 		{
 			ClusterParams tangleClusterParams = clusterParams;
@@ -451,6 +471,7 @@ int main(int argc, char** argv)
 			PostprocessONTClusters(splittedClusters.back(), tangleClusterParams);
 			WriteONTClusters(tangleClusterParams, splittedClusters.back());
 		}
+		*/
 	}
 	std::cerr << "done" << std::endl;
 	if (tanglesWithoutReads.size() > 0)

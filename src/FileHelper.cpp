@@ -118,6 +118,7 @@ std::vector<ReadPath> loadReadPaths(const std::string& filename, const GfaGraph&
 		size_t pathLength = std::stoull(parts[6]);
 		size_t pathStart = std::stoull(parts[7]);
 		size_t pathEnd = std::stoull(parts[8]);
+		size_t mapq = std::stoull(parts[11]);
 		here.readName = readname;
 		here.readLength = readlength;
 		here.readStart = readstart;
@@ -125,6 +126,7 @@ std::vector<ReadPath> loadReadPaths(const std::string& filename, const GfaGraph&
 		here.pathStartClip = pathStart;
 		here.pathEndClip = pathLength - pathEnd;
 		here.path = parsePath(pathstr, graph.nodeNameToId);
+		here.mapq = mapq;
 		assert(here.path.size() >= 1);
 		result.emplace_back(here);
 	}

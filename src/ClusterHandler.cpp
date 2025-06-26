@@ -698,3 +698,160 @@ std::vector<std::vector<MorphConsensus>> splitClustersByTangle(const std::vector
 	}
 	return result;
 }
+
+void createMergedProcessedGraph(const std::string& outputPrefix, const size_t numTangles, const std::string& resultGraphPath)
+{
+	std::ofstream file { resultGraphPath };
+	for (size_t i = 0; i < numTangles; i++)
+	{
+		GfaGraph graph;
+		graph.loadFromFile(outputPrefix + std::to_string(i) + "/processed-graph.gfa");
+		for (size_t j = 0; j < graph.nodeNames.size(); j++)
+		{
+			graph.nodeNames[j] = "tangle" + std::to_string(i) + "_" + graph.nodeNames[j];
+		}
+		for (size_t node = 0; node < graph.numNodes(); node++)
+		{
+			file << "S\t" << graph.nodeNames[node] << "\t" << graph.nodeSeqs[node] << "\tll:f:" << graph.nodeCoverages[node] << "\tFC:i:" << (graph.nodeCoverages[node] * graph.nodeSeqs[node].size()) << std::endl;
+		}
+		for (const auto& pair : graph.edges)
+		{
+			for (const auto& target : pair.second)
+			{
+				file << "L\t" << graph.nodeNames[pair.first.id()] << "\t" << (pair.first.forward() ? "+" : "-") << "\t" << graph.nodeNames[std::get<0>(target).id()] << "\t" << (std::get<0>(target).forward() ? "+" : "-") << "\t" << std::get<1>(target) << "M\tec:i:" << std::get<2>(target) << std::endl;
+			}
+		}
+	}
+}
+
+size_t parseTangleNumber(const std::string& nodeName)
+{
+	assert(nodeName.size() >= 8);
+	assert(nodeName.substr(0, 6) == "tangle");
+	size_t firstUnderscore = 7;
+	while (nodeName[firstUnderscore] != '_')
+	{
+		firstUnderscore += 1;
+		assert(firstUnderscore < nodeName.size());
+	}
+	size_t result = std::stoull(nodeName.substr(6, firstUnderscore-6));
+	return result;
+}
+
+void splitONTReadsPerTangle(const std::string& ontBasePath, const std::string& outputPrefix, const size_t numTangles, const std::string& mergedProcessedGraphPath, const std::string& ontTangleAlignmentPath, const std::string& ontAlignmentPath)
+{
+	phmap::flat_hash_map<std::string, phmap::flat_hash_set<size_t>> bestTanglesPerRead;
+	phmap::flat_hash_map<std::string, phmap::flat_hash_set<size_t>> secondBestTanglesPerRead;
+	phmap::flat_hash_map<std::string, phmap::flat_hash_set<size_t>> anyTanglesPerRead;
+	phmap::flat_hash_set<std::string> allReads;
+	{
+		GfaGraph graph;
+		graph.loadFromFile(mergedProcessedGraphPath);
+		std::vector<ReadPath> paths = loadReadPaths(ontTangleAlignmentPath, graph);
+		for (const auto& path : paths)
+		{
+			allReads.insert(path.readName);
+			size_t tangleNum = parseTangleNumber(graph.nodeNames[path.path[0].id()]);
+			assert(tangleNum < numTangles);
+			if (path.readStart < 1000 && path.readEnd + 1000 > path.readLength && path.mapq >= 20)
+			{
+				bestTanglesPerRead[path.readName].insert(tangleNum);
+			}
+			else if (path.mapq >= 20)
+			{
+				secondBestTanglesPerRead[path.readName].insert(tangleNum);
+			}
+			else
+			{
+				anyTanglesPerRead[path.readName].insert(tangleNum);
+			}
+		}
+	}
+	phmap::flat_hash_map<std::string, size_t> readAssignment;
+	for (const std::string& read : allReads)
+	{
+		if (bestTanglesPerRead.count(read) == 1)
+		{
+			if (bestTanglesPerRead.at(read).size() == 1)
+			{
+				readAssignment[read] = *bestTanglesPerRead.at(read).begin();
+			}
+			else
+			{
+				readAssignment[read] = std::numeric_limits<size_t>::max();
+			}
+		}
+		else if (secondBestTanglesPerRead.count(read) == 1)
+		{
+			if (secondBestTanglesPerRead.at(read).size() == 1)
+			{
+				readAssignment[read] = *secondBestTanglesPerRead.at(read).begin();
+			}
+			else
+			{
+				readAssignment[read] = std::numeric_limits<size_t>::max();
+			}
+		}
+		else if (anyTanglesPerRead.count(read) == 1)
+		{
+			if (anyTanglesPerRead.at(read).size() == 1)
+			{
+				readAssignment[read] = *anyTanglesPerRead.at(read).begin();
+			}
+			else
+			{
+				readAssignment[read] = std::numeric_limits<size_t>::max();
+			}
+		}
+	}
+	{
+		std::vector<std::unique_ptr<std::ofstream>> readFilesPerTangle;
+		std::vector<std::unique_ptr<std::ofstream>> alnFilesPerTangle;
+		for (size_t i = 0; i < numTangles; i++)
+		{
+			readFilesPerTangle.emplace_back(new std::ofstream { outputPrefix + std::to_string(i) + "/ont_reads.fa" });
+			alnFilesPerTangle.emplace_back(new std::ofstream { outputPrefix + std::to_string(i) + "/ont-alns.gaf" });
+		}
+		FastQ::streamFastqFromFile(ontBasePath, false, [&readFilesPerTangle, &readAssignment](const FastQ& read)
+		{
+			if (readAssignment.count(read.seq_id) == 0) return;
+			if (readAssignment.at(read.seq_id) == std::numeric_limits<size_t>::max()) return;
+			size_t tangle = readAssignment.at(read.seq_id);
+			assert(tangle < readFilesPerTangle.size());
+			(*readFilesPerTangle[tangle]) << ">" << read.seq_id << std::endl;
+			(*readFilesPerTangle[tangle]) << read.sequence << std::endl;
+		});
+		{
+			std::ifstream file { ontAlignmentPath };
+			while (file.good())
+			{
+				std::string line;
+				getline(file, line);
+				if (!file.good()) break;
+				auto parts = split(line, '\t');
+				std::string readname = parts[0];
+				if (readAssignment.count(readname) == 0) continue;
+				if (readAssignment.at(readname) == std::numeric_limits<size_t>::max()) continue;
+				size_t tangle = readAssignment.at(readname);
+				assert(tangle < alnFilesPerTangle.size());
+				(*alnFilesPerTangle[tangle]) << line << std::endl;
+			}
+		}
+	}
+}
+
+void copyHifiFiles(const std::string& fromPath, const std::string& toPath)
+{
+	std::string command = "cp " + fromPath + "/processed-graph.gfa " + toPath + "/processed-graph.gfa";
+	system(command.c_str());
+	command = "cp " + fromPath + "/consensus_path.gaf " + toPath + "/consensus_path.gaf";
+	system(command.c_str());
+}
+
+void copyTangleHifiFiles(const std::string& basePath)
+{
+	std::string command = "cp " + basePath + "/processed-graph.gfa " + basePath + "/tangle-processed-graph.gfa";
+	system(command.c_str());
+	command = "cp " + basePath + "/consensus_path.gaf " + basePath + "/tangle_consensus_path.gaf";
+	system(command.c_str());
+}
