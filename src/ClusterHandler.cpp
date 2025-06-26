@@ -445,260 +445,6 @@ phmap::flat_hash_set<size_t> getContigsInCircularComponent(const GfaGraph& graph
 	return result;
 }
 
-std::vector<std::vector<MorphConsensus>> splitClustersByTangle(const std::vector<MorphConsensus>& morphConsensuses, const std::string outputPrefix, const size_t numTangles)
-{
-	assert(numTangles >= 1);
-	if (numTangles == 1)
-	{
-		std::vector<std::vector<MorphConsensus>> result;
-		result.emplace_back(morphConsensuses);
-		return result;
-	}
-	assert(numTangles >= 2);
-	const size_t k = 101;
-	std::vector<KmerMatcher> perTangleMatchers;
-	for (size_t tangle = 0; tangle < numTangles; tangle++)
-	{
-		perTangleMatchers.emplace_back(k, k);
-		GfaGraph graph;
-		graph.loadFromFile(outputPrefix + std::to_string(tangle) + "/processed-graph.gfa");
-		phmap::flat_hash_set<size_t> contigsInCircularComponent = getContigsInCircularComponent(graph);
-		for (size_t node : contigsInCircularComponent)
-		{
-			perTangleMatchers[tangle].addReferenceKmers(graph.nodeSeqs[node]);
-			auto rc = revcomp(graph.nodeSeqs[node]);
-			perTangleMatchers[tangle].addReferenceKmers(rc);
-		}
-	}
-	for (size_t tangle = 0; tangle < numTangles; tangle++)
-	{
-		GfaGraph graph;
-		graph.loadFromFile(outputPrefix + std::to_string(tangle) + "/processed-graph.gfa");
-		for (size_t node = 0; node < graph.numNodes(); node++)
-		{
-			for (size_t otherTangle = 0; otherTangle < numTangles; otherTangle++)
-			{
-				if (otherTangle == tangle) continue;
-				perTangleMatchers[otherTangle].removeReferenceKmers(graph.nodeSeqs[node]);
-				auto rc = revcomp(graph.nodeSeqs[node]);
-				perTangleMatchers[otherTangle].removeReferenceKmers(rc);
-			}
-		}
-	}
-	std::vector<std::vector<size_t>> matchCount;
-	for (size_t i = 0; i < morphConsensuses.size(); i++)
-	{
-		matchCount.emplace_back();
-		matchCount.back().resize(numTangles);
-		for (size_t j = 0; j < numTangles; j++)
-		{
-			matchCount.back()[j] = perTangleMatchers[j].getMatchKmerCount(morphConsensuses[i].sequence);
-		}
-	}
-	MorphGraph morphgraph = getMorphGraph(morphConsensuses);
-	std::vector<size_t> morphClusterAssignment;
-	morphClusterAssignment.resize(morphConsensuses.size(), std::numeric_limits<size_t>::max());
-	for (size_t i = 0; i < morphConsensuses.size(); i++)
-	{
-		if (morphConsensuses[i].type != MorphConsensus::MorphType::Inner) continue;
-		Logger::Log.log(Logger::LogLevel::DetailedDebugInfo) << "morph " << i << " tangle match counts";
-		for (size_t j = 0; j < numTangles; j++)
-		{
-			Logger::Log.log(Logger::LogLevel::DetailedDebugInfo) << " " << matchCount[i][j];
-		}
-		Logger::Log.log(Logger::LogLevel::DetailedDebugInfo) << std::endl;
-		size_t maxTangle = std::numeric_limits<size_t>::max();
-		size_t maxTangleMatches = 0;
-		for (size_t j = 0; j < numTangles; j++)
-		{
-			if (matchCount[i][j] == maxTangleMatches)
-			{
-				maxTangle = std::numeric_limits<size_t>::max();
-			}
-			if (matchCount[i][j] > maxTangleMatches)
-			{
-				maxTangle = j;
-				maxTangleMatches = matchCount[i][j];
-			}
-		}
-		morphClusterAssignment[i] = maxTangle;
-	}
-	std::vector<size_t> morphUniqueTangleFw;
-	std::vector<size_t> morphUniqueTangleBw;
-	morphUniqueTangleBw.resize(morphConsensuses.size(), std::numeric_limits<size_t>::max());
-	morphUniqueTangleFw.resize(morphConsensuses.size(), std::numeric_limits<size_t>::max());
-	for (auto pair : morphgraph.edgeCoverage)
-	{
-		Node from = pair.first.first;
-		Node to = pair.first.second;
-		if (morphClusterAssignment[to.id()] != std::numeric_limits<size_t>::max())
-		{
-			if (from.forward())
-			{
-				if (morphUniqueTangleFw[from.id()] == std::numeric_limits<size_t>::max())
-				{
-					morphUniqueTangleFw[from.id()] = morphClusterAssignment[to.id()];
-				}
-				else if (morphUniqueTangleFw[from.id()] != morphClusterAssignment[to.id()])
-				{
-					morphUniqueTangleFw[from.id()] = std::numeric_limits<size_t>::max()-1;
-				}
-			}
-			else
-			{
-				if (morphUniqueTangleBw[from.id()] == std::numeric_limits<size_t>::max())
-				{
-					morphUniqueTangleBw[from.id()] = morphClusterAssignment[to.id()];
-				}
-				else if (morphUniqueTangleBw[from.id()] != morphClusterAssignment[to.id()])
-				{
-					morphUniqueTangleBw[from.id()] = std::numeric_limits<size_t>::max()-1;
-				}
-			}
-		}
-		if (morphClusterAssignment[from.id()] != std::numeric_limits<size_t>::max())
-		{
-			if (to.forward())
-			{
-				if (morphUniqueTangleFw[to.id()] == std::numeric_limits<size_t>::max())
-				{
-					morphUniqueTangleFw[to.id()] = morphClusterAssignment[from.id()];
-				}
-				else if (morphUniqueTangleFw[to.id()] != morphClusterAssignment[from.id()])
-				{
-					morphUniqueTangleFw[to.id()] = std::numeric_limits<size_t>::max()-1;
-				}
-			}
-			else
-			{
-				if (morphUniqueTangleBw[to.id()] == std::numeric_limits<size_t>::max())
-				{
-					morphUniqueTangleBw[to.id()] = morphClusterAssignment[from.id()];
-				}
-				else if (morphUniqueTangleBw[to.id()] != morphClusterAssignment[from.id()])
-				{
-					morphUniqueTangleBw[to.id()] = std::numeric_limits<size_t>::max()-1;
-				}
-			}
-		}
-	}
-	for (size_t i = 0; i < morphConsensuses.size(); i++)
-	{
-		if (morphUniqueTangleBw[i] != morphUniqueTangleFw[i]) continue;
-		if (morphUniqueTangleBw[i] == morphClusterAssignment[i]) continue;
-		if (morphConsensuses[i].type == MorphConsensus::MorphType::Inner)
-		{
-			if (morphClusterAssignment[i] != std::numeric_limits<size_t>::max())
-			{
-				if (matchCount[i][morphUniqueTangleBw[i]] < matchCount[i][morphClusterAssignment[i]] * 0.5)
-				{
-					continue;
-				}
-			}
-		}
-		morphClusterAssignment[i] = morphUniqueTangleBw[i];
-		Logger::Log.log(Logger::LogLevel::DetailedDebugInfo) << "topology based reassign morph " << i << " to tangle " << morphClusterAssignment[i] << std::endl;
-	}
-	phmap::flat_hash_map<std::string, size_t> readTangleAssignment;
-	for (size_t i = 0; i < morphConsensuses.size(); i++)
-	{
-		if (morphClusterAssignment[i] == std::numeric_limits<size_t>::max()) continue;
-		for (size_t j = 0; j < morphConsensuses[i].ontLoops.size(); j++)
-		{
-			if (readTangleAssignment.count(morphConsensuses[i].ontLoops[j].readName) == 0)
-			{
-				readTangleAssignment[morphConsensuses[i].ontLoops[j].readName] = morphClusterAssignment[i];
-			}
-			else if (readTangleAssignment.at(morphConsensuses[i].ontLoops[j].readName) != morphClusterAssignment[i])
-			{
-				readTangleAssignment[morphConsensuses[i].ontLoops[j].readName] = std::numeric_limits<size_t>::max();
-			}
-		}
-	}
-	for (size_t i = 0; i < morphConsensuses.size(); i++)
-	{
-		if (morphClusterAssignment[i] != std::numeric_limits<size_t>::max()) continue;
-		std::vector<size_t> readMatchesPerCluster;
-		readMatchesPerCluster.resize(numTangles, 0);
-		for (size_t j = 0; j < morphConsensuses[i].ontLoops.size(); j++)
-		{
-			if (readTangleAssignment.count(morphConsensuses[i].ontLoops[j].readName) == 0) continue;
-			if (readTangleAssignment.at(morphConsensuses[i].ontLoops[j].readName) == std::numeric_limits<size_t>::max()) continue;
-			readMatchesPerCluster[readTangleAssignment.at(morphConsensuses[i].ontLoops[j].readName)] += 1;
-		}
-		size_t maxTangle = std::numeric_limits<size_t>::max();
-		size_t maxTangleMatches = 0;
-		size_t countWithMatches = 0;
-		for (size_t j = 0; j < numTangles; j++)
-		{
-			if (readMatchesPerCluster[j] > 0) countWithMatches += 1;
-			if (readMatchesPerCluster[j] == maxTangleMatches) maxTangle = std::numeric_limits<size_t>::max();
-			if (readMatchesPerCluster[j] > maxTangleMatches)
-			{
-				maxTangleMatches = readMatchesPerCluster[j];
-				maxTangle = j;
-			}
-		}
-		morphClusterAssignment[i] = maxTangle;
-		if (countWithMatches >= 2 && morphConsensuses[i].type != MorphConsensus::MorphType::Inner)
-		{
-			morphClusterAssignment[i] = std::numeric_limits<size_t>::max()-1;
-		}
-		Logger::Log.log(Logger::LogLevel::DetailedDebugInfo) << "read based reassign morph " << i << " to tangle " << morphClusterAssignment[i] << std::endl;
-	}
-	std::vector<std::vector<MorphConsensus>> result;
-	result.resize(numTangles+1);
-	for (size_t i = 0; i < morphConsensuses.size(); i++)
-	{
-		if (morphClusterAssignment[i] == std::numeric_limits<size_t>::max())
-		{
-			result.back().emplace_back(morphConsensuses[i]);
-			continue;
-		}
-		if (morphClusterAssignment[i] == std::numeric_limits<size_t>::max()-1)
-		{
-			std::vector<std::vector<size_t>> readsPerTangle;
-			readsPerTangle.resize(numTangles);
-			for (size_t j = 0; j < morphConsensuses[i].ontLoops.size(); j++)
-			{
-				if (readTangleAssignment.count(morphConsensuses[i].ontLoops[j].readName) == 0) continue;
-				if (readTangleAssignment.at(morphConsensuses[i].ontLoops[j].readName) == std::numeric_limits<size_t>::max()) continue;
-				readsPerTangle[readTangleAssignment.at(morphConsensuses[i].ontLoops[j].readName)].emplace_back(j);
-			}
-			for (size_t j = 0; j < numTangles; j++)
-			{
-				if (readsPerTangle[j].size() == 0) continue;
-				Logger::Log.log(Logger::LogLevel::DetailedDebugInfo) << "split morph " << i << " to tangle " << j << " read count " << readsPerTangle[j].size() << std::endl;
-				result[j].emplace_back();
-				result[j].back() = morphConsensuses[i];
-				result[j].back().ontLoops.clear();
-				for (size_t k : readsPerTangle[j])
-				{
-					result[j].back().ontLoops.emplace_back(morphConsensuses[i].ontLoops[k]);
-				}
-				result[j].back().coverage = result[j].back().ontLoops.size();
-			}
-			continue;
-		}
-		result[morphClusterAssignment[i]].emplace_back(morphConsensuses[i]);
-	}
-	{
-		std::ofstream file { "tangle_match_counts.csv" };
-		file << "node\tmatch_counts\tassignment" << std::endl;
-		for (size_t i = 0; i < morphConsensuses.size(); i++)
-		{
-			file << morphConsensuses[i].name << "\t";
-			for (size_t j = 0; j < matchCount[i].size(); j++)
-			{
-				if (j != 0) file << "_";
-				file << matchCount[i][j];
-			}
-			file << "\t" << morphClusterAssignment[i] << std::endl;
-		}
-	}
-	return result;
-}
-
 void createMergedProcessedGraph(const std::string& outputPrefix, const size_t numTangles, const std::string& resultGraphPath)
 {
 	std::ofstream file { resultGraphPath };
@@ -854,4 +600,134 @@ void copyTangleHifiFiles(const std::string& basePath)
 	system(command.c_str());
 	command = "cp " + basePath + "/consensus_path.gaf " + basePath + "/tangle_consensus_path.gaf";
 	system(command.c_str());
+}
+
+size_t medianConsensusLength(const std::string& outputPrefix, size_t numTangles)
+{
+	std::vector<size_t> lengths;
+	for (size_t i = 0; i < numTangles; i++)
+	{
+		size_t consensusLength = getSequenceLength(outputPrefix + std::to_string(i) + "/consensus.fa");
+		lengths.push_back(consensusLength);
+	}
+	std::sort(lengths.begin(), lengths.end());
+	return lengths[lengths.size()/2];
+}
+
+void getKmers(std::string outputPrefix, size_t numTangles, std::string outputFile)
+{
+	std::ofstream file { outputFile };
+	for (size_t i = 0; i < numTangles; i++)
+	{
+		FastQ::streamFastqFromFile(outputPrefix + std::to_string(i) + "/consensus.fa", false, [&file, i](FastQ& fastq)
+		{
+			file << ">consensus" << i << std::endl;
+			file << fastq.sequence << std::endl;
+		});
+		std::ifstream variantgraph { outputPrefix + std::to_string(i) + "/processed-graph.gfa" };
+		while (variantgraph.good())
+		{
+			std::string line;
+			getline(variantgraph, line);
+			if (line.size() < 5 || line[0] != 'S') continue;
+			std::stringstream sstr { line };
+			std::string dummy, node, sequence;
+			sstr >> dummy >> node >> sequence;
+			file << ">graph" << i << "node" << node << std::endl;
+			file << sequence;
+		}
+	}
+}
+
+void runMultipleTangles(const ClusterParams& baseParams, const std::string& outputPrefix, const size_t numTangles, const std::vector<std::vector<std::string>>& hifiReadsPerTangle, const std::vector<std::string>& hifiReadFiles, const bool doUL, const std::string& ulTmpFolder, const std::vector<std::string>& ontReadFiles)
+{
+	std::vector<std::string> readFileNames;
+	for (size_t i = 0; i < numTangles; i++)
+	{
+		readFileNames.push_back(outputPrefix + std::to_string(i) + "/hifi_reads.fa");
+	}
+	std::cerr << "extracting HiFi/duplex reads per tangle" << std::endl;
+	bool allReadsFound = splitReads(hifiReadFiles, hifiReadsPerTangle, readFileNames);
+	if (!allReadsFound)
+	{
+		std::cerr << "WARNING: some HiFi reads were not found in the input read files. Double check that the HiFi read files have not been deleted or moved after running verkko." << std::endl;
+	}
+	std::vector<size_t> tanglesWithoutReads;
+	std::vector<std::string> tangleBasePaths;
+	for (size_t i = 0; i < numTangles; i++)
+	{
+		if (hifiReadsPerTangle[i].size() == 0)
+		{
+			std::cerr << "WARNING: tangle " << i << " has no HiFi/duplex reads, skipping" << std::endl;
+			tanglesWithoutReads.push_back(i);
+			continue;
+		}
+		ClusterParams clusterParams = baseParams;
+		clusterParams.namePrefix = clusterParams.namePrefix + (clusterParams.namePrefix.size() > 0 ? "_" : "") + "tangle" + std::to_string(i);
+		clusterParams.basePath = outputPrefix + std::to_string(i);
+		clusterParams.hifiReadPath = outputPrefix + std::to_string(i) + "/hifi_reads.fa";
+		std::cerr << "running tangle " << i << " in folder " << outputPrefix + std::to_string(i) << std::endl;
+		HandleCluster(clusterParams);
+		copyTangleHifiFiles(clusterParams.basePath);
+	}
+	if (doUL)
+	{
+		std::string selectedONTPath = ulTmpFolder + "/ont_reads.fa";
+		ClusterParams clusterParams = baseParams;
+		clusterParams.basePath = ulTmpFolder;
+		clusterParams.hifiReadPath = clusterParams.basePath + "/hifi_reads.fa";
+		std::filesystem::create_directories(ulTmpFolder);
+		std::filesystem::create_directories(ulTmpFolder + "/tmp");
+		std::cerr << "getting kmers from tangles" << std::endl;
+		std::string tmpKmerFile = ulTmpFolder + "/rdna_kmers.fa";
+		getKmers(outputPrefix, numTangles, tmpKmerFile);
+		std::cerr << "extracting HiFi/duplex reads" << std::endl;
+		{
+			std::ofstream readsfile { clusterParams.basePath + "/hifi_reads.fa" };
+			iterateMatchingReads(tmpKmerFile, hifiReadFiles, 101, 2000, [&readsfile](const FastQ& seq)
+			{
+				readsfile << ">" << seq.seq_id << std::endl;
+				readsfile << seq.sequence << std::endl;
+			});
+		}
+		std::cerr << "running" << std::endl;
+		HandleCluster(clusterParams);
+		std::cerr << "extracting ultralong ONT reads" << std::endl;
+		size_t consensusLength = medianConsensusLength(outputPrefix, numTangles);
+		std::cerr << "median consensus length " << consensusLength << ", using " << consensusLength/2 << " as minimum ONT match length" << std::endl;
+		{
+			std::ofstream readsfile { selectedONTPath };
+			iterateMatchingReads(ulTmpFolder + "/rdna_kmers.fa", ontReadFiles, 21, consensusLength/2, [&readsfile](const FastQ& seq)
+			{
+				readsfile << ">" << seq.seq_id << std::endl;
+				readsfile << seq.sequence << std::endl;
+			});
+		}
+		clusterParams.ontReadPath = selectedONTPath;
+		std::cerr << "creating merged tanglegraph" << std::endl;
+		createMergedProcessedGraph(outputPrefix, numTangles, clusterParams.basePath + "/merged_processed_graph.gfa");
+		std::cerr << "aligning ONT reads to merged tanglegraph" << std::endl;
+		AlignONTReads(clusterParams.basePath, clusterParams.GraphAlignerPath, clusterParams.ontReadPath, clusterParams.basePath + "/merged_processed_graph.gfa", clusterParams.basePath + "/ont-alns-pertangle.gaf", clusterParams.numThreads);
+		std::cerr << "aligning ONT reads to k-mer graph" << std::endl;
+		AlignONTReads(clusterParams.basePath, clusterParams.GraphAlignerPath, clusterParams.ontReadPath, clusterParams.basePath + "/processed-graph.gfa", clusterParams.basePath + "/ont-alns.gaf", clusterParams.numThreads);
+		std::cerr << "split ONT reads by tangle" << std::endl;
+		splitONTReadsPerTangle(clusterParams.ontReadPath, outputPrefix, numTangles, clusterParams.basePath + "/merged_processed_graph.gfa", clusterParams.basePath + "/ont-alns-pertangle.gaf", clusterParams.basePath + "/ont-alns.gaf");
+		for (size_t i = 0; i < numTangles; i++)
+		{
+			std::cerr << "running tangle " << i << std::endl;
+			ClusterParams tangleClusterParams = clusterParams;
+			tangleClusterParams.namePrefix = tangleClusterParams.namePrefix + (tangleClusterParams.namePrefix.size() > 0 ? "_" : "") + "tangle" + std::to_string(i);
+			tangleClusterParams.basePath = outputPrefix + std::to_string(i);
+			copyHifiFiles(clusterParams.basePath, tangleClusterParams.basePath);
+			auto clusters = GetONTClusters(tangleClusterParams);
+			PostprocessONTClusters(clusters, tangleClusterParams);
+			WriteONTClusters(tangleClusterParams, clusters);
+		}
+	}
+	if (tanglesWithoutReads.size() > 0)
+	{
+		std::cerr << "WARNING: some tangles did not have any HiFi/duplex reads assigned:";
+		for (auto tangle : tanglesWithoutReads) std::cerr << " " << tangle;
+		std::cerr << ", something likely went wrong." << std::endl;
+	}
 }
