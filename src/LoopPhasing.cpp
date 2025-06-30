@@ -101,20 +101,7 @@ void clusterBubbleAlleles(std::vector<std::vector<size_t>>& result, const std::v
 			return;
 		}
 	}
-	std::vector<std::string> substrings;
-	bool hasAnyBigEnough = false;
-	for (size_t i = 0; i < loopSequences.size(); i++)
-	{
-		assert(loopSequences[i].size() >= currentMatchIndices[i]);
-		assert(currentMatchIndices[i] > previousMatchIndices[i]);
-		substrings.emplace_back(loopSequences[i].substr(previousMatchIndices[i], currentMatchIndices[i]-previousMatchIndices[i]+1));
-		assert(substrings.back().size() >= 2);
-		maxClusterDistance = std::max<size_t>(maxClusterDistance, substrings[i].size() * maxDivergence);
-		if (substrings[i].size() >= maxClusterDistance) hasAnyBigEnough = true;
-	}
-	if (!hasAnyBigEnough) return;
 	Logger::Log.log(Logger::LogLevel::DetailedDebugInfo) << "size " << previousMatchIndices.size() << " begin bubble at approx " << previousMatchIndices[0] << "-" << currentMatchIndices[0] << std::endl;
-	Logger::Log.log(Logger::LogLevel::DetailedDebugInfo) << "max cluster distance " << maxClusterDistance << std::endl;
 	{
 		Logger::Log.log(Logger::LogLevel::DetailedDebugInfo) << "allele sizes:";
 		std::vector<size_t> sizes;
@@ -129,6 +116,23 @@ void clusterBubbleAlleles(std::vector<std::vector<size_t>>& result, const std::v
 		}
 		Logger::Log.log(Logger::LogLevel::DetailedDebugInfo) << std::endl;
 	}
+	std::vector<std::string> substrings;
+	bool hasAnyBigEnough = false;
+	for (size_t i = 0; i < loopSequences.size(); i++)
+	{
+		assert(loopSequences[i].size() >= currentMatchIndices[i]);
+		assert(currentMatchIndices[i] > previousMatchIndices[i]);
+		substrings.emplace_back(loopSequences[i].substr(previousMatchIndices[i], currentMatchIndices[i]-previousMatchIndices[i]+1));
+		assert(substrings.back().size() >= 2);
+		maxClusterDistance = std::max<size_t>(maxClusterDistance, substrings[i].size() * maxDivergence);
+		if (substrings[i].size() >= maxClusterDistance) hasAnyBigEnough = true;
+	}
+	if (!hasAnyBigEnough)
+	{
+		Logger::Log.log(Logger::LogLevel::DetailedDebugInfo) << "none big enough" << std::endl;
+		return;
+	}
+	Logger::Log.log(Logger::LogLevel::DetailedDebugInfo) << "max cluster distance " << maxClusterDistance << std::endl;
 	std::vector<std::vector<size_t>> distanceMatrix;
 	distanceMatrix.emplace_back();
 	distanceMatrix.resize(loopSequences.size());
@@ -323,6 +327,53 @@ void clusterBubbleAlleles(std::vector<std::vector<size_t>>& result, const std::v
 	}
 }
 
+std::vector<std::pair<std::vector<std::vector<size_t>>, size_t>> getBubbleVariants(const std::vector<OntLoop>& loops, const std::vector<std::string>& loopSequences, const GfaGraph& graph, const std::unordered_map<Node, size_t>& pathStartClip, const std::unordered_map<Node, size_t>& pathEndClip, const size_t numThreads)
+{
+	const size_t minCoverage = std::max<size_t>(5, loops.size()*0.1);
+	auto path = getConsensusPath(loops, graph);
+	std::string consensusSeq = getConsensusSequence(path, graph, pathStartClip, pathEndClip);
+	consensusSeq = polishConsensus(consensusSeq, loopSequences, numThreads);
+	std::vector<std::vector<size_t>> kmerChain = getMatchBases(consensusSeq, loopSequences);
+	Logger::Log.log(Logger::LogLevel::DetailedDebugInfo) << "cluster with " << loopSequences.size() << " reads has " << kmerChain.size() << " all-present kmers in chain" << std::endl;
+	std::vector<std::pair<std::vector<std::vector<size_t>>, size_t>> result;
+	for (size_t i = 1; i < kmerChain.size(); i++)
+	{
+		phmap::flat_hash_map<std::string, size_t> alleleCoverages;
+		assert(kmerChain[i].size() == loopSequences.size());
+		assert(kmerChain[i].size() == kmerChain[i-1].size());
+		for (size_t j = 0; j < kmerChain[i].size(); j++)
+		{
+			assert(kmerChain[i-1][j] < kmerChain[i][j]);
+			std::string allele = loopSequences[j].substr(kmerChain[i-1][j], kmerChain[i][j]-kmerChain[i-1][j]);
+			alleleCoverages[allele] += 1;
+		}
+		if (alleleCoverages.size() != 2) continue;
+		bool hasSmallAllele = false;
+		for (const auto& pair : alleleCoverages)
+		{
+			if (pair.second < minCoverage) hasSmallAllele = true;
+		}
+		if (hasSmallAllele) continue;
+		phmap::flat_hash_map<std::string, size_t> alleleIndex;
+		result.emplace_back();
+		result.back().second = i*1000;
+		for (size_t j = 0; j < kmerChain[i].size(); j++)
+		{
+			assert(kmerChain[i-1][j] < kmerChain[i][j]);
+			std::string allele = loopSequences[j].substr(kmerChain[i-1][j], kmerChain[i][j]-kmerChain[i-1][j]);
+			if (alleleIndex.count(allele) == 0)
+			{
+				size_t index = alleleIndex.size();
+				alleleIndex[allele] = index;
+				result.back().first.emplace_back();
+			}
+			result.back().first[alleleIndex.at(allele)].emplace_back(j);
+		}
+	}
+	Logger::Log.log(Logger::LogLevel::DetailedDebugInfo) << "cluster with " << loopSequences.size() << " reads has " << result.size() << " bubble sites" << std::endl;
+	return result;
+}
+
 std::vector<std::vector<size_t>> splitByBubbleAlleles(const std::vector<OntLoop>& loops, const std::vector<std::string>& loopSequences, const GfaGraph& graph, const std::unordered_map<Node, size_t>& pathStartClip, const std::unordered_map<Node, size_t>& pathEndClip, const size_t numThreads)
 {
 	auto path = getConsensusPath(loops, graph);
@@ -498,6 +549,10 @@ std::vector<std::pair<std::vector<std::vector<size_t>>, size_t>> getPhasableVari
 		{
 			editCounts[editsPerRead[i][j]] += 1;
 		}
+	}
+	if (editCounts.size() == 0)
+	{
+		return std::vector<std::pair<std::vector<std::vector<size_t>>, size_t>> {};
 	}
 	std::vector<std::tuple<size_t, size_t, std::string>> distinctEdits;
 	for (auto pair : editCounts)
@@ -1950,6 +2005,7 @@ std::vector<std::vector<size_t>> getManySNPGroupingSplitting(const std::vector<O
 	size_t clusterStart = 0;
 	std::vector<std::vector<size_t>> allelesPerRead;
 	allelesPerRead.resize(cluster.size());
+	size_t biggestClusterSoFar = 0;
 	for (size_t i = 1; i <= distinctSets.size(); i++)
 	{
 		assert(i == distinctSets.size() || distinctSets[i].first >= distinctSets[i-1].first);
@@ -1973,24 +2029,38 @@ std::vector<std::vector<size_t>> getManySNPGroupingSplitting(const std::vector<O
 					// min amount of SNPs, and pick only canonical version when both SNP and non-SNP clusters are present
 					if (usedSites.size() >= minSNPs && std::get<2>(distinctSets[usedSites[0]].second).size() != 0)
 					{
-						Logger::Log.log(Logger::LogLevel::DetailedDebugInfo) << "split with SNP cluster of size " << usedSites.size() << " read counts " << distinctSets[clusterStart].first.size() << " vs " << editsPerRead.size()-distinctSets[clusterStart].first.size() << ":";
+						Logger::Log.log(Logger::LogLevel::DetailedDebugInfo) << "found SNP cluster of size " << usedSites.size() << " read counts " << distinctSets[clusterStart].first.size() << " vs " << editsPerRead.size()-distinctSets[clusterStart].first.size() << ":";
 						for (size_t j : usedSites)
 						{
 							Logger::Log.log(Logger::LogLevel::DetailedDebugInfo) << " " << std::get<0>(distinctSets[j].second) << "-" << std::get<1>(distinctSets[j].second) << "\"" << std::get<2>(distinctSets[j].second) << "\"";
 						}
 						Logger::Log.log(Logger::LogLevel::DetailedDebugInfo) << std::endl;
-						std::vector<bool> hasSNP;
-						hasSNP.resize(cluster.size(), false);
-						for (size_t read : distinctSets[clusterStart].first)
+						if (usedSites.size() > biggestClusterSoFar)
 						{
-							assert(!hasSNP[read]);
-							hasSNP[read] = true;
-							allelesPerRead[read].emplace_back(1);
+							for (size_t read = 0; read < allelesPerRead.size(); read++)
+							{
+								allelesPerRead[read].clear();
+							}
+							biggestClusterSoFar = usedSites.size();
+							Logger::Log.log(Logger::LogLevel::DetailedDebugInfo) << "big cluster, clear previous" << std::endl;
 						}
-						for (size_t read = 0; read < cluster.size(); read++)
+						assert(usedSites.size() <= biggestClusterSoFar);
+						if (usedSites.size() == biggestClusterSoFar)
 						{
-							if (hasSNP[read]) continue;
-							allelesPerRead[read].emplace_back(0);
+							Logger::Log.log(Logger::LogLevel::DetailedDebugInfo) << "use SNP cluster of size " << usedSites.size() << " read counts " << distinctSets[clusterStart].first.size() << " vs " << editsPerRead.size()-distinctSets[clusterStart].first.size() << ":";
+							std::vector<bool> hasSNP;
+							hasSNP.resize(cluster.size(), false);
+							for (size_t read : distinctSets[clusterStart].first)
+							{
+								assert(!hasSNP[read]);
+								hasSNP[read] = true;
+								allelesPerRead[read].emplace_back(1);
+							}
+							for (size_t read = 0; read < cluster.size(); read++)
+							{
+								if (hasSNP[read]) continue;
+								allelesPerRead[read].emplace_back(0);
+							}
 						}
 					}
 				}
@@ -2075,6 +2145,23 @@ void callVariantsAndSplitRecursively(std::vector<std::vector<OntLoop>>& result, 
 		if (resultHere.size() > 1)
 		{
 			Logger::Log.log(Logger::LogLevel::DetailedDebugInfo) << "SNP MSA splitted to " << resultHere.size() << " clusters:";
+			for (size_t i = 0; i < resultHere.size(); i++)
+			{
+				Logger::Log.log(Logger::LogLevel::DetailedDebugInfo) << " " << resultHere[i].size();
+			}
+			Logger::Log.log(Logger::LogLevel::DetailedDebugInfo) << std::endl;
+		}
+	}
+	if (resultHere.size() == 1)
+	{
+		Logger::Log.log(Logger::LogLevel::DetailedDebugInfo) << "split by bubble phasing size " << cluster.size() << std::endl;
+		auto variants = getBubbleVariants(cluster, sequences, graph, pathStartClip, pathEndClip, numThreads);
+		Logger::Log.log(Logger::LogLevel::DetailedDebugInfo) << variants.size() << " sites in bubble phasing" << std::endl;
+		resultHere.clear();
+		resultHere = splitAndAdd(cluster, variants);
+		if (resultHere.size() > 1)
+		{
+			Logger::Log.log(Logger::LogLevel::DetailedDebugInfo) << "bubble phasing splitted to " << resultHere.size() << " clusters:";
 			for (size_t i = 0; i < resultHere.size(); i++)
 			{
 				Logger::Log.log(Logger::LogLevel::DetailedDebugInfo) << " " << resultHere[i].size();

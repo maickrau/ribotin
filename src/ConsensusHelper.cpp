@@ -293,7 +293,7 @@ void removeNonDiagonalKmers(std::vector<std::pair<size_t, size_t>>& kmerMatches)
 	}
 	for (size_t i = kmerMatches.size()-1; i < kmerMatches.size(); i--)
 	{
-		int diagonal = kmerMatches[i].first - kmerMatches[i].second;
+		int diagonal = (int)kmerMatches[i].first - (int)kmerMatches[i].second;
 		if (diagonal >= bestClusterStart && diagonal <= bestClusterEnd) continue;
 		std::swap(kmerMatches[i], kmerMatches.back());
 		kmerMatches.pop_back();
@@ -301,6 +301,110 @@ void removeNonDiagonalKmers(std::vector<std::pair<size_t, size_t>>& kmerMatches)
 	std::sort(kmerMatches.begin(), kmerMatches.end());
 }
 
+void removeNonDiagonalKmers(std::vector<std::pair<size_t, size_t>>& kmerMatches, const size_t kmerSize)
+{
+	if (kmerMatches.size() == 0) return;
+	std::sort(kmerMatches.begin(), kmerMatches.end(), [](auto left, auto right){ return (int)left.first - (int)left.second < (int)right.first - (int)right.second; });
+	std::vector<size_t> parent;
+	parent.reserve(kmerMatches.size());
+	for (size_t i = 0; i < kmerMatches.size(); i++)
+	{
+		parent.emplace_back(i);
+	}
+	for (size_t i = 1; i < kmerMatches.size(); i++)
+	{
+		for (size_t j = i-1; j < kmerMatches.size(); j--)
+		{
+			if ((int)kmerMatches[i].first - (int)kmerMatches[i].second > (int)kmerMatches[j].first - (int)kmerMatches[j].second + 10) break;
+			if (kmerMatches[j].first+200 < kmerMatches[i].first) continue;
+			if (kmerMatches[i].first+200 < kmerMatches[j].first) continue;
+			while (parent[i] != parent[parent[i]]) parent[i] = parent[parent[i]];
+			while (parent[j] != parent[parent[j]]) parent[j] = parent[parent[j]];
+			parent[parent[j]] = parent[i];
+		}
+	}
+	phmap::flat_hash_map<size_t, size_t> clusterKmerCount;
+	for (size_t i = 0; i < parent.size(); i++)
+	{
+		while (parent[i] != parent[parent[i]]) parent[i] = parent[parent[i]];
+		clusterKmerCount[parent[i]] += 1;
+	}
+	std::vector<bool> removeMatch;
+	removeMatch.resize(kmerMatches.size(), false);
+	for (size_t i = 0; i < parent.size(); i++)
+	{
+		assert(parent[i] == parent[parent[i]]);
+		if (clusterKmerCount.at(parent[i]) < 10) removeMatch[i] = true;
+	}
+	for (size_t i = kmerMatches.size()-1; i < kmerMatches.size(); i--)
+	{
+		if (!removeMatch[i]) continue;
+		std::swap(kmerMatches[i], kmerMatches.back());
+		kmerMatches.pop_back();
+	}
+	std::sort(kmerMatches.begin(), kmerMatches.end());
+}
+/*
+void removeNonDiagonalKmers(std::vector<std::pair<size_t, size_t>>& kmerMatches, const size_t kmerSize)
+{
+	if (kmerMatches.size() == 0) return;
+	std::sort(kmerMatches.begin(), kmerMatches.end(), [](auto left, auto right){ return (int)left.first - (int)left.second < (int)right.first - (int)right.second; });
+	std::vector<bool> removeMatch;
+	removeMatch.resize(kmerMatches.size(), false);
+	size_t bestClusterSize = 0;
+	int bestClusterStart = 0;
+	int bestClusterEnd = 0;
+	size_t currentClusterStart = 0;
+	for (size_t i = 1; i <= kmerMatches.size(); i++)
+	{
+		if (i < kmerMatches.size() && (int)kmerMatches[i].first - (int)kmerMatches[i].second < (int)kmerMatches[i-1].first - (int)kmerMatches[i-1].second + 10) continue;
+		std::sort(kmerMatches.begin()+currentClusterStart, kmerMatches.begin()+i);
+		size_t currentSubclusterStart = currentClusterStart;
+		size_t currentMatchLength = 0;
+		size_t currentMatchEnd = 0;
+		for (size_t j = currentClusterStart; j < i; j++)
+		{
+			if (kmerMatches[j].first > currentMatchEnd+500)
+			{
+				if (currentMatchLength < 100)
+				{
+					for (size_t k = currentSubclusterStart; k < j; k++)
+					{
+						removeMatch[k] = true;
+					}
+				}
+				currentMatchLength = 0;
+				currentSubclusterStart = j;
+			}
+			if (kmerMatches[j].first > currentMatchEnd)
+			{
+				currentMatchLength += kmerSize;
+				currentMatchEnd = kmerMatches[j].first+kmerSize;
+			}
+			else if (kmerMatches[j].first+kmerSize > currentMatchEnd)
+			{
+				currentMatchLength += kmerMatches[j].first+kmerSize - currentMatchEnd;
+				currentMatchEnd = kmerMatches[j].first+kmerSize;
+			}
+		}
+		if (currentMatchLength < 100)
+		{
+			for (size_t k = currentSubclusterStart; k < i; k++)
+			{
+				removeMatch[k] = true;
+			}
+		}
+		currentClusterStart = i;
+	}
+	for (size_t i = kmerMatches.size()-1; i < kmerMatches.size(); i--)
+	{
+		if (!removeMatch[i]) continue;
+		std::swap(kmerMatches[i], kmerMatches.back());
+		kmerMatches.pop_back();
+	}
+	std::sort(kmerMatches.begin(), kmerMatches.end());
+}
+*/
 std::unordered_set<size_t> getMajorityNodes(const std::vector<OntLoop>& paths)
 {
 	std::unordered_map<size_t, size_t> nodeCoverage;
@@ -1010,6 +1114,7 @@ std::string polishByBubbles(const std::string& refSequence, const std::vector<st
 		result += alleleHere.substr(0, alleleHere.size()-1);
 	}
 	result += refSequence.substr(kmerChain.back()[0]);
+	Logger::Log.log(Logger::LogLevel::DetailedDebugInfo) << "got corrected sequence" << std::endl;
 	return result;
 }
 
@@ -1164,6 +1269,7 @@ std::vector<std::pair<size_t, size_t>> getKmerAnchors(const std::string_view& re
 		assert(ref.substr(pair.first, k) == query.substr(pair.second, k));
 	}
 	std::sort(kmerMatches.begin(), kmerMatches.end());
+	removeNonDiagonalKmers(kmerMatches, k);
 	removeNonDiagonalKmers(kmerMatches);
 	removeRepeatKmers(kmerMatches);
 	std::vector<std::pair<size_t, size_t>> chain = getIncreasingChain(kmerMatches);
@@ -1257,6 +1363,15 @@ std::vector<std::tuple<size_t, size_t, size_t>> getMatchRegionsRec(const std::st
 {
 	if (refSequence.size() < k) return std::vector<std::tuple<size_t, size_t, size_t>> {};
 	if (querySequence.size() < k) return std::vector<std::tuple<size_t, size_t, size_t>> {};
+	if (refSequence.size() == querySequence.size())
+	{
+		if (refSequence == querySequence)
+		{
+			std::vector<std::tuple<size_t, size_t, size_t>> result;
+			result.emplace_back(0, 0, refSequence.size());
+			return result;
+		}
+	}
 	auto refKmers = getRefKmers(refSequence, k);
 	auto kmerMatches = getKmerAnchors(refSequence, refKmers, querySequence, k);
 	for (size_t i = 0; i < kmerMatches.size(); i++)
@@ -1442,7 +1557,7 @@ std::vector<std::vector<size_t>> getMatchBases(const std::string& consensusSeq, 
 	std::vector<std::vector<std::tuple<size_t, size_t, size_t>>> matchRegions;
 	std::vector<std::pair<size_t, size_t>> refAllowedAreas;
 	std::tie(refAllowedAreas, matchRegions) = getRegionsConservedInAllSequences(consensusSeq, loopSequences);
-	Logger::Log.log(Logger::LogLevel::DetailedDebugInfo) << "size " << loopSequences.size() << " all-present ref regions:";
+	Logger::Log.log(Logger::LogLevel::DetailedDebugInfo) << "size " << loopSequences.size() << " ref length " << consensusSeq.size() << " all-present ref regions:";
 	for (size_t i = 0; i < refAllowedAreas.size(); i++)
 	{
 		Logger::Log.log(Logger::LogLevel::DetailedDebugInfo) << " " << refAllowedAreas[i].first << "-" << refAllowedAreas[i].second;
