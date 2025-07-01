@@ -23,7 +23,22 @@ std::unordered_set<std::string> matchNodes(const KmerMatcher& matcher, const std
 		std::string dummy, nodename, nodeseq;
 		std::stringstream sstr { line };
 		sstr >> dummy >> nodename >> nodeseq;
-		if (nodeseq.size() >= 100000) continue;
+		if (nodeseq.size() >= 100000)
+		{
+			std::string prefix = nodeseq.substr(0, 50000);
+			size_t matchLength = matcher.getMatchLength(prefix);
+			if (matchLength > 2000)
+			{
+				result.insert("<" + nodename);
+			}
+			std::string suffix = nodeseq.substr(nodeseq.size()-50000);
+			matchLength = matcher.getMatchLength(suffix);
+			if (matchLength > 2000)
+			{
+				result.insert(">" + nodename);
+			}
+			continue;
+		}
 		size_t matchLength = matcher.getMatchLength(nodeseq);
 		if (matchLength < 2000) continue;
 		result.insert(nodename);
@@ -53,6 +68,7 @@ std::vector<std::vector<std::string>> extendTangles(const std::unordered_set<std
 	{
 		parent[node] = node;
 	}
+	phmap::flat_hash_map<std::string, std::vector<std::string>> edgesInvolvingNodeEnds;
 	{
 		std::ifstream file { gfaPath };
 		while (file.good())
@@ -63,10 +79,26 @@ std::vector<std::vector<std::string>> extendTangles(const std::unordered_set<std
 			if (line[0] != 'L') continue;
 			std::stringstream sstr { line };
 			std::string dummy, fromnode, tonode;
-			sstr >> dummy >> fromnode >> dummy >> tonode;
-			if (validNodes.count(fromnode) == 0) continue;
-			if (validNodes.count(tonode) == 0) continue;
-			merge(parent, fromnode, tonode);
+			std::string fromorient, toorient;
+			sstr >> dummy >> fromnode >> fromorient >> tonode >> toorient;
+			if (validNodes.count(fromnode) == 1 && validNodes.count(tonode) == 1)
+			{
+				merge(parent, fromnode, tonode);
+			}
+			if ((fromorient == "+" && validNodes.count(">" + fromnode) == 1) || (fromorient == "-" && validNodes.count("<" + fromnode) == 1))
+			{
+				if (validNodes.count(tonode) == 1)
+				{
+					edgesInvolvingNodeEnds[((fromorient == "+") ? ">" : "<") + fromnode].emplace_back(tonode);
+				}
+			}
+			if ((toorient == "+" && validNodes.count("<" + tonode) == 1) || (toorient == "-" && validNodes.count(">" + tonode) == 1))
+			{
+				if (validNodes.count(fromnode) == 1)
+				{
+					edgesInvolvingNodeEnds[((toorient == "-") ? ">" : "<") + tonode].emplace_back(fromnode);
+				}
+			}
 		}
 	}
 	for (auto node : validNodes)
@@ -93,6 +125,20 @@ std::vector<std::vector<std::string>> extendTangles(const std::unordered_set<std
 		auto tangle = find(parent, node);
 		if (tangleNumber.count(tangle) == 0) continue;
 		result[tangleNumber.at(tangle)].push_back(node);
+	}
+	for (const auto& pair : edgesInvolvingNodeEnds)
+	{
+		phmap::flat_hash_set<size_t> possibleTangles;
+		for (const auto& node : pair.second)
+		{
+			assert(parent.count(node) == 1);
+			if (tangleNumber.count(find(parent, node)) == 1)
+			{
+				possibleTangles.insert(tangleNumber.at(find(parent, node)));
+			}
+		}
+		if (possibleTangles.size() != 1) continue;
+		result[*possibleTangles.begin()].push_back(pair.first);
 	}
 	return result;
 }
