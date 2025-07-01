@@ -54,20 +54,66 @@ std::vector<std::vector<std::string>> getHifiasmReadNamesPerTangle(std::string h
 	std::vector<std::vector<std::string>> result;
 	result.resize(nodesPerTangle.size());
 	std::ifstream file { hifiasmGraphFile };
+	phmap::flat_hash_map<std::string, size_t> nodelens;
+	std::vector<std::tuple<std::string, std::string, size_t, size_t>> readsInTipNodes;
 	while (file.good())
 	{
 		std::string line;
 		getline(file, line);
 		if (!file.good()) break;
+		if (line[0] == 'S')
+		{
+			std::string dummy, nodename, sequence, lengthstr;
+			std::stringstream sstr { line };
+			sstr >> dummy >> nodename >> sequence >> lengthstr;
+			size_t length = 0;
+			if (sequence != "*")
+			{
+				length = sequence.size();
+			}
+			else
+			{
+				assert(lengthstr.substr(0, 5) == "LN:i:");
+				length = std::stoull(lengthstr.substr(5));
+			}
+			assert(length > 0);
+			nodelens[nodename] = length;
+		}
 		if (line[0] != 'A') continue;
 		std::string dummy, nodename, readname;
+		size_t position, readlen;
 		std::stringstream sstr { line };
-		sstr >> dummy >> nodename >> dummy >> dummy >> readname;
+		sstr >> dummy >> nodename >> position >> dummy >> readname >> dummy >> readlen;
 		if (nodeToTangle.count(nodename) == 1)
 		{
 			size_t tangle = nodeToTangle.at(nodename);
 			result[tangle].emplace_back(readname);
 		}
+		else if (nodeToTangle.count(">" + nodename) == 1 || nodeToTangle.count("<" + nodename) == 1)
+		{
+			readsInTipNodes.emplace_back(readname, nodename, position, position+readlen);
+		}
+	}
+	for (const auto& t : readsInTipNodes)
+	{
+		assert(nodeToTangle.count(">" + std::get<1>(t)) == 1 || nodeToTangle.count("<" + std::get<1>(t)) == 1);
+		size_t validStart = 0;
+		size_t validEnd = 50000;
+		size_t tangle;
+		if (nodeToTangle.count(">" + std::get<1>(t)) == 1)
+		{
+			tangle = nodeToTangle.at(">" + std::get<1>(t));
+			validEnd = nodelens[std::get<1>(t)];
+			assert(validEnd >= 50000);
+			validStart = validEnd - 50000;
+		}
+		else
+		{
+			tangle = nodeToTangle.at("<" + std::get<1>(t));
+		}
+		if (std::get<3>(t) < validStart) continue;
+		if (std::get<2>(t) > validEnd) continue;
+		result[tangle].emplace_back(std::get<0>(t));
 	}
 	return result;
 }
