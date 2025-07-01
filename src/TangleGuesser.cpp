@@ -191,5 +191,21 @@ std::vector<std::vector<std::string>> guessTangles(const KmerMatcher& matcher, c
 	auto nodes = matchNodes(matcher, gfaPath);
 	auto tangles = extendTangles(nodes, gfaPath);
 	filterOutAcyclic(tangles, gfaPath);
+	for (size_t i = 0; i < tangles.size(); i++)
+	{
+		assert(tangles[i].size() >= 1);
+		std::sort(tangles[i].begin(), tangles[i].end());
+	}
+	std::sort(tangles.begin(), tangles.end(), [](const auto& left, const auto& right)
+	{
+		if (left.size() > right.size()) return true;
+		if (left.size() < right.size()) return false;
+		for (size_t i = 0; i < left.size(); i++)
+		{
+			if (left[i] > right[i]) return true;
+			if (left[i] < right[i]) return false;
+		}
+		return false;
+	});
 	return tangles;
 }
