@@ -1407,7 +1407,7 @@ double binomialPValue(const double p, const size_t success, const size_t trials)
 	return result / normalizer;
 }
 
-bool allelesMatchWellEnough(const std::vector<std::vector<size_t>>& readsWithEdit, const std::vector<std::vector<size_t>>& readsWithRef, const size_t left, const size_t right)
+std::pair<bool, double> allelesMatchWellEnough(const std::vector<std::vector<size_t>>& readsWithEdit, const std::vector<std::vector<size_t>>& readsWithRef, const size_t left, const size_t right)
 {
 	size_t countRefRef = intersectSize(readsWithRef[left], readsWithRef[right]);
 	size_t countRefAlt = intersectSize(readsWithRef[left], readsWithEdit[right]);
@@ -1427,7 +1427,10 @@ bool allelesMatchWellEnough(const std::vector<std::vector<size_t>>& readsWithEdi
 	if (rightPpart1 < requiredPValue) result = true;
 	if (rightPpart2 < requiredPValue) result = true;
 	Logger::Log.log(Logger::LogLevel::DetailedDebugInfo) << "P-values " << leftPpart1 << " " << leftPpart2 << " " << rightPpart1 << " " << rightPpart2 << " result " << (result ? "yes" : "no") << std::endl;
-	return result;
+	double minP = std::min(std::min(leftPpart1, leftPpart2), std::min(rightPpart1, rightPpart2));
+	double minLogP = 100;
+	if (minP != 0) minLogP = -log(minP);
+	return std::make_pair(result, minLogP);
 }
 
 std::vector<std::vector<size_t>> splitBySNPCorrelation(const std::vector<std::vector<std::tuple<size_t, size_t, std::string>>>& editsPerRead, const std::string& refSequence)
@@ -1520,6 +1523,8 @@ std::vector<std::vector<size_t>> splitBySNPCorrelation(const std::vector<std::ve
 		assert(readsWithRef[i].size() == refCoverage.at(goodishEdits[i]));
 		assert(intersectSize(readsWithEdit[i], readsWithRef[i]) == 0);
 	}
+	size_t indexWithBestMatch = std::numeric_limits<size_t>::max();
+	double minLogPAtBestIndex = 0;
 	for (size_t i : perfectEditIndices)
 	{
 		assert(i < readsWithEdit.size());
@@ -1530,20 +1535,31 @@ std::vector<std::vector<size_t>> splitBySNPCorrelation(const std::vector<std::ve
 		{
 			if (i == j) continue;
 			if (std::get<0>(goodishEdits[j]) < std::get<1>(goodishEdits[i])+100 && std::get<0>(goodishEdits[i]) < std::get<1>(goodishEdits[j])+100) continue;
-			if (!allelesMatchWellEnough(readsWithEdit, readsWithRef, i, j)) continue;
-			Logger::Log.log(Logger::LogLevel::DetailedDebugInfo) << "split by perfect edits: " << std::get<0>(goodishEdits[i]) << "-" << std::get<1>(goodishEdits[i]) << "\"" << std::get<2>(goodishEdits[i]) << "\" " << std::get<0>(goodishEdits[j]) << "-" << std::get<1>(goodishEdits[j]) << "\"" << std::get<2>(goodishEdits[j]) << std::endl;
-			std::vector<std::vector<size_t>> result;
-			result.resize(2);
-			for (size_t read : readsWithRef[i])
+			bool matchWell = false;
+			double minLogP = 0;
+			std::tie(matchWell, minLogP) = allelesMatchWellEnough(readsWithEdit, readsWithRef, i, j);
+			if (!matchWell) continue;
+			Logger::Log.log(Logger::LogLevel::DetailedDebugInfo) << "split by perfect edits: " << std::get<0>(goodishEdits[i]) << "-" << std::get<1>(goodishEdits[i]) << "\"" << std::get<2>(goodishEdits[i]) << "\" " << std::get<0>(goodishEdits[j]) << "-" << std::get<1>(goodishEdits[j]) << "\"" << std::get<2>(goodishEdits[j]) << " minlogP " << minLogP << std::endl;
+			if (minLogP > minLogPAtBestIndex)
 			{
-				result[0].emplace_back(read);
+				minLogPAtBestIndex = minLogP;
+				indexWithBestMatch = i;
 			}
-			for (size_t read : readsWithEdit[i])
-			{
-				result[1].emplace_back(read);
-			}
-			return result;
 		}
+	}
+	if (indexWithBestMatch != std::numeric_limits<size_t>::max())
+	{
+		std::vector<std::vector<size_t>> result;
+		result.resize(2);
+		for (size_t read : readsWithRef[indexWithBestMatch])
+		{
+			result[0].emplace_back(read);
+		}
+		for (size_t read : readsWithEdit[indexWithBestMatch])
+		{
+			result[1].emplace_back(read);
+		}
+		return result;
 	}
 	for (size_t i : veryGoodEditIndices)
 	{
@@ -1553,32 +1569,43 @@ std::vector<std::vector<size_t>> splitBySNPCorrelation(const std::vector<std::ve
 		{
 			if (i == j) continue;
 			if (std::get<0>(goodishEdits[j]) < std::get<1>(goodishEdits[i])+100 && std::get<0>(goodishEdits[i]) < std::get<1>(goodishEdits[j])+100) continue;
-			if (!allelesMatchWellEnough(readsWithEdit, readsWithRef, i, j)) continue;
+			bool matchWell = false;
+			double minLogP = 0;
+			std::tie(matchWell, minLogP) = allelesMatchWellEnough(readsWithEdit, readsWithRef, i, j);
+			if (!matchWell) continue;
 			Logger::Log.log(Logger::LogLevel::DetailedDebugInfo) << "split by edits: " << std::get<0>(goodishEdits[i]) << "-" << std::get<1>(goodishEdits[i]) << "\"" << std::get<2>(goodishEdits[i]) << "\" " << std::get<0>(goodishEdits[j]) << "-" << std::get<1>(goodishEdits[j]) << "\"" << std::get<2>(goodishEdits[j]) << "\"" << std::endl;
-			std::vector<std::vector<size_t>> result;
-			result.resize(2);
-			std::vector<bool> readFound;
-			readFound.resize(editsPerRead.size(), false);
-			for (size_t read : readsWithRef[i])
+			if (minLogP > minLogPAtBestIndex)
 			{
-				result[0].emplace_back(read);
-				assert(!readFound[read]);
-				readFound[read] = true;
+				minLogPAtBestIndex = minLogP;
+				indexWithBestMatch = i;
 			}
-			for (size_t read : readsWithEdit[i])
-			{
-				result[1].emplace_back(read);
-				assert(!readFound[read]);
-				readFound[read] = true;
-			}
-			for (size_t read = 0; read < editsPerRead.size(); read++)
-			{
-				if (readFound[read]) continue;
-				result.emplace_back();
-				result.back().emplace_back(read);
-			}
-			return result;
 		}
+	}
+	if (indexWithBestMatch != std::numeric_limits<size_t>::max())
+	{
+		std::vector<std::vector<size_t>> result;
+		result.resize(2);
+		std::vector<bool> readFound;
+		readFound.resize(editsPerRead.size(), false);
+		for (size_t read : readsWithRef[indexWithBestMatch])
+		{
+			result[0].emplace_back(read);
+			assert(!readFound[read]);
+			readFound[read] = true;
+		}
+		for (size_t read : readsWithEdit[indexWithBestMatch])
+		{
+			result[1].emplace_back(read);
+			assert(!readFound[read]);
+			readFound[read] = true;
+		}
+		for (size_t read = 0; read < editsPerRead.size(); read++)
+		{
+			if (readFound[read]) continue;
+			result.emplace_back();
+			result.back().emplace_back(read);
+		}
+		return result;
 	}
 	std::vector<std::vector<size_t>> result;
 	result.resize(1);
@@ -2048,6 +2075,11 @@ std::vector<std::vector<size_t>> getManySNPGroupingSplitting(const std::vector<O
 						if (usedSites.size() == biggestClusterSoFar)
 						{
 							Logger::Log.log(Logger::LogLevel::DetailedDebugInfo) << "use SNP cluster of size " << usedSites.size() << " read counts " << distinctSets[clusterStart].first.size() << " vs " << editsPerRead.size()-distinctSets[clusterStart].first.size() << ":";
+							for (size_t j : usedSites)
+							{
+								Logger::Log.log(Logger::LogLevel::DetailedDebugInfo) << " " << std::get<0>(distinctSets[j].second) << "-" << std::get<1>(distinctSets[j].second) << "\"" << std::get<2>(distinctSets[j].second) << "\"";
+							}
+							Logger::Log.log(Logger::LogLevel::DetailedDebugInfo) << std::endl;
 							std::vector<bool> hasSNP;
 							hasSNP.resize(cluster.size(), false);
 							for (size_t read : distinctSets[clusterStart].first)
