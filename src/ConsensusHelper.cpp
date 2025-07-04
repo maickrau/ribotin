@@ -304,7 +304,7 @@ void removeNonDiagonalKmers(std::vector<std::pair<size_t, size_t>>& kmerMatches)
 void removeNonDiagonalKmers(std::vector<std::pair<size_t, size_t>>& kmerMatches, const size_t kmerSize)
 {
 	if (kmerMatches.size() == 0) return;
-	std::sort(kmerMatches.begin(), kmerMatches.end(), [](auto left, auto right){ return (int)left.first - (int)left.second < (int)right.first - (int)right.second; });
+	std::sort(kmerMatches.begin(), kmerMatches.end(), [](auto left, auto right){ return left.first < right.first; });
 	std::vector<size_t> parent;
 	parent.reserve(kmerMatches.size());
 	for (size_t i = 0; i < kmerMatches.size(); i++)
@@ -315,9 +315,9 @@ void removeNonDiagonalKmers(std::vector<std::pair<size_t, size_t>>& kmerMatches,
 	{
 		for (size_t j = i-1; j < kmerMatches.size(); j--)
 		{
-			if ((int)kmerMatches[i].first - (int)kmerMatches[i].second > (int)kmerMatches[j].first - (int)kmerMatches[j].second + 10) break;
-			if (kmerMatches[j].first+200 < kmerMatches[i].first) continue;
-			if (kmerMatches[i].first+200 < kmerMatches[j].first) continue;
+			if (kmerMatches[j].first+200 < kmerMatches[i].first) break;
+			if ((int)kmerMatches[i].first - (int)kmerMatches[i].second > (int)kmerMatches[j].first - (int)kmerMatches[j].second + 10) continue;
+			if ((int)kmerMatches[i].first - (int)kmerMatches[i].second < (int)kmerMatches[j].first - (int)kmerMatches[j].second - 10) continue;
 			while (parent[i] != parent[parent[i]]) parent[i] = parent[parent[i]];
 			while (parent[j] != parent[parent[j]]) parent[j] = parent[parent[j]];
 			parent[parent[j]] = parent[i];
