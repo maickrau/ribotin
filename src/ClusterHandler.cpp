@@ -448,24 +448,58 @@ phmap::flat_hash_set<size_t> getContigsInCircularComponent(const GfaGraph& graph
 void createMergedProcessedGraph(const std::string& outputPrefix, const size_t numTangles, const std::string& resultGraphPath)
 {
 	std::ofstream file { resultGraphPath };
+	size_t shortestBorderNode = std::numeric_limits<size_t>::max();
+	size_t longestBorderOverlap = 0;
 	for (size_t i = 0; i < numTangles; i++)
 	{
 		GfaGraph graph;
 		graph.loadFromFile(outputPrefix + std::to_string(i) + "/processed-graph.gfa");
+		phmap::flat_hash_set<size_t> skipBorders;
 		for (size_t j = 0; j < graph.nodeNames.size(); j++)
 		{
+			if (graph.nodeNames[j].substr(0, 6) == "border")
+			{
+				skipBorders.insert(j);
+				shortestBorderNode = std::min(shortestBorderNode, graph.nodeSeqs[j].size());
+			}
 			graph.nodeNames[j] = "tangle" + std::to_string(i) + "_" + graph.nodeNames[j];
 		}
 		for (size_t node = 0; node < graph.numNodes(); node++)
 		{
+			if (skipBorders.count(node) == 1) continue;
 			file << "S\t" << graph.nodeNames[node] << "\t" << graph.nodeSeqs[node] << "\tll:f:" << graph.nodeCoverages[node] << "\tFC:i:" << (graph.nodeCoverages[node] * graph.nodeSeqs[node].size()) << std::endl;
 		}
 		for (const auto& pair : graph.edges)
 		{
 			for (const auto& target : pair.second)
 			{
+				if (skipBorders.count(pair.first.id()) == 1 || skipBorders.count(std::get<0>(target).id()) == 1)
+				{
+					longestBorderOverlap = std::max(longestBorderOverlap, std::get<1>(target));
+				}
 				file << "L\t" << graph.nodeNames[pair.first.id()] << "\t" << (pair.first.forward() ? "+" : "-") << "\t" << graph.nodeNames[std::get<0>(target).id()] << "\t" << (std::get<0>(target).forward() ? "+" : "-") << "\t" << std::get<1>(target) << "M\tec:i:" << std::get<2>(target) << std::endl;
 			}
+		}
+	}
+	size_t clipToLength = shortestBorderNode;
+	if (longestBorderOverlap >= clipToLength) clipToLength = longestBorderOverlap+1;
+	for (size_t i = 0; i < numTangles; i++)
+	{
+		GfaGraph graph;
+		graph.loadFromFile(outputPrefix + std::to_string(i) + "/processed-graph.gfa");
+		phmap::flat_hash_set<size_t> keepBorders;
+		for (size_t j = 0; j < graph.nodeNames.size(); j++)
+		{
+			if (graph.nodeNames[j].substr(0, 6) == "border")
+			{
+				keepBorders.insert(j);
+			}
+			graph.nodeNames[j] = "tangle" + std::to_string(i) + "_" + graph.nodeNames[j];
+		}
+		for (auto node : keepBorders)
+		{
+			size_t keepAmount = std::min(graph.nodeSeqs[node].size(), clipToLength);
+			file << "S\t" << graph.nodeNames[node] << "\t" << graph.nodeSeqs[node].substr(0, keepAmount) << "\tll:f:" << graph.nodeCoverages[node] << "\tFC:i:" << (graph.nodeCoverages[node] * graph.nodeSeqs[node].size()) << std::endl;
 		}
 	}
 }
