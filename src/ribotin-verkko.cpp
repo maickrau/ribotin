@@ -134,7 +134,7 @@ int main(int argc, char** argv)
 		std::cerr << "Either node tangles (-c) or reference used for guessing (--guess-tangles-using-reference) are required" << std::endl;
 		paramError = true;
 	}
-	if (params.count("c") == 1 && params.count("guess-tangles-using-reference") == 1)
+	if (params.count("c") == 1 && params.count("guess-tangles-using-reference") >= 1)
 	{
 		std::cerr << "Only one of node tangles (-c) or reference used for guessing (--guess-tangles-using-reference) can be used" << std::endl;
 		paramError = true;
@@ -192,7 +192,7 @@ int main(int argc, char** argv)
 			tangleNodes.push_back(getNodesFromFile(tangleNodeFiles[i]));
 		}
 	}
-	else if (params.count("guess-tangles-using-reference") == 1)
+	else if (params.count("guess-tangles-using-reference") >= 1)
 	{
 		std::cerr << "guessing tangles using reference:" << std::endl;
 		std::vector<std::string> refPaths = params["guess-tangles-using-reference"].as<std::vector<std::string>>();
