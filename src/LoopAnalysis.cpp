@@ -381,6 +381,239 @@ std::vector<OntLoop> getMissingLoopSequences(const std::vector<std::vector<OntLo
 	return result;
 }
 
+void augmentGraphWithFakeBreaks(std::vector<ReadPath>& correctedPaths, GfaGraph& graph, const std::string ontReadPath)
+{
+	std::ofstream augmentedGraphFile { "augmented_graph.gfa" };
+	for (size_t node = 0; node < graph.numNodes(); node++)
+	{
+		std::string sequence = graph.nodeSeqs[node];
+		augmentedGraphFile << "S\t" << graph.nodeNames[node] << "\t" << sequence << "\tll:f:" << graph.nodeCoverages[node] << "\tFC:i:" << (graph.nodeCoverages[node] * sequence.size()) << std::endl;
+	}
+	for (const auto& pair : graph.edges)
+	{
+		for (const auto& target : pair.second)
+		{
+			augmentedGraphFile << "L\t" << graph.nodeNames[pair.first.id()] << "\t" << (pair.first.forward() ? "+" : "-") << "\t" << graph.nodeNames[std::get<0>(target).id()] << "\t" << (std::get<0>(target).forward() ? "+" : "-") << "\t" << std::get<1>(target) << "M\tec:i:" << std::get<2>(target) << std::endl;
+		}
+	}
+	phmap::flat_hash_map<std::string, std::string> readSequences;
+	FastQ::streamFastqFromFile(ontReadPath, false, [&readSequences](const FastQ& fastq)
+	{
+		readSequences[nameWithoutTags(fastq.seq_id)] = fastq.sequence;
+	});
+	phmap::flat_hash_map<std::string, std::vector<size_t>> alignmentsPerRead;
+	for (size_t i = 0; i < correctedPaths.size(); i++)
+	{
+		alignmentsPerRead[nameWithoutTags(correctedPaths[i].readName)].emplace_back(i);
+	}
+	std::vector<bool> eraseThese;
+	eraseThese.resize(correctedPaths.size(), false);
+	std::vector<ReadPath> addThese;
+	for (auto& pair : alignmentsPerRead)
+	{
+		assert(pair.second.size() >= 1);
+		if (pair.second.size() == 1) continue;
+		assert(pair.second.size() >= 2);
+		std::sort(pair.second.begin(), pair.second.end(), [&correctedPaths](const size_t left, const size_t right)
+		{
+			if (correctedPaths[left].reverse != correctedPaths[right].reverse)
+			{
+				return correctedPaths[left].reverse < correctedPaths[right].reverse;
+			}
+			return correctedPaths[left].readStart < correctedPaths[right].readStart;
+		});
+		ReadPath currentAddition = correctedPaths[pair.second[0]];
+		bool addedAny = false;
+		for (size_t orderi = 1; orderi < pair.second.size(); orderi++)
+		{
+			size_t current = pair.second[orderi];
+			size_t previous = pair.second[orderi-1];
+			bool canMerge = true;
+			if (correctedPaths[current].reverse != correctedPaths[previous].reverse) canMerge = false;
+			if (correctedPaths[current].mapq < 20) canMerge = false;
+			if (correctedPaths[previous].mapq < 20) canMerge = false;
+			if (correctedPaths[current].readStart < correctedPaths[previous].readEnd)
+			{
+				canMerge = false;
+			}
+			if (correctedPaths[current].readStart > correctedPaths[previous].readEnd + 5000)
+			{
+				canMerge = false;
+			}
+			assert(correctedPaths[previous].path.size() >= 1);
+			assert(correctedPaths[current].path.size() >= 1);
+			if (correctedPaths[previous].path.size() == 1)
+			{
+				canMerge = false;
+			}
+			else
+			{
+				if (correctedPaths[previous].reverse)
+				{
+					size_t basesUsedInLastNodeOfPreviousAlignment = graph.nodeSeqs[correctedPaths[previous].path[0].id()].size();
+					basesUsedInLastNodeOfPreviousAlignment -= correctedPaths[previous].pathStartClip;
+					size_t overlapToPenultimateNode = getOverlap(correctedPaths[previous].path[0], correctedPaths[previous].path[1], graph.edges);
+					if (overlapToPenultimateNode > basesUsedInLastNodeOfPreviousAlignment) canMerge = false;
+				}
+				else
+				{
+					size_t basesUsedInLastNodeOfPreviousAlignment = graph.nodeSeqs[correctedPaths[previous].path.back().id()].size();
+					basesUsedInLastNodeOfPreviousAlignment -= correctedPaths[previous].pathEndClip;
+					size_t overlapToPenultimateNode = getOverlap(correctedPaths[previous].path[correctedPaths[previous].path.size()-2], correctedPaths[previous].path.back(), graph.edges);
+					if (overlapToPenultimateNode > basesUsedInLastNodeOfPreviousAlignment) canMerge = false;
+				}
+			}
+			if (correctedPaths[current].path.size() == 1)
+			{
+				canMerge = false;
+			}
+			else
+			{
+				if (correctedPaths[current].reverse)
+				{
+					size_t basesUsedInFirstNodeOfCurrentAlignment = graph.nodeSeqs[correctedPaths[current].path.back().id()].size();
+					basesUsedInFirstNodeOfCurrentAlignment -= correctedPaths[current].pathEndClip;
+					size_t overlapToSecondNode = getOverlap(correctedPaths[current].path[correctedPaths[current].path.size()-2], correctedPaths[current].path.back(), graph.edges);
+					if (overlapToSecondNode > basesUsedInFirstNodeOfCurrentAlignment) canMerge = false;
+				}
+				else
+				{
+					size_t basesUsedInFirstNodeOfCurrentAlignment = graph.nodeSeqs[correctedPaths[current].path[0].id()].size();
+					basesUsedInFirstNodeOfCurrentAlignment -= correctedPaths[current].pathStartClip;
+					size_t overlapToSecondNode = getOverlap(correctedPaths[current].path[0], correctedPaths[current].path[1], graph.edges);
+					if (overlapToSecondNode > basesUsedInFirstNodeOfCurrentAlignment) canMerge = false;
+				}
+			}
+			if (!canMerge)
+			{
+				if (addedAny)
+				{
+					addThese.emplace_back(currentAddition);
+				}
+				addedAny = false;
+				currentAddition = correctedPaths[current];
+			}
+			else
+			{
+				assert(correctedPaths[previous].reverse == correctedPaths[current].reverse);
+				std::string addedNodeSequence;
+				std::string add;
+				if (correctedPaths[previous].reverse)
+				{
+					add = graph.nodeSeqs[correctedPaths[previous].path[0].id()];
+					if (correctedPaths[previous].path[0].forward())
+					{
+						add = revcomp(add);
+					}
+					assert(correctedPaths[previous].pathStartClip < add.size());
+					add = add.substr(0, add.size() - correctedPaths[previous].pathStartClip);
+				}
+				else
+				{
+					add = graph.nodeSeqs[correctedPaths[previous].path.back().id()];
+					if (!correctedPaths[previous].path.back().forward())
+					{
+						add = revcomp(add);
+					}
+					assert(correctedPaths[previous].pathEndClip < add.size());
+					add = add.substr(0, add.size() - correctedPaths[previous].pathEndClip);
+				}
+				addedNodeSequence += add;
+				assert(correctedPaths[current].readStart >= correctedPaths[previous].readEnd);
+				addedNodeSequence += readSequences.at(pair.first).substr(correctedPaths[previous].readEnd, correctedPaths[current].readStart-correctedPaths[previous].readEnd);
+				if (correctedPaths[current].reverse)
+				{
+					add = graph.nodeSeqs[correctedPaths[current].path.back().id()];
+					if (!correctedPaths[current].path.back().forward())
+					{
+						add = revcomp(add);
+					}
+					assert(correctedPaths[current].pathEndClip < add.size());
+					add = add.substr(correctedPaths[current].pathEndClip);
+				}
+				else
+				{
+					add = graph.nodeSeqs[correctedPaths[current].path[0].id()];
+					if (!correctedPaths[current].path[0].forward())
+					{
+						add = revcomp(add);
+					}
+					assert(correctedPaths[current].pathStartClip < add.size());
+					add = add.substr(correctedPaths[current].pathStartClip);
+				}
+				addedNodeSequence += add;
+				Node preNode, postNode;
+				size_t preOverlap, postOverlap;
+				if (correctedPaths[current].reverse)
+				{
+					preNode = reverse(correctedPaths[previous].path[1]);
+					postNode = reverse(correctedPaths[current].path[correctedPaths[current].path.size()-2]);
+					preOverlap = getOverlap(preNode, reverse(correctedPaths[previous].path[0]), graph.edges);
+					postOverlap = getOverlap(reverse(correctedPaths[current].path.back()), postNode, graph.edges);
+				}
+				else
+				{
+					preNode = correctedPaths[previous].path[correctedPaths[previous].path.size()-2];
+					postNode = correctedPaths[current].path[1];
+					preOverlap = getOverlap(preNode, correctedPaths[previous].path.back(), graph.edges);
+					postOverlap = getOverlap(correctedPaths[current].path[0], postNode, graph.edges);
+				}
+				size_t newNodeIndex = graph.nodeSeqs.size();
+				graph.nodeSeqs.emplace_back(addedNodeSequence);
+				graph.revCompNodeSeqs.emplace_back(revcomp(addedNodeSequence));
+				graph.nodeNames.emplace_back("fake_id_" + std::to_string(newNodeIndex) + "_insert_" + std::to_string(correctedPaths[current].readStart-correctedPaths[previous].readEnd) + "bp_node_" + std::to_string(addedNodeSequence.size()) + "bp");
+				graph.nodeCoverages.emplace_back(1);
+				graph.nodeSeqsTwobit.emplace_back(addedNodeSequence);
+				graph.revCompNodeSeqsTwobit.emplace_back(revcomp(addedNodeSequence));
+				graph.edges[preNode].emplace(Node { newNodeIndex, true }, preOverlap, 1);
+				graph.edges[Node { newNodeIndex, false }].emplace(reverse(preNode), preOverlap, 1);
+				graph.edges[Node { newNodeIndex, true }].emplace(postNode, postOverlap, 1);
+				graph.edges[reverse(postNode)].emplace(Node { newNodeIndex, false }, postOverlap, 1);
+
+				augmentedGraphFile << "S\t" << graph.nodeNames[newNodeIndex] << "\t" << addedNodeSequence << "\tll:f:" << graph.nodeCoverages[newNodeIndex] << "\tFC:i:" << (graph.nodeCoverages[newNodeIndex] * addedNodeSequence.size()) << std::endl;
+				for (const auto& target : graph.edges.at(Node { newNodeIndex, false }))
+				{
+					augmentedGraphFile << "L\t" << graph.nodeNames[newNodeIndex] << "\t" << (false ? "+" : "-") << "\t" << graph.nodeNames[std::get<0>(target).id()] << "\t" << (std::get<0>(target).forward() ? "+" : "-") << "\t" << std::get<1>(target) << "M\tec:i:" << std::get<2>(target) << std::endl;
+				}
+				for (const auto& target : graph.edges.at(Node { newNodeIndex, true }))
+				{
+					augmentedGraphFile << "L\t" << graph.nodeNames[newNodeIndex] << "\t" << (true ? "+" : "-") << "\t" << graph.nodeNames[std::get<0>(target).id()] << "\t" << (std::get<0>(target).forward() ? "+" : "-") << "\t" << std::get<1>(target) << "M\tec:i:" << std::get<2>(target) << std::endl;
+				}
+
+				assert(currentAddition.path.size() >= 2);
+				if (correctedPaths[current].reverse)
+				{
+					assert(currentAddition.path[0] == correctedPaths[previous].path[0]);
+					currentAddition.path.erase(currentAddition.path.begin());
+					currentAddition.path.insert(currentAddition.path.begin(), Node { newNodeIndex, false });
+					currentAddition.path.insert(currentAddition.path.begin(), correctedPaths[current].path.begin(), correctedPaths[current].path.end()-1);
+				}
+				else
+				{
+					assert(currentAddition.path.back() == correctedPaths[previous].path.back());
+					currentAddition.path.pop_back();
+					currentAddition.path.emplace_back(newNodeIndex, true);
+					currentAddition.path.insert(currentAddition.path.end(), correctedPaths[current].path.begin()+1, correctedPaths[current].path.end());
+				}
+				currentAddition.pathEndClip = correctedPaths[current].pathEndClip;
+				currentAddition.readEnd = correctedPaths[current].readEnd;
+				eraseThese[current] = true;
+				eraseThese[previous] = true;
+				Logger::Log.log(Logger::LogLevel::DetailedDebugInfo) << "merge read " << pair.first << " alignments of positions " << correctedPaths[previous].readStart << "-" << correctedPaths[previous].readEnd << " and " << correctedPaths[current].readStart << "-" << correctedPaths[current].readEnd << std::endl;
+				addedAny = true;
+			}
+		}
+		if (addedAny) addThese.emplace_back(currentAddition);
+	}
+	for (size_t i = correctedPaths.size()-1; i < correctedPaths.size(); i--)
+	{
+		if (!eraseThese[i]) continue;
+		std::swap(correctedPaths[i], correctedPaths.back());
+		correctedPaths.pop_back();
+	}
+	correctedPaths.insert(correctedPaths.end(), addThese.begin(), addThese.end());
+}
+
 std::vector<OntLoop> extractLoopSequences(const std::vector<ReadPath>& correctedPaths, const Path& heavyPath, const size_t minLength, const GfaGraph& graph, const std::unordered_set<size_t>& borderNodes, const std::unordered_set<size_t>& anchorNodes, const std::unordered_map<Node, size_t>& pathStartClip, const std::unordered_map<Node, size_t>& pathEndClip)
 {
 	std::vector<OntLoop> result;

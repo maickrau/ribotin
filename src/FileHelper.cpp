@@ -182,6 +182,7 @@ std::vector<ReadPath> extractCorrectedONTPaths(std::string gafFile, const Path& 
 		std::string pathstr = parts[5];
 		size_t mapq = std::stoi(parts[11]);
 		if (mapq < 20) continue;
+		readPath.mapq = mapq;
 		if (readPath.readEnd - readPath.readStart < minLength) continue;
 		readPath.path = parsePath(pathstr, graph.nodeNameToId);
 		bool reverse = orientPath(readPath.path, nodeOrientations);

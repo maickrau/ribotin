@@ -256,7 +256,7 @@ void GfaGraph::loadFromFile(std::string gfaFile)
 
 size_t GfaGraph::numNodes() const
 {
-	return nodeNameToId.size();
+	return nodeSeqs.size();
 }
 
 Path::Path() :

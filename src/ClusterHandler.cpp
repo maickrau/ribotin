@@ -306,6 +306,9 @@ std::vector<MorphConsensus> GetONTClusters(const ClusterParams& params)
 	Logger::Log.log(Logger::LogLevel::Always) << "consensus path length " << heavyPathLength << ", using " << minLength << " as minimum morph length" << std::endl;
 	auto ontPaths = extractCorrectedONTPaths(params.basePath + "/ont-alns.gaf", heavyPath, minLength, graph);
 	Logger::Log.log(Logger::LogLevel::Always) << ontPaths.size() << " corrected paths" << std::endl;
+	Logger::Log.log(Logger::LogLevel::Always) << "augment broken paths" << std::endl;
+	augmentGraphWithFakeBreaks(ontPaths, graph, params.ontReadPath);
+	Logger::Log.log(Logger::LogLevel::Always) << ontPaths.size() << " merged paths" << std::endl;
 	Logger::Log.log(Logger::LogLevel::Always) << "extract loops from ONTs" << std::endl;
 	std::unordered_map<Node, size_t> pathStartClip;
 	std::unordered_map<Node, size_t> pathEndClip;
