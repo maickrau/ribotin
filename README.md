@@ -94,7 +94,7 @@ You can lift over annotations with the optional parameters `--annotation-referen
 
 The output folder will contain several files:
 
-- `nodes.txt`: List of nodes used in this cluster. Only in verkko and hifiasm based modes.
+- `nodes.txt`: List of nodes used in this cluster. Only in ribotin-verkko and ribotin-hifiasm.
 - `hifi_reads.fa`: HiFi or duplex reads used in this cluster.
 - `graph.gfa`: de Bruijn graph of the reads.
 - `paths.gaf`: Paths of the hifi reads in `graph.gfa`.
@@ -122,8 +122,8 @@ The morph names in `morphs.fa` will be in format `(sample_prefix)(tangle_prefix)
 - `sample_prefix`: Prefix given with the parameter `--sample-name`.
 - `tangle_prefix`: The assembly graph tangle in ribotin-verkko and ribotin-hifiasm where this morph is located. Not present in ribotin-ref.
 - `id`: Arbitrary ID number given to the morph. In ribotin-verkko and ribotin-hifiasm the combination of `tangle_prefix` and `id` is unique for each morph, while in ribotin-ref `id` is unique for each morph.
-- `type:` Classifies morphs based on their location within the rDNA tangle:
--   `inner` are regular morphs within the rDNA tangle.
--   `borderone` and `bordertwo` are non-rDNA sequences which border the rDNA array at either the distal junction (DJ) or proximal junction (PJ). If `-x human` is given, then `borderone` are the DJ sequences are `bordertwo` are PJ sequences. If `-x human` is not selected then either all `borderone` are DJ and all `bordertwo` are PJ, or vice versa all `borderone` are PJ and `bordertwo` are DJ.
--   `isolated` are morphs which do not border any other morph. These are usually artifacts unless the sample genome just happens to have an rDNA array with exactly one copy.
+- `type`: Classifies morphs based on their location within the rDNA tangle:
+  - `inner` are regular morphs within the rDNA tangle.
+  - `borderone` and `bordertwo` are non-rDNA sequences which border the rDNA array at either the distal junction (DJ) or proximal junction (PJ). If `-x human` is given, then `borderone` are the DJ sequences are `bordertwo` are PJ sequences. If `-x human` is not selected then either all `borderone` are DJ and all `bordertwo` are PJ, or vice versa all `borderone` are PJ and `bordertwo` are DJ.
+  - `isolated` are morphs which do not border any other morph. These are usually artifacts unless the sample genome just happens to have an rDNA array with exactly one copy.
 - `coverage`: Number of ONT sequences which support the morph. One ONT read may support a morph with multiple sequences if the morph appears multiple times within that read. The coverage roughly correlates with the copy count of the morph but estimating a correct copy count from the coverage is not trivial.
