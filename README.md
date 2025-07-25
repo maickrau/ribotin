@@ -96,12 +96,12 @@ The output folder will contain several files:
 
 - `nodes.txt`: List of nodes used in this cluster. Only in ribotin-verkko and ribotin-hifiasm.
 - `hifi_reads.fa`: HiFi or duplex reads used in this cluster.
-- `graph.gfa`: de Bruijn graph of the reads.
+- `graph.gfa`: de Bruijn graph of the HiFi reads.
 - `paths.gaf`: Paths of the hifi reads in `graph.gfa`.
 - `processed-graph.gfa`: Processed version of `graph.gfa` where tips are removed and bordering DJ/PJ sequences are represented by single nodes.
 - `consensus.fa`: Consensus sequence.
 - `consensus_path.gaf`: Path of `consensus.fa` in `processed-graph.gfa`.
-- `consensus-annotation.gff3`: Annotations lifted over from a previous reference. Only if using parameters `--annotation-reference-fasta` and `--annotation-gff3`
+- `consensus-annotation.gff3`: Annotations lifted over from a previous reference. Only if using parameters `--annotation-reference-fasta` and `--annotation-gff3`.
 
 The following files are created when ultralong ONT reads are included:
 
@@ -112,10 +112,10 @@ The following files are created when ultralong ONT reads are included:
 - `morphgraph.gfa`: A graph describing how the morph consensuses connect to each others.
 - `readpaths-morphgraph.gaf`: Paths of the ONT reads in `morphgraph.gfa`. Only shows reads which are assigned to complete morphs.
 - `missing_loops.fa`: A list of sequences in the ONT reads which are suspected to be loops but were not included in any of the output morphs.
-- `loops.fa`: A list of individual rDNA morphs found in the ultralong ONT reads. The sequences are the sequences of the path in `processed-graph.gfa` where the reads were aligned
+- `loops.fa`: A list of individual rDNA morphs found in the ultralong ONT reads. The sequences are the sequences of the path in `processed-graph.gfa` where the reads were aligned.
 - `raw_loops.fa`: A list of individual ONT sequences which were used in building each morph consensus in `morphs.fa`. The sequences are directly from the ONT reads.
-- `raw_loop_to_morphs_alignments.bam(.bai)`: Alignments of the ONT sequences in `raw_loops.fa` to the morphs in `morphs.fa`
-- `morph-annotations.gff3`: Annotations lifted over from a previous reference to the morph consensus sequences in `morphs.fa`
+- `raw_loop_to_morphs_alignments.bam(.bai)`: Alignments of the ONT sequences in `raw_loops.fa` to the morphs in `morphs.fa`.
+- `morph-annotations.gff3`: Annotations lifted over from a previous reference to the morph consensus sequences in `morphs.fa`. Only if using parameters `--annotation-reference-fasta` and `--annotation-gff3`
 
 The morph names in `morphs.fa` will be in format `(sample_prefix)(tangle_prefix)morphconsensus(id)_(type)_coverage(coverage)`. Explanations of the individual parts:
 
