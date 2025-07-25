@@ -117,7 +117,7 @@ The following files are created when ultralong ONT reads are included:
 - `raw_loop_to_morphs_alignments.bam(.bai)`: Alignments of the ONT sequences in `raw_loops.fa` to the morphs in `morphs.fa`
 - `morph-annotations.gff3`: Annotations lifted over from a previous reference to the morph consensus sequences in `morphs.fa`
 
-The morph names in `morphs.fa` will be in format `(sample_prefix)(tangle_prefix)morphconsensus(id)\_(type)\_coverage(coverage)`. Explanations of the individual parts:
+The morph names in `morphs.fa` will be in format `(sample_prefix)(tangle_prefix)morphconsensus(id)_(type)_coverage(coverage)`. Explanations of the individual parts:
 
 - `sample_prefix`: Prefix given with the parameter `--sample-name`.
 - `tangle_prefix`: The assembly graph tangle in ribotin-verkko and ribotin-hifiasm where this morph is located. Not present in ribotin-ref.
