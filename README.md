@@ -111,7 +111,7 @@ The following files are created when ultralong ONT reads are included:
 - `morphs.gaf`: The paths of the rDNA morph consensuses in `processed-graph.gfa`.
 - `morphgraph.gfa`: A graph describing how the morph consensuses connect to each others.
 - `readpaths-morphgraph.gaf`: Paths of the ONT reads in `morphgraph.gfa`. Only shows reads which are assigned to complete morphs.
-- `missing_loops.fa`: A list of sequences in the ONT reads which are suspected to be loops but were not included in any of the output morphs.
+- `missing_loops.fa`: A list of sequences in the ONT reads which are suspected to be complete rDNA morphs but were not included in any of the output morphs.
 - `loops.fa`: A list of individual rDNA morphs found in the ultralong ONT reads. The sequences are the sequences of the path in `processed-graph.gfa` where the reads were aligned.
 - `raw_loops.fa`: A list of individual ONT sequences which were used in building each morph consensus in `morphs.fa`. The sequences are directly from the ONT reads.
 - `raw_loop_to_morphs_alignments.bam(.bai)`: Alignments of the ONT sequences in `raw_loops.fa` to the morphs in `morphs.fa`.
