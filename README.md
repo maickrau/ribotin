@@ -98,19 +98,32 @@ The output folder will contain several files:
 - `hifi_reads.fa`: HiFi or duplex reads used in this cluster.
 - `graph.gfa`: de Bruijn graph of the reads.
 - `paths.gaf`: Paths of the hifi reads in `graph.gfa`.
+- `processed-graph.gfa`: Processed version of `graph.gfa` where tips are removed and bordering DJ/PJ sequences are represented by single nodes.
 - `consensus.fa`: Consensus sequence.
-- `consensus_path.gaf`: Path of `consensus.fa` in `graph.gfa`.
-- `variants.txt`: A list of variants supported by at least 3 reads. Format is: variant ID, variant path, reference path, variant read support, reference read support, variant sequence, reference sequence.
-- `variant-graph.gfa`: `graph.gfa` filtered only to the consensus path and the variant paths in `variants.txt`.
-- `variants.vcf`: A list of variants supported by at least 3 reads. Variant IDs match `variants.txt`
-- `allele-graph.gfa`: `graph.gfa` filtered only to the consensus path and the variant paths in `variants.txt`, with nodes duplicated so that a path cannot recombine in the middle of a variant.
-- `annotation.gff3`: Annotations lifted over from a previous reference. Only if using parameters `--annotation-reference-fasta` and `--annotation-gff3`
+- `consensus_path.gaf`: Path of `consensus.fa` in `processed-graph.gfa`.
+- `consensus-annotation.gff3`: Annotations lifted over from a previous reference. Only if using parameters `--annotation-reference-fasta` and `--annotation-gff3`
 
 The following files are created when ultralong ONT reads are included:
 
-- `ont-alns.gaf`: Aligned paths of ultralong ONT reads to `allele-graph.gfa`.
-- `loops.fa`: A list of individual rDNA morphs found in the ultralong ONT reads.
+- `ont_reads.fa`: ONT reads which contain rDNA sequence.
+- `ont-alns.gaf`: Aligned paths of ultralong ONT reads to `processed-graph.gfa`.
 - `morphs.fa`: A list of rDNA morph consensuses and their abundances.
-- `morphs.gaf`: The paths of the rDNA morph consensuses in `allele-graph.gfa`.
+- `morphs.gaf`: The paths of the rDNA morph consensuses in `processed-graph.gfa`.
 - `morphgraph.gfa`: A graph describing how the morph consensuses connect to each others.
 - `readpaths-morphgraph.gaf`: Paths of the ONT reads in `morphgraph.gfa`. Only shows reads which are assigned to complete morphs.
+- `missing_loops.fa`: A list of sequences in the ONT reads which are suspected to be loops but were not included in any of the output morphs.
+- `loops.fa`: A list of individual rDNA morphs found in the ultralong ONT reads. The sequences are the sequences of the path in `processed-graph.gfa` where the reads were aligned
+- `raw_loops.fa`: A list of individual ONT sequences which were used in building each morph consensus in `morphs.fa`. The sequences are directly from the ONT reads.
+- `raw_loop_to_morphs_alignments.bam(.bai)`: Alignments of the ONT sequences in `raw_loops.fa` to the morphs in `morphs.fa`
+- `morph-annotations.gff3`: Annotations lifted over from a previous reference to the morph consensus sequences in `morphs.fa`
+
+The morph names in `morphs.fa` will be in format `(sample_prefix)(tangle_prefix)morphconsensus(id)\_(type)\_coverage(coverage)`. Explanations of the individual parts:
+
+- `sample_prefix`: Prefix given with the parameter `--sample-name`.
+- `tangle_prefix`: The assembly graph tangle in ribotin-verkko and ribotin-hifiasm where this morph is located. Not present in ribotin-ref.
+- `id`: Arbitrary ID number given to the morph. In ribotin-verkko and ribotin-hifiasm the combination of `tangle_prefix` and `id` is unique for each morph, while in ribotin-ref `id` is unique for each morph.
+- `type:` Classifies morphs based on their location within the rDNA tangle:
+-   `inner` are regular morphs within the rDNA tangle.
+-   `borderone` and `bordertwo` are non-rDNA sequences which border the rDNA array at either the distal junction (DJ) or proximal junction (PJ). If `-x human` is given, then `borderone` are the DJ sequences are `bordertwo` are PJ sequences. If `-x human` is not selected then either all `borderone` are DJ and all `bordertwo` are PJ, or vice versa all `borderone` are PJ and `bordertwo` are DJ.
+-   `isolated` are morphs which do not border any other morph. These are usually artifacts unless the sample genome just happens to have an rDNA array with exactly one copy.
+- `coverage`: Number of ONT sequences which support the morph. One ONT read may support a morph with multiple sequences if the morph appears multiple times within that read. The coverage roughly correlates with the copy count of the morph but estimating a correct copy count from the coverage is not trivial.
