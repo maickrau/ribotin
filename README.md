@@ -94,7 +94,7 @@ You can lift over annotations with the optional parameters `--annotation-referen
 
 The output folder will contain several files:
 
-- `nodes.txt`: List of nodes used in this cluster. Only in ribotin-verkko and ribotin-hifiasm.
+- `nodes.txt`: List of assembly graph nodes used in this cluster. Only in ribotin-verkko and ribotin-hifiasm.
 - `hifi_reads.fa`: HiFi or duplex reads used in this cluster.
 - `graph.gfa`: de Bruijn graph of the HiFi reads.
 - `paths.gaf`: Paths of the hifi reads in `graph.gfa`.
