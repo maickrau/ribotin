@@ -12,7 +12,7 @@ Installation with [conda](https://docs.conda.io/projects/miniconda/en/latest/) i
 - `git submodule update --init --recursive`
 - `make all`
 
-Also needs [MBG](https://github.com/maickrau/MBG) version 1.0.13 or more recent, [GraphAligner](https://github.com/maickrau/GraphAligner), [Winnowmap](https://github.com/marbl/Winnowmap), [samtools](https://github.com/samtools/samtools) and [Liftoff](https://github.com/agshumate/Liftoff).
+Also needs [MBG](https://github.com/maickrau/MBG) version 1.0.17 or more recent, [GraphAligner](https://github.com/maickrau/GraphAligner), [Winnowmap](https://github.com/marbl/Winnowmap), [samtools](https://github.com/samtools/samtools) and [Liftoff](https://github.com/agshumate/Liftoff).
 
 #### Usage
 
