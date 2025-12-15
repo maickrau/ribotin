@@ -150,7 +150,7 @@ public:
 	size_t numNodes() const;
 	std::unordered_map<std::string, size_t> nodeNameToId;
 	std::vector<std::string> nodeNames;
-	std::vector<size_t> nodeCoverages;
+	std::vector<double> nodeCoverages;
 	std::vector<std::string> nodeSeqs;
 	std::vector<std::string> revCompNodeSeqs;
 	std::vector<TwobitString> nodeSeqsTwobit;
