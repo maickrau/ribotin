@@ -1,3 +1,4 @@
+#include <queue>
 #include <map>
 #include <limits>
 #include "phmap.h"
@@ -405,21 +406,20 @@ std::vector<bool> getNodeOrientations(const GfaGraph& graph, const size_t startN
 
 size_t getShortestPathDistance(const GfaGraph& graph, const Node startNode, const Node endNode)
 {
-	std::vector<std::pair<size_t, Node>> checkStack;
+	std::priority_queue<std::pair<size_t, Node>, std::vector<std::pair<size_t, Node>>, std::greater<std::pair<size_t, Node>>> checkStack;
 	if (graph.edges.count(startNode) == 0) return std::numeric_limits<size_t>::max();
 	if (graph.edges.count(reverse(endNode)) == 0) return std::numeric_limits<size_t>::max();
 	for (auto edge : graph.edges.at(startNode))
 	{
 		Node target = std::get<0>(edge);
 		size_t overlap = std::get<1>(edge);
-		checkStack.emplace_back(graph.nodeSeqs[target.id()].size() - overlap, target);
+		checkStack.emplace(graph.nodeSeqs[target.id()].size() - overlap, target);
 	}
-	std::sort(checkStack.begin(), checkStack.end(), [](auto left, auto right) { return left.first > right.first; });
 	phmap::flat_hash_set<Node> visited;
 	while (checkStack.size() >= 1)
 	{
-		auto top = checkStack.back();
-		checkStack.pop_back();
+		auto top = checkStack.top();
+		checkStack.pop();
 		if (visited.count(top.second) == 1) continue;
 		visited.insert(top.second);
 		if (top.second == endNode)
@@ -431,9 +431,8 @@ size_t getShortestPathDistance(const GfaGraph& graph, const Node startNode, cons
 		{
 			Node target = std::get<0>(edge);
 			size_t overlap = std::get<1>(edge);
-			checkStack.emplace_back(top.first + graph.nodeSeqs[target.id()].size() - overlap, target);
+			checkStack.emplace(top.first + graph.nodeSeqs[target.id()].size() - overlap, target);
 		}
-		std::sort(checkStack.begin(), checkStack.end(), [](auto left, auto right) { return left.first > right.first; });
 	}
 	return std::numeric_limits<size_t>::max();
 }
